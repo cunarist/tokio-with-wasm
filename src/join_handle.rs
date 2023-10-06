@@ -42,7 +42,7 @@ use std::task::{Context, Poll};
 /// Child being detached and outliving its parent:
 ///
 /// ```no_run
-/// # async fn main() {
+/// # async fn start() {
 /// let original_task = async_wasm_task::spawn(async {
 ///     let _detached_task = async_wasm_task::spawn(async {
 ///         // Here we sleep to make sure that the first task returns before.

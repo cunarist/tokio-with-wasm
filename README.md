@@ -28,7 +28,7 @@ Here's a simple example of how to use `async_wasm_task`:
 ```rust
 use async_wasm_task::{spawn, spawn_blocking};
 
-async fn main() {
+async fn start() {
     let async_join_handle = spawn(async {
         // Your asynchronous code here
     });
