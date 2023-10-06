@@ -21,7 +21,7 @@ macro_rules! console_log {
 pub(crate) use console_log;
 
 thread_local! {
-    pub static WEB_WORKER_POOL: RefCell<WorkerPool> =
+    pub(crate) static WEB_WORKER_POOL: RefCell<WorkerPool> =
         RefCell::new(WorkerPool::new(4).unwrap());
 }
 
