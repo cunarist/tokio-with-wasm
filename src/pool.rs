@@ -1,5 +1,4 @@
-//! A small module that's intended to provide an example of creating a pool of
-//! web workers which can be used to execute `rayon`-style work.
+//! A small module that handles the pool of web workers.
 
 use crate::console_log;
 use js_sys::Array;
