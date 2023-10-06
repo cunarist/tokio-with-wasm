@@ -8,7 +8,7 @@
 
 ## Features
 
-- **Familiar API**: If you're familiar with [`tokio::task`], you'll feel right at home with `async_wasm_task`. It provides similar functionality and follows the same patterns for spawning and managing asynchronous tasks.
+- **Familiar API**: If you're familiar with `tokio::task`, you'll feel right at home with `async_wasm_task`. It provides similar functionality and follows the same patterns for spawning and managing asynchronous tasks.
 
 - **Web Worker Integration**: `async_wasm_task` adapts to the JavaScript environment by utilizing web workers under the hood. This means you can write Rust code that runs concurrently and efficiently in web applications.
 
