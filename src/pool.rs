@@ -3,24 +3,29 @@
 use crate::console_log;
 use js_sys::Array;
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use web_sys::{
     Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, ErrorEvent, Event, MessageEvent, Url, Worker,
 };
 
+pub static MAX_WORKERS: usize = 512;
+
 #[wasm_bindgen]
 pub struct WorkerPool {
-    state: Rc<PoolState>,
+    pool_state: Rc<PoolState>,
 }
 
 struct PoolState {
-    workers: RefCell<Vec<Worker>>,
+    total_workers_count: RefCell<usize>,
+    idle_workers: RefCell<Vec<Worker>>,
+    queued_tasks: RefCell<VecDeque<Task>>,
     callback: Closure<dyn FnMut(Event)>,
 }
 
-struct Work {
-    func: Box<dyn FnOnce() + Send>,
+struct Task {
+    callable: Box<dyn FnOnce() + Send>,
 }
 
 #[wasm_bindgen]
@@ -36,21 +41,18 @@ impl WorkerPool {
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
     #[wasm_bindgen(constructor)]
-    pub fn new(initial: usize) -> Result<WorkerPool, JsValue> {
+    pub fn new() -> Result<WorkerPool, JsValue> {
         let pool = WorkerPool {
-            state: Rc::new(PoolState {
-                workers: RefCell::new(Vec::with_capacity(initial)),
+            pool_state: Rc::new(PoolState {
+                total_workers_count: RefCell::new(0),
+                idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
+                queued_tasks: RefCell::new(VecDeque::new()),
                 callback: Closure::new(|event: Event| {
                     console_log!("unhandled event: {}", event.type_());
                     crate::log_js_value(&event);
                 }),
             }),
         };
-        for _ in 0..initial {
-            let worker = pool.spawn()?;
-            pool.state.push(worker);
-        }
-
         Ok(pool)
     }
 
@@ -116,8 +118,9 @@ impl WorkerPool {
     ///
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
-    fn worker(&self) -> Result<Worker, JsValue> {
-        match self.state.workers.borrow_mut().pop() {
+    fn create_worker(&self) -> Result<Worker, JsValue> {
+        *self.pool_state.total_workers_count.borrow_mut() += 1;
+        match self.pool_state.idle_workers.borrow_mut().pop() {
             Some(worker) => Ok(worker),
             None => self.spawn(),
         }
@@ -135,9 +138,9 @@ impl WorkerPool {
     ///
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
-    fn execute(&self, f: impl FnOnce() + Send + 'static) -> Result<Worker, JsValue> {
-        let worker = self.worker()?;
-        let work = Box::new(Work { func: Box::new(f) });
+    fn execute(&self, task: Task) -> Result<Worker, JsValue> {
+        let worker = self.create_worker()?;
+        let work = Box::new(task);
         let ptr = Box::into_raw(work);
         match worker.post_message(&JsValue::from(ptr as u32)) {
             Ok(()) => Ok(worker),
@@ -160,7 +163,7 @@ impl WorkerPool {
     /// used for all spawned workers to ensure that when the work is finished
     /// the worker is reclaimed back into this pool.
     fn reclaim_on_message(&self, worker: Worker) {
-        let state = Rc::downgrade(&self.state);
+        let pool_state = Rc::downgrade(&self.pool_state);
         let worker2 = worker.clone();
         let reclaim_slot = Rc::new(RefCell::new(None));
         let slot2 = reclaim_slot.clone();
@@ -175,8 +178,8 @@ impl WorkerPool {
             // If this is a completion event then can deallocate our own
             // callback by clearing out `slot2` which contains our own closure.
             if let Some(_msg) = event.dyn_ref::<MessageEvent>() {
-                if let Some(state) = state.upgrade() {
-                    state.push(worker2.clone());
+                if let Some(pool_state) = pool_state.upgrade() {
+                    pool_state.push(worker2.clone());
                 }
                 *slot2.borrow_mut() = None;
                 return;
@@ -205,10 +208,29 @@ impl WorkerPool {
     ///
     /// If an error happens while spawning a web worker or sending a message to
     /// a web worker, that error is returned.
-    pub fn run(&self, f: impl FnOnce() + Send + 'static) -> Result<(), JsValue> {
-        let worker = self.execute(f)?;
+    fn run(&self, task: Task) -> Result<(), JsValue> {
+        let worker = self.execute(task)?;
         self.reclaim_on_message(worker);
         Ok(())
+    }
+
+    fn run_queued_tasks(&self) {
+        while *self.pool_state.total_workers_count.borrow() < MAX_WORKERS {
+            let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
+            if let Some(queued_task) = queued_tasks.pop_front() {
+                self.run(queued_task).expect("Unable to run a queued task.");
+            } else {
+                break;
+            }
+        }
+    }
+
+    pub fn queue_task(&self, callable: impl FnOnce() + Send + 'static) {
+        let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
+        queued_tasks.push_back(Task {
+            callable: Box::new(callable),
+        });
+        self.run_queued_tasks();
     }
 }
 
@@ -216,7 +238,7 @@ impl PoolState {
     fn push(&self, worker: Worker) {
         worker.set_onmessage(Some(self.callback.as_ref().unchecked_ref()));
         worker.set_onerror(Some(self.callback.as_ref().unchecked_ref()));
-        let mut workers = self.workers.borrow_mut();
+        let mut workers = self.idle_workers.borrow_mut();
         for prev in workers.iter() {
             let prev: &JsValue = prev;
             let worker: &JsValue = &worker;
@@ -230,9 +252,9 @@ impl PoolState {
 /// about `worker.js` in general.
 #[wasm_bindgen]
 pub fn child_entry_point(ptr: u32) -> Result<(), JsValue> {
-    let ptr = unsafe { Box::from_raw(ptr as *mut Work) };
+    let ptr = unsafe { Box::from_raw(ptr as *mut Task) };
     let global = js_sys::global().unchecked_into::<DedicatedWorkerGlobalScope>();
-    (ptr.func)();
+    (ptr.callable)();
     global.post_message(&JsValue::undefined())?;
     Ok(())
 }

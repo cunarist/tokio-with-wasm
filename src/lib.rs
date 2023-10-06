@@ -1,7 +1,6 @@
 use futures_channel::oneshot;
 pub use join_handle::*;
 use pool::*;
-use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
 mod join_handle;
@@ -21,8 +20,8 @@ macro_rules! console_log {
 pub(crate) use console_log;
 
 thread_local! {
-    pub(crate) static WEB_WORKER_POOL: RefCell<WorkerPool> =
-        RefCell::new(WorkerPool::new(4).unwrap());
+    pub(crate) static WEB_WORKER_POOL: WorkerPool =
+        WorkerPool::new().unwrap();
 }
 
 /// Spawns a new asynchronous task, returning a
@@ -156,8 +155,10 @@ where
 ///
 /// More and more web workers will be spawned when they are requested through this
 /// function until the upper limit of 512 is reached.
-/// After reaching the upper limit, the tasks wait for
-/// any of the web workers to becomes idle.
+/// After reaching the upper limit, the tasks will wait for
+/// any of the web workers to become idle.
+/// When a web worker remains idle for 10 seconds, it will be terminated
+/// and get removed from the worker pool, which is a similiar behavior to `tokio`.
 /// The web worker limit is very large by default, because `spawn_blocking` is often
 /// used for various kinds of IO operations that cannot be performed
 /// asynchronously.  When you run CPU-bound code using `spawn_blocking`, you
@@ -166,7 +167,8 @@ where
 /// This function is intended for non-async operations that eventually finish on
 /// their own. Because web workers do not share memory like threads do,
 /// synchronization primitives such as mutex, channels, and global static variables
-/// might not work as expected.
+/// might not work as expected. Each web worker is completely isolated
+/// by the web standards.
 ///
 /// # Examples
 ///
@@ -194,14 +196,11 @@ where
     T: Send + 'static,
 {
     let (sender, receiver) = oneshot::channel();
-    WEB_WORKER_POOL.with(|inner| {
-        let web_worker_pool = inner.borrow();
-        web_worker_pool
-            .run(move || {
-                let output = callable();
-                drop(sender.send(output));
-            })
-            .expect("Unable to run the callable in the worker pool.");
+    WEB_WORKER_POOL.with(|web_worker_pool| {
+        web_worker_pool.queue_task(move || {
+            let output = callable();
+            drop(sender.send(output));
+        })
     });
     JoinHandle::new(receiver)
 }
