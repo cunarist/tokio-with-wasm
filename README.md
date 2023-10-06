@@ -20,7 +20,7 @@ Add this library to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-async_wasm_task = "0.1"
+async_wasm_task = "[latest-version]"
 ```
 
 Here's a simple example of how to use `async_wasm_task`:
