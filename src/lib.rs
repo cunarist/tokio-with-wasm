@@ -158,7 +158,7 @@ where
 /// After reaching the upper limit, the tasks will wait for
 /// any of the web workers to become idle.
 /// When a web worker remains idle for 10 seconds, it will be terminated
-/// and get removed from the worker pool, which is a similiar behavior to `tokio`.
+/// and get removed from the worker pool, which is a similiar behavior to that of `tokio`.
 /// The web worker limit is very large by default, because `spawn_blocking` is often
 /// used for various kinds of IO operations that cannot be performed
 /// asynchronously.  When you run CPU-bound code using `spawn_blocking`, you
