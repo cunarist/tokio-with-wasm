@@ -6,6 +6,8 @@
 
 `async_wasm_task` is a Rust library that provides an API for managing asynchronous tasks and Rust `Future`s in a JavaScript environment, closely resembling the familiar patterns of `tokio::task`. It is designed to allow async Rust code to work seamlessly with JavaScript in web applications, leveraging web workers for concurrent task execution.
 
+This library assumes that you're compilng your Rust project with `wasm-pack`. It spawns parallel web workers(threads) with the the same JavaScript file that the original web worker has been called with.
+
 ## Features
 
 - **Familiar API**: If you're familiar with `tokio::task`, you'll feel right at home with `async_wasm_task`. It provides similar functionality and follows the same patterns for spawning and managing asynchronous tasks.
