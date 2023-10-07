@@ -28,18 +28,26 @@ async_wasm_task = "[latest-version]"
 Here's a simple example of how to use `async_wasm_task`:
 
 ```rust
-use async_wasm_task::{spawn, spawn_blocking};
+use async_wasm_task::{spawn, spawn_blocking, yield_now};
 
 async fn start() {
     let async_join_handle = spawn(async {
-        // Your asynchronous code here
+        // Your asynchronous code here.
+        // This will run concurrently
+        // in the same web worker(thread).
     });
     let blocking_join_handle = spawn_blocking(|| {
-        // Your blocking code here
+        // Your blocking code here.
+        // This will run parallelly
+        // in the external pool of web workers.
     });
     let async_result = async_join_handle.await;
     let blocking_result = blocking_join_handle.await;
-    // Handle the results after that...
+    for i in 1..1000 {
+        // Some repeating task here
+        // that shouldn't block the JavaScript runtime.
+        yield_now().await;
+    }
 }
 ```
 
