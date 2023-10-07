@@ -7,7 +7,7 @@ use std::task::{Context, Poll};
 /// An owned permission to join on a task (awaiting its termination).
 ///
 /// This can be thought of as the equivalent of
-/// [`std::thread::JoinHandle`] or [`tokio::task::JoinHandle`] for
+/// [`std::thread::JoinHandle`] or `tokio::task::JoinHandle` for
 /// a task that is executed concurrently.
 ///
 /// A `JoinHandle` *detaches* the associated task when it is dropped, which
