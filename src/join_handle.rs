@@ -99,5 +99,6 @@ where
     }
 }
 
+/// Returned when a task failed to execute to completion.
 #[derive(Debug)]
 pub struct JoinError;
