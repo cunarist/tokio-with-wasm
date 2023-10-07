@@ -171,7 +171,7 @@ where
 /// their own. Because web workers do not share memory like threads do,
 /// synchronization primitives such as mutex, channels, and global static variables
 /// might not work as expected. Each web worker is completely isolated
-/// by the web standards.
+/// because that's how the web works.
 ///
 /// # Examples
 ///

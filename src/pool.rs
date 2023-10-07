@@ -1,5 +1,3 @@
-//! A small module that handles the pool of web workers.
-
 use crate::console_log;
 use js_sys::Array;
 use std::cell::RefCell;
@@ -88,7 +86,7 @@ impl WorkerPool {
                 self.onmessage = async event => {{
                     // This will queue further commands up until the module is fully initialised:
                     await initialised;
-                    wasm_bindgen.child_entry_point(event.data);
+                    wasm_bindgen.task_worker_entry_point(event.data);
                 }};
             }};
             ",
@@ -114,7 +112,7 @@ impl WorkerPool {
         Ok(worker)
     }
 
-    /// Fetches a worker from this pool, spawning one if necessary.
+    /// Fetches a worker from this pool, creating one if necessary.
     ///
     /// This will attempt to pull an already-spawned web worker from our cache
     /// if one is available, otherwise it will spawn a new worker and return the
@@ -273,10 +271,9 @@ impl PoolState {
     }
 }
 
-/// Entry point invoked by `worker.js`, a bit of a hack but see the "TODO" above
-/// about `worker.js` in general.
+/// Entry point invoked by JavaScript in a worker.
 #[wasm_bindgen]
-pub fn child_entry_point(ptr: u32) -> Result<(), JsValue> {
+pub fn task_worker_entry_point(ptr: u32) -> Result<(), JsValue> {
     let ptr = unsafe { Box::from_raw(ptr as *mut Task) };
     let global = js_sys::global().unchecked_into::<DedicatedWorkerGlobalScope>();
     (ptr.callable)();
