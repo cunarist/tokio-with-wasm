@@ -4,9 +4,12 @@
 [![Documentation](https://docs.rs/async_wasm_task/badge.svg)](https://docs.rs/async_wasm_task)
 [![License](https://img.shields.io/crates/l/async_wasm_task.svg)](https://github.com/cunarist/async-wasm-task/blob/main/LICENSE)
 
+![bandicam 2023-10-07 17-34-36-577](https://github.com/cunarist/async-wasm-task/assets/66480156/c2c97ce7-831e-4d4c-b960-f8f368e12c48)
+> Tested with [Rust-In-Flutter](https://github.com/cunarist/rust-in-flutter)
+
 `async_wasm_task` is a Rust library that provides an API for managing asynchronous tasks and Rust `Future`s in a JavaScript environment, closely resembling the familiar patterns of `tokio::task`. It is designed to allow async Rust code to work seamlessly with JavaScript in web applications, leveraging web workers for parallel task execution.
 
-Being focused on `wasm32-unknown-unknown` target, this library assumes that you're compilng your Rust project with `wasm-pack`. It spawns parallel web workers(threads) with the the same JavaScript file that the original web worker has been called with, so you might not need to deal with JavaScript code yourself.
+Focusing on `wasm32-unknown-unknown` target, this library assumes that you're compilng your Rust project with `wasm-pack`. It spawns parallel web workers(threads) with the the same JavaScript file that the original web worker has been created with, so you might not need to deal with JavaScript code yourself.
 
 The number of web workers are automatically adjusted adapting to the parallel tasks that has been queued by `spawn_blocking`. Refer to the docs for additional details.
 
