@@ -12,6 +12,10 @@ extern "C" {
     fn log(s: &str);
     #[wasm_bindgen(js_namespace = console, js_name = log)]
     fn log_js_value(x: &JsValue);
+    #[wasm_bindgen(js_namespace = Date, js_name = now)]
+    fn now() -> f64;
+    #[wasm_bindgen(js_name = setTimeout)]
+    fn set_timeout(callback: &js_sys::Function, milliseconds: f64);
 }
 
 macro_rules! console_log {
@@ -20,8 +24,7 @@ macro_rules! console_log {
 pub(crate) use console_log;
 
 thread_local! {
-    pub(crate) static WEB_WORKER_POOL: WorkerPool =
-        WorkerPool::new().unwrap();
+    pub(crate) static WORKER_POOL: WorkerPool = WorkerPool::new().unwrap();
 }
 
 /// Spawns a new asynchronous task, returning a
@@ -196,12 +199,13 @@ where
     T: Send + 'static,
 {
     let (sender, receiver) = oneshot::channel();
-    WEB_WORKER_POOL.with(|web_worker_pool| {
-        web_worker_pool.queue_task(move || {
+    WORKER_POOL.with(|worker_pool| {
+        worker_pool.queue_task(move || {
             let output = callable();
             drop(sender.send(output));
         })
     });
+    start_managing_pool();
     JoinHandle::new(receiver)
 }
 

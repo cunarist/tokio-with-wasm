@@ -19,9 +19,14 @@ pub struct WorkerPool {
 
 struct PoolState {
     total_workers_count: RefCell<usize>,
-    idle_workers: RefCell<Vec<Worker>>,
+    idle_workers: RefCell<Vec<ManagedWorker>>,
     queued_tasks: RefCell<VecDeque<Task>>,
     callback: Closure<dyn FnMut(Event)>,
+}
+
+struct ManagedWorker {
+    last_activated_time: RefCell<f64>, // Timestamp in milliseconds
+    worker: Worker,
 }
 
 struct Task {
@@ -42,7 +47,7 @@ impl WorkerPool {
     /// message is sent to it.
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WorkerPool, JsValue> {
-        let pool = WorkerPool {
+        let worker_pool = WorkerPool {
             pool_state: Rc::new(PoolState {
                 total_workers_count: RefCell::new(0),
                 idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
@@ -53,7 +58,7 @@ impl WorkerPool {
                 }),
             }),
         };
-        Ok(pool)
+        Ok(worker_pool)
     }
 
     /// Unconditionally spawns a new worker
@@ -65,7 +70,8 @@ impl WorkerPool {
     ///
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
-    fn spawn(&self) -> Result<Worker, JsValue> {
+    fn create_worker(&self) -> Result<Worker, JsValue> {
+        *self.pool_state.total_workers_count.borrow_mut() += 1;
         let script = format!(
             "
             importScripts('{}');
@@ -118,11 +124,12 @@ impl WorkerPool {
     ///
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
-    fn create_worker(&self) -> Result<Worker, JsValue> {
-        *self.pool_state.total_workers_count.borrow_mut() += 1;
-        match self.pool_state.idle_workers.borrow_mut().pop() {
-            Some(worker) => Ok(worker),
-            None => self.spawn(),
+    fn get_worker(&self) -> Result<Worker, JsValue> {
+        if let Some(managed_worker) = self.pool_state.idle_workers.borrow_mut().pop() {
+            managed_worker.last_activated_time.replace(crate::now());
+            Ok(managed_worker.worker)
+        } else {
+            self.create_worker()
         }
     }
 
@@ -139,7 +146,7 @@ impl WorkerPool {
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
     fn execute(&self, task: Task) -> Result<Worker, JsValue> {
-        let worker = self.create_worker()?;
+        let worker = self.get_worker()?;
         let work = Box::new(task);
         let ptr = Box::into_raw(work);
         match worker.post_message(&JsValue::from(ptr as u32)) {
@@ -214,7 +221,21 @@ impl WorkerPool {
         Ok(())
     }
 
-    fn run_queued_tasks(&self) {
+    pub fn remove_inactive_workers(&self) {
+        let mut idle_workers = self.pool_state.idle_workers.borrow_mut();
+        let current_timestamp = crate::now();
+        idle_workers.retain(|managed_worker| {
+            let passed_time = current_timestamp - *managed_worker.last_activated_time.borrow();
+            let is_active = passed_time < 10000.0; // 10 seconds
+            if !is_active {
+                managed_worker.worker.terminate();
+                *self.pool_state.total_workers_count.borrow_mut() -= 1;
+            }
+            is_active
+        });
+    }
+
+    pub fn flush_queued_tasks(&self) {
         while *self.pool_state.total_workers_count.borrow() < MAX_WORKERS {
             let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
             if let Some(queued_task) = queued_tasks.pop_front() {
@@ -230,7 +251,8 @@ impl WorkerPool {
         queued_tasks.push_back(Task {
             callable: Box::new(callable),
         });
-        self.run_queued_tasks();
+        drop(queued_tasks);
+        self.flush_queued_tasks();
     }
 }
 
@@ -240,11 +262,14 @@ impl PoolState {
         worker.set_onerror(Some(self.callback.as_ref().unchecked_ref()));
         let mut workers = self.idle_workers.borrow_mut();
         for prev in workers.iter() {
-            let prev: &JsValue = prev;
+            let prev: &JsValue = &prev.worker;
             let worker: &JsValue = &worker;
             assert!(prev != worker);
         }
-        workers.push(worker);
+        workers.push(ManagedWorker {
+            last_activated_time: RefCell::new(crate::now()),
+            worker,
+        });
     }
 }
 
@@ -274,4 +299,19 @@ pub fn get_script_path() -> Option<String> {
     )
     .ok()?
     .as_string()
+}
+
+pub fn start_managing_pool() {
+    crate::spawn(async move {
+        loop {
+            crate::WORKER_POOL.with(|worker_pool| {
+                worker_pool.remove_inactive_workers();
+                worker_pool.flush_queued_tasks();
+            });
+            let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+                crate::set_timeout(&resolve, 100.0);
+            });
+            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+        }
+    });
 }
