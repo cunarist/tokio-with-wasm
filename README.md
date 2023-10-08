@@ -4,7 +4,14 @@
 [![Documentation](https://docs.rs/async_wasm_task/badge.svg)](https://docs.rs/async_wasm_task)
 [![License](https://img.shields.io/crates/l/async_wasm_task.svg)](https://github.com/cunarist/async-wasm-task/blob/main/LICENSE)
 
-`async_wasm_task` is a Rust library that provides an API for managing asynchronous tasks and Rust `Future`s in a JavaScript environment, closely resembling the familiar patterns of `tokio::task`. It is designed to allow async Rust code to work seamlessly with JavaScript in web applications, leveraging web workers for concurrent task execution.
+![bandicam 2023-10-07 17-34-36-577](https://github.com/cunarist/async-wasm-task/assets/66480156/c2c97ce7-831e-4d4c-b960-f8f368e12c48)
+> Tested with [Rust-In-Flutter](https://github.com/cunarist/rust-in-flutter)
+
+`async_wasm_task` is a Rust library that provides an API for managing asynchronous tasks and Rust `Future`s in a JavaScript environment, closely resembling the familiar patterns of `tokio::task`. It is designed to allow async Rust code to work seamlessly with JavaScript in web applications, leveraging web workers for parallel task execution.
+
+Focusing on `wasm32-unknown-unknown` target, this library assumes that you're compilng your Rust project with `wasm-pack`. It spawns parallel web workers(threads) with the the same JavaScript file that the original web worker has been created with, so you might not need to deal with JavaScript code yourself.
+
+The number of web workers are automatically adjusted adapting to the parallel tasks that has been queued by `spawn_blocking`. Refer to the docs for additional details.
 
 ## Features
 
@@ -26,18 +33,26 @@ async_wasm_task = "[latest-version]"
 Here's a simple example of how to use `async_wasm_task`:
 
 ```rust
-use async_wasm_task::{spawn, spawn_blocking};
+use async_wasm_task::{spawn, spawn_blocking, yield_now};
 
 async fn start() {
     let async_join_handle = spawn(async {
-        // Your asynchronous code here
+        // Your asynchronous code here.
+        // This will run concurrently
+        // in the same web worker(thread).
     });
     let blocking_join_handle = spawn_blocking(|| {
-        // Your blocking code here
+        // Your blocking code here.
+        // This will run parallelly
+        // in the external pool of web workers.
     });
     let async_result = async_join_handle.await;
     let blocking_result = blocking_join_handle.await;
-    // Handle the results after that...
+    for i in 1..1000 {
+        // Some repeating task here
+        // that shouldn't block the JavaScript runtime.
+        yield_now().await;
+    }
 }
 ```
 
