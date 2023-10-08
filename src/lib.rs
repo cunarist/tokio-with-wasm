@@ -37,12 +37,12 @@ thread_local! {
 /// Spawns a new asynchronous task, returning a
 /// [`JoinHandle`] for it.
 ///
-/// The provided future will start running in the background immediately
+/// The provided future will start running in the JavaScript event loop
 /// when `spawn` is called, even if you don't await the returned
 /// `JoinHandle`.
 ///
 /// Spawning a task enables the task to execute concurrently to other tasks. The
-/// spawned task will always execute on the current thread,
+/// spawned task will always execute on the current web worker(thread),
 /// as that's how JavaScript's `Promise` basically works.
 ///
 /// # Examples
@@ -132,7 +132,7 @@ thread_local! {
 ///     // Do stuff w/ rc
 /// # drop(rc);
 /// }
-///]
+///
 /// async fn start() {
 ///     async_wasm_task::spawn(async {
 ///         let rc = Rc::new(());
@@ -185,7 +185,7 @@ where
 /// Pass an input value and receive result of computation:
 ///
 /// ```
-/// # async fn docs() -> Result<(), Box<dyn std::error::Error>>{
+/// # async fn start() -> Result<(), Box<dyn std::error::Error>>{
 /// // Initial input
 /// let mut data = "Hello, ".to_string();
 /// let output = async_wasm_task::spawn_blocking(move || {

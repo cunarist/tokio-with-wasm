@@ -22,7 +22,7 @@ use std::task::{Context, Poll};
 /// Creation from [`crate::spawn`]:
 ///
 /// ```
-/// # async fn doc() {
+/// # async fn start() {
 /// let join_handle: async_wasm_task::JoinHandle<_> = async_wasm_task::spawn(async {
 ///     // some work here
 /// });
@@ -32,7 +32,7 @@ use std::task::{Context, Poll};
 /// Creation from [`crate::spawn_blocking`]:
 ///
 /// ```
-/// # async fn doc() {
+/// # async fn start() {
 /// let join_handle: async_wasm_task::JoinHandle<_> = async_wasm_task::spawn_blocking(|| {
 ///     // some blocking work here
 /// });
