@@ -215,7 +215,8 @@ where
 /// you have to yield to the async event loop regularly.
 ///
 /// The async task may resume when it has its turn back.
-/// Meahwhile, any other pending tasks will be scheduled.
+/// Meanwhile, any other pending tasks will be scheduled
+/// by the JavaScript runtime.
 pub async fn yield_now() {
     use wasm_bindgen::prelude::*;
     #[wasm_bindgen]
