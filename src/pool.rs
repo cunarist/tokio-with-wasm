@@ -23,7 +23,7 @@ struct PoolState {
 }
 
 struct ManagedWorker {
-    last_activated_time: RefCell<f64>, // Timestamp in milliseconds
+    deactivated_time: RefCell<f64>, // Timestamp in milliseconds
     worker: Worker,
 }
 
@@ -124,7 +124,6 @@ impl WorkerPool {
     /// message is sent to it.
     fn get_worker(&self) -> Result<Worker, JsValue> {
         if let Some(managed_worker) = self.pool_state.idle_workers.borrow_mut().pop() {
-            managed_worker.last_activated_time.replace(crate::now());
             Ok(managed_worker.worker)
         } else {
             self.create_worker()
@@ -184,7 +183,7 @@ impl WorkerPool {
             // callback by clearing out `slot2` which contains our own closure.
             if let Some(_msg) = event.dyn_ref::<MessageEvent>() {
                 if let Some(pool_state) = pool_state.upgrade() {
-                    pool_state.push(worker2.clone());
+                    pool_state.push_worker(worker2.clone());
                 }
                 *slot2.borrow_mut() = None;
                 return;
@@ -223,7 +222,7 @@ impl WorkerPool {
         let mut idle_workers = self.pool_state.idle_workers.borrow_mut();
         let current_timestamp = crate::now();
         idle_workers.retain(|managed_worker| {
-            let passed_time = current_timestamp - *managed_worker.last_activated_time.borrow();
+            let passed_time = current_timestamp - *managed_worker.deactivated_time.borrow();
             let is_active = passed_time < 10000.0; // 10 seconds
             if !is_active {
                 managed_worker.worker.terminate();
@@ -255,7 +254,7 @@ impl WorkerPool {
 }
 
 impl PoolState {
-    fn push(&self, worker: Worker) {
+    fn push_worker(&self, worker: Worker) {
         worker.set_onmessage(Some(self.callback.as_ref().unchecked_ref()));
         worker.set_onerror(Some(self.callback.as_ref().unchecked_ref()));
         let mut workers = self.idle_workers.borrow_mut();
@@ -265,7 +264,7 @@ impl PoolState {
             assert!(prev != worker);
         }
         workers.push(ManagedWorker {
-            last_activated_time: RefCell::new(crate::now()),
+            deactivated_time: RefCell::new(crate::now()),
             worker,
         });
     }
