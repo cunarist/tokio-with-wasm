@@ -32,6 +32,14 @@ The web has many restrictions due to its sandboxed environment which prevents th
 
 To address this issue, this crate offers `tokio` imports with the **same names** as the original native ones, providing workarounds for these constraints.
 
+## Future Vision
+
+Because a large portion of Rust's web ecosystem is based on `wasm32-unknown-unknown` right now, we had to make an alias crate of `tokio` to use its functionalities directly on the web.
+
+Hopefully, when `wasm32-wasi` becomes the mainstream Rust target for the web, [`jco`](https://github.com/bytecodealliance/jco) might be an alternative to `wasm-bindgen` as it can provide full `std` functionalities with browser shims (polyfills). However, this will take time because the [`wasi-threads`](https://github.com/WebAssembly/wasi-threads) proposal still has a long way to go.
+
+Until then, there's `tokio_with_wasm`!
+
 ## Usage
 
 Add this library to your `Cargo.toml`:
