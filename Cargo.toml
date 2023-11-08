@@ -1,6 +1,6 @@
 [package]
 name = "tokio_with_wasm"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 license = "MIT"
 description = "Mimicking tokio functionalies on web browsers"
