@@ -12,9 +12,9 @@
 
 This library assumes that you're compilng your Rust project with `wasm-pack` and `wasm-bindgen`, which focuses on `wasm32-unknown-unknown` Rust target.
 
-When using `spawn_blocking()`, the number of web workers are automatically adjusted adapting to the parallel tasks that has been queued by `spawn_blocking`. Refer to the docs for additional details.
+When using `spawn_blocking()`, the number of web workers are automatically adjusted adapting to the number of parallel tasks. Refer to the docs for additional details.
 
-On native platforms, `tokio_with_wasm::tokio` is the real `tokio` with `full` features. On the web, `tokio_with_wasm::tokio` is made up of JavaScript glue code that mimics the behavior of real `tokio`. Because `tokio_with_wasm` doesn't have its own runtime and adapts to the JavaScript event loop, advanced features of `tokio` might not work.
+On native platforms, `tokio_with_wasm::tokio` is the real `tokio` with the `full` feature enabled. On the web, `tokio_with_wasm::tokio` is made up of JavaScript glue code that mimics the behavior of real `tokio`. Because `tokio_with_wasm` doesn't have its own runtime and adapts to the JavaScript event loop, advanced features of `tokio` might not work.
 
 After building your webassembly module and preparing it for deployment, ensure that your web server is configured to include cross-origin-related HTTP headers in its responses. Set the [`cross-origin-opener-policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy) to `same-origin` and [`cross-origin-embedder-policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy) to `require-corp`. These headers enable clients using your website to gain access to `SharedArrayBuffer` web API, which is something similar to shared memory on the web. Additionally, don't forget to specify the MIME type `application/wasm` for `.wasm` files within the server configurations to ensure optimal performance.
 
@@ -30,9 +30,9 @@ After building your webassembly module and preparing it for deployment, ensure t
 
 ## Why This is Needed
 
-The web has many restrictions due to its sandboxed environment which prevents the use of threads, time, file IO, network IO, and many other native functionalities. Consequently, certain features are missing from Rust's `std` due to these limitations and `tokio` doesn't really work well on web browsers.
+The web has many restrictions due to its sandboxed environment which prevents the use of threads, time, file IO, network IO, and many other native functionalities. Consequently, certain features are missing from Rust's `std` due to these limitations. That's why `tokio` doesn't really work well on web browsers.
 
-To address this issue, this crate offers `tokio` imports with the **same names** as the original native ones, providing workarounds for these constraints.
+To address this issue, this crate offers `tokio` modules with the **same names** as the original native ones, providing workarounds for these constraints.
 
 ## Future Vision
 
