@@ -92,5 +92,8 @@ There are situations where you cannot use native Rust code directly on the web. 
 
 We should always assume that Rust code is executed in a **web worker**. Therefore, we cannot access the global `window` JavaScript object
 just like when you work in the main thread of JavaScript. Refer to the link below to check which web APIs are available in a web worker.
-You'll be surprised by various capabilities that modern JavaScript has. https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Functions_and_classes_available_to_workers. Also, there are many crates at `crates.io` that mimic native functionalities on the web.
-Let's use them to avoid reinventing the wheels if needed.
+You'll be surprised by various capabilities that modern JavaScript has.
+
+- https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Functions_and_classes_available_to_workers
+
+Also, there are many crates at `crates.io` that mimic native functionalities on the web. Let's use them to avoid reinventing the wheels if needed.
