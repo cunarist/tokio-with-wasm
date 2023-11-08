@@ -14,7 +14,7 @@ This library assumes that you're compilng your Rust project with `wasm-pack` and
 
 When using `spawn_blocking()`, the number of web workers are automatically adjusted adapting to the parallel tasks that has been queued by `spawn_blocking`. Refer to the docs for additional details.
 
-On native platforms, `tokio_with_wasm::tokio` is the real `tokio` with `full` features. On the web, `tokio_with_wasm::tokio` is made up of JavaScript glue code that mimics the behavior of real `tokio`.
+On native platforms, `tokio_with_wasm::tokio` is the real `tokio` with `full` features. On the web, `tokio_with_wasm::tokio` is made up of JavaScript glue code that mimics the behavior of real `tokio`. Because `tokio_with_wasm` doesn't have its own runtime and adapts to the JavaScript event loop, advanced features of `tokio` might not work.
 
 ## Features
 
