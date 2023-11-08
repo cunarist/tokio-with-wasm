@@ -16,6 +16,8 @@ When using `spawn_blocking()`, the number of web workers are automatically adjus
 
 On native platforms, `tokio_with_wasm::tokio` is the real `tokio` with `full` features. On the web, `tokio_with_wasm::tokio` is made up of JavaScript glue code that mimics the behavior of real `tokio`. Because `tokio_with_wasm` doesn't have its own runtime and adapts to the JavaScript event loop, advanced features of `tokio` might not work.
 
+After building your webassembly module and preparing it for deployment, ensure that your web server is configured to include cross-origin-related HTTP headers in its responses. Set the [`cross-origin-opener-policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy) to `same-origin` and [`cross-origin-embedder-policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy) to `require-corp`. These headers enable clients using your website to gain access to `SharedArrayBuffer` web API, which is something similar to shared memory on the web. Additionally, don't forget to specify the MIME type `application/wasm` for `.wasm` files within the server configurations to ensure optimal performance.
+
 ## Features
 
 - **Familiar API**: If you're familiar with `tokio`, you'll feel right at home with `tokio_with_wasm`. It provides similar functionality and follows the same patterns for spawning and managing asynchronous tasks.
