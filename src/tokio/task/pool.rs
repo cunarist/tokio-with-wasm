@@ -1,4 +1,3 @@
-use crate::console_log;
 use js_sys::Array;
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -51,8 +50,8 @@ impl WorkerPool {
                 idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
                 queued_tasks: RefCell::new(VecDeque::new()),
                 callback: Closure::new(|event: Event| {
-                    console_log!("unhandled event: {}", event.type_());
-                    crate::log_js_value(&event);
+                    crate::common::console_log!("unhandled event: {}", event.type_());
+                    crate::common::log_js_value(&event);
                 }),
             }),
         };
@@ -173,7 +172,7 @@ impl WorkerPool {
         let slot2 = reclaim_slot.clone();
         let reclaim = Closure::<dyn FnMut(_)>::new(move |event: Event| {
             if let Some(error) = event.dyn_ref::<ErrorEvent>() {
-                console_log!("error in worker: {}", error.message());
+                crate::common::console_log!("error in worker: {}", error.message());
                 // TODO: this probably leaks memory somehow? It's sort of
                 // unclear what to do about errors in workers right now.
                 return;
@@ -189,8 +188,8 @@ impl WorkerPool {
                 return;
             }
 
-            console_log!("unhandled event: {}", event.type_());
-            crate::log_js_value(&event);
+            crate::common::console_log!("unhandled event: {}", event.type_());
+            crate::common::log_js_value(&event);
         });
         worker.set_onmessage(Some(reclaim.as_ref().unchecked_ref()));
         *reclaim_slot.borrow_mut() = Some(reclaim);
@@ -220,7 +219,7 @@ impl WorkerPool {
 
     pub fn remove_inactive_workers(&self) {
         let mut idle_workers = self.pool_state.idle_workers.borrow_mut();
-        let current_timestamp = crate::now();
+        let current_timestamp = crate::common::now();
         idle_workers.retain(|managed_worker| {
             let passed_time = current_timestamp - *managed_worker.deactivated_time.borrow();
             let is_active = passed_time < 10000.0; // 10 seconds
@@ -264,7 +263,7 @@ impl PoolState {
             assert!(prev != worker);
         }
         workers.push(ManagedWorker {
-            deactivated_time: RefCell::new(crate::now()),
+            deactivated_time: RefCell::new(crate::common::now()),
             worker,
         });
     }
@@ -298,14 +297,14 @@ pub fn get_script_path() -> Option<String> {
 }
 
 pub fn start_managing_pool() {
-    crate::spawn(async move {
+    super::spawn(async move {
         loop {
-            crate::WORKER_POOL.with(|worker_pool| {
+            super::WORKER_POOL.with(|worker_pool| {
                 worker_pool.remove_inactive_workers();
                 worker_pool.flush_queued_tasks();
             });
             let promise = js_sys::Promise::new(&mut |resolve, _reject| {
-                crate::set_timeout(&resolve, 100.0);
+                crate::common::set_timeout(&resolve, 100.0);
             });
             let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
         }
