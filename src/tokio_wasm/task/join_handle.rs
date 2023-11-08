@@ -23,7 +23,7 @@ use std::task::{Context, Poll};
 ///
 /// ```
 /// # async fn start() {
-/// let join_handle: async_wasm_task::JoinHandle<_> = async_wasm_task::spawn(async {
+/// let join_handle: tokio_with_wasm::JoinHandle<_> = tokio_with_wasm::spawn(async {
 ///     // some work here
 /// });
 /// # }
@@ -33,7 +33,7 @@ use std::task::{Context, Poll};
 ///
 /// ```
 /// # async fn start() {
-/// let join_handle: async_wasm_task::JoinHandle<_> = async_wasm_task::spawn_blocking(|| {
+/// let join_handle: tokio_with_wasm::JoinHandle<_> = tokio_with_wasm::spawn_blocking(|| {
 ///     // some blocking work here
 /// });
 /// # }
@@ -43,8 +43,8 @@ use std::task::{Context, Poll};
 ///
 /// ```no_run
 /// # async fn start() {
-/// let original_task = async_wasm_task::spawn(async {
-///     let _detached_task = async_wasm_task::spawn(async {
+/// let original_task = tokio_with_wasm::spawn(async {
+///     let _detached_task = tokio_with_wasm::spawn(async {
 ///         // Here we sleep to make sure that the first task returns before.
 ///         // Assume that code takes a few seconds to execute here.
 ///         // This will be called, even though the JoinHandle is dropped.

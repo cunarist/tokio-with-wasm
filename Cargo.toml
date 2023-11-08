@@ -1,10 +1,10 @@
 [package]
-name = "async_wasm_task"
+name = "tokio_with_wasm"
 version = "0.2.3"
 edition = "2021"
 license = "MIT"
 description = "Manage the concurrency of async tasks in webassembly Rust"
-repository = "https://github.com/cunarist/async-wasm-task"
+repository = "https://github.com/cunarist/tokio-with-wasm"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -25,3 +25,4 @@ web-sys = { version = "0.3.23", features = [
     "BlobPropertyBag",
     'Url',
 ] }
+tokio = { version = "1", features = ["sync", "macros"] }

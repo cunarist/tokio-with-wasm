@@ -1,4 +1,4 @@
-//! `async_wasm_task` is a Rust library that enables
+//! `tokio_with_wasm` is a Rust library that enables
 //! seamless integration of asynchronous Rust tasks
 //! and `Future`s in JavaScript,
 //! resembling the familiar `tokio::task` patterns.
@@ -41,7 +41,7 @@ thread_local! {
 /// }
 ///
 /// async fn start() -> io::Result<()> {
-///     let result = async_wasm_task::spawn(async move {
+///     let result = tokio_with_wasm::spawn(async move {
 ///         // Process this job concurrently.
 ///         process(socket).await
 ///     }).await?;;
@@ -63,7 +63,7 @@ thread_local! {
 /// for op in ops {
 ///     // This call will make them start running in the background
 ///     // immediately.
-///     tasks.push(async_wasm_task::spawn(my_background_op(op)));
+///     tasks.push(tokio_with_wasm::spawn(my_background_op(op)));
 /// }
 ///
 /// let mut outputs = Vec::with_capacity(tasks.len());
@@ -93,14 +93,14 @@ thread_local! {
 /// }
 ///
 /// async fn start() {
-///     async_wasm_task::spawn(async {
+///     tokio_with_wasm::spawn(async {
 ///         // Force the `Rc` to stay in a scope with no `.await`
 ///         {
 ///             let rc = Rc::new(());
 ///             use_rc(rc.clone());
 ///         }
 ///
-///         async_wasm_task::yield_now().await;
+///         tokio_with_wasm::yield_now().await;
 ///     }).await.unwrap();
 /// }
 /// ```
@@ -117,10 +117,10 @@ thread_local! {
 /// }
 ///
 /// async fn start() {
-///     async_wasm_task::spawn(async {
+///     tokio_with_wasm::spawn(async {
 ///         let rc = Rc::new(());
 ///
-///         async_wasm_task::yield_now().await;
+///         tokio_with_wasm::yield_now().await;
 ///
 ///         use_rc(rc.clone());
 ///     }).await.unwrap();
@@ -171,7 +171,7 @@ where
 /// # async fn start() -> Result<(), Box<dyn std::error::Error>>{
 /// // Initial input
 /// let mut data = "Hello, ".to_string();
-/// let output = async_wasm_task::spawn_blocking(move || {
+/// let output = tokio_with_wasm::spawn_blocking(move || {
 ///     // Stand-in for compute-heavy work or using synchronous APIs
 ///     data.push_str("world");
 ///     // Pass ownership of the value back to the asynchronous context
