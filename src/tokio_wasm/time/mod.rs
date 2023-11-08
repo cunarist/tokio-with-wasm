@@ -1,3 +1,9 @@
+/// Waits until `duration` has elapsed.
+///
+/// Because this is a naive implemenation
+/// based on `setTimeout()` of JavaScript,
+/// web browsers might increase the interval arbitrarily
+/// to save system resources.
 pub async fn sleep(duration: std::time::Duration) {
     use wasm_bindgen::prelude::*;
     #[wasm_bindgen]
