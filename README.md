@@ -52,15 +52,15 @@ tokio_with_wasm = "[latest-version]"
 Here's a simple example of how to use `tokio_with_wasm`:
 
 ```rust
-use tokio_with_wasm::{spawn, spawn_blocking, yield_now};
+use tokio_with_wasm::tokio;
 
 async fn start() {
-    let async_join_handle = spawn(async {
+    let async_join_handle = tokio::spawn(async {
         // Your asynchronous code here.
         // This will run concurrently
         // in the same web worker(thread).
     });
-    let blocking_join_handle = spawn_blocking(|| {
+    let blocking_join_handle = tokio::task::spawn_blocking(|| {
         // Your blocking code here.
         // This will run parallelly
         // in the external pool of web workers.
@@ -70,7 +70,7 @@ async fn start() {
     for i in 1..1000 {
         // Some repeating task here
         // that shouldn't block the JavaScript runtime.
-        yield_now().await;
+        tokio::task::yield_now().await;
     }
 }
 ```
