@@ -1,6 +1,6 @@
 [package]
 name = "tokio_with_wasm"
-version = "0.2.3"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 description = "Manage the concurrency of async tasks in webassembly Rust"
