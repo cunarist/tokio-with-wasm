@@ -40,7 +40,7 @@ Because a large portion of Rust's web ecosystem is based on `wasm32-unknown-unkn
 
 Hopefully, when `wasm32-wasi` becomes the mainstream Rust target for the web, [`jco`](https://github.com/bytecodealliance/jco) might be an alternative to `wasm-bindgen` as it can provide full `std` functionalities with browser shims (polyfills). However, this will take time because the [`wasi-threads`](https://github.com/WebAssembly/wasi-threads) proposal still has a long way to go.
 
-Until then, there's `tokio_with_wasm`!
+Until that time, there's `tokio_with_wasm`!
 
 ## Usage
 
@@ -97,3 +97,5 @@ You'll be surprised by various capabilities that modern JavaScript has.
 - https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Functions_and_classes_available_to_workers
 
 Also, there are many crates at `crates.io` that mimic native functionalities on the web. Let's use them to avoid reinventing the wheels if needed.
+
+Please note that this library uses a quite hacky and naive approach to mimic native `tokio` functionalities. That's because this library is regarded as a temporary solution for the period before `wasm32-wasi`. Any PR is welcome, as long as it makes things just work on the web.
