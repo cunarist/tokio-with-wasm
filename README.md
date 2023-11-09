@@ -98,4 +98,4 @@ You'll be surprised by various capabilities that modern JavaScript has.
 
 Also, there are many crates at `crates.io` that mimic native functionalities on the web. Let's use them to avoid reinventing the wheels if needed.
 
-Please note that this library uses a quite hacky and naive approach to mimic native `tokio` functionalities. That's because this library is regarded as a temporary solution for the period before `wasm32-wasi`. Any PR is welcome, as long as it makes things just work on the web.
+Please note that this library uses a quite hacky and naive approach to mimic native `tokio` functionalities. That's because this library is regarded as a temporary solution for the period before `wasm32-wasi`. Any kind of PR is possible, as long as it makes things just work on the web.
