@@ -4,7 +4,8 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, ErrorEvent, Event, MessageEvent, Url, Worker,
+    Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, ErrorEvent, Event, MessageEvent, Url,
+    Worker, WorkerOptions,
 };
 
 pub static MAX_WORKERS: usize = 512;
@@ -71,9 +72,10 @@ impl WorkerPool {
         *self.pool_state.total_workers_count.borrow_mut() += 1;
         let script = format!(
             "
-            importScripts('{}');
+            import init, * as wasm_bindgen from '{}';
+            globalThis.wasm_bindgen = wasm_bindgen;
             self.onmessage = event => {{
-                let initialised = wasm_bindgen(...event.data).catch(err => {{
+                let initialised = init(...event.data).catch(err => {{
                     // Propagate to main `onerror`:
                     setTimeout(() => {{
                         throw err;
@@ -98,7 +100,9 @@ impl WorkerPool {
         .expect("Unable to create blob with JavaScript glue code.");
         let url = Url::create_object_url_with_blob(&blob)
             .expect("Unable to create object JavaScript blob URL.");
-        let worker = Worker::new(&url).expect("Unable to create worker.");
+        let mut options = WorkerOptions::new();
+        options.type_(web_sys::WorkerType::Module);
+        let worker = Worker::new_with_options(&url, &options).expect("Unable to create worker.");
 
         // With a worker spun up send it the module/memory so it can start
         // instantiating the wasm module. Later it might receive further
