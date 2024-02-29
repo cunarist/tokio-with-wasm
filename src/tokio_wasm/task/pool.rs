@@ -299,18 +299,3 @@ pub fn get_script_path() -> Option<String> {
     .ok()?
     .as_string()
 }
-
-pub fn start_managing_pool() {
-    super::spawn(async move {
-        loop {
-            super::WORKER_POOL.with(|worker_pool| {
-                worker_pool.remove_inactive_workers();
-                worker_pool.flush_queued_tasks();
-            });
-            let promise = js_sys::Promise::new(&mut |resolve, _reject| {
-                crate::common::set_timeout(&resolve, 100.0);
-            });
-            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
-        }
-    });
-}
