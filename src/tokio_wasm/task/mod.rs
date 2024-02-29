@@ -14,7 +14,26 @@ mod join_handle;
 mod pool;
 
 thread_local! {
-    pub(crate) static WORKER_POOL: WorkerPool = WorkerPool::new().unwrap();
+    pub(crate) static WORKER_POOL: WorkerPool = {
+        let worker_pool=WorkerPool::new().unwrap();
+        spawn(manage_pool());
+        worker_pool
+    }
+}
+
+/// Manages the worker pool by periodically checking for
+/// inactive web workers and queued tasks.
+async fn manage_pool() {
+    loop {
+        WORKER_POOL.with(|worker_pool| {
+            worker_pool.remove_inactive_workers();
+            worker_pool.flush_queued_tasks();
+        });
+        let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+            crate::common::set_timeout(&resolve, 100.0);
+        });
+        let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+    }
 }
 
 /// Spawns a new asynchronous task, returning a
@@ -195,7 +214,6 @@ where
             drop(sender.send(output));
         })
     });
-    start_managing_pool();
     JoinHandle::new(receiver)
 }
 
