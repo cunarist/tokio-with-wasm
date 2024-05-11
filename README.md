@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/tokio_with_wasm/badge.svg)](https://docs.rs/tokio_with_wasm)
 [![License](https://img.shields.io/crates/l/tokio_with_wasm.svg)](https://github.com/cunarist/tokio-with-wasm/blob/main/LICENSE)
 
-![bandicam 2023-10-07 17-34-36-577](https://github.com/cunarist/tokio-with-wasm/assets/66480156/c2c97ce7-831e-4d4c-b960-f8f368e12c48)
+![Recording](https://github.com/cunarist/tokio-with-wasm/assets/66480156/77fa5838-23c7-4e3b-b1ba-61146972c2aa)
 
 > Tested with [Rinf](https://github.com/cunarist/rinf)
 
