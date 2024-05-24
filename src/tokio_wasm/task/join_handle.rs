@@ -102,3 +102,11 @@ where
 /// Returned when a task failed to execute to completion.
 #[derive(Debug)]
 pub struct JoinError;
+
+impl fmt::Display for JoinError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.write_str("task failed to execute to completion")
+    }
+}
+
+impl std::error::Error for JoinError {}
