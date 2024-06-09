@@ -7,12 +7,13 @@
 
 mod pool;
 
-use futures_channel::oneshot;
 use pool::*;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio::sync::oneshot;
+use tokio::sync::oneshot::error::TryRecvError;
 use wasm_bindgen::prelude::*;
 
 thread_local! {
@@ -332,20 +333,11 @@ impl<T> Unpin for JoinHandle<T> {}
 
 impl<T> Future for JoinHandle<T> {
     type Output = Result<T, JoinError>;
-    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
-        if let Ok(received) = self.join_receiver.try_recv() {
-            if let Some(payload) = received {
-                Poll::Ready(payload)
-            } else {
-                let waker = context.waker().clone();
-                let wake_future = async move {
-                    waker.wake();
-                };
-                wasm_bindgen_futures::spawn_local(wake_future);
-                Poll::Pending
-            }
-        } else {
-            Poll::Ready(Err(JoinError { cancelled: false }))
+    fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.join_receiver.try_recv() {
+            Ok(received) => Poll::Ready(received),
+            Err(TryRecvError::Empty) => Poll::Pending,
+            Err(TryRecvError::Closed) => Poll::Ready(Err(JoinError { cancelled: false })),
         }
     }
 }
