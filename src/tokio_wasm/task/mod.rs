@@ -21,7 +21,7 @@ use wasm_bindgen::prelude::*;
 thread_local! {
     pub(crate) static WORKER_POOL: WorkerPool = {
         let worker_pool=WorkerPool::new();
-        spawn(manage_pool());
+        wasm_bindgen_futures::spawn_local(manage_pool());
         worker_pool
     }
 }
@@ -64,8 +64,8 @@ async fn manage_pool() {
 ///     // Some process...
 /// }
 ///
-/// async fn start() -> io::Result<()> {
-///     let result = tokio_with_wasm::spawn(async move {
+/// async fn work() -> io::Result<()> {
+///     let result = tokio_with_wasm::tokio::spawn(async move {
 ///         // Process this job concurrently.
 ///         process(socket).await
 ///     }).await?;;
@@ -75,19 +75,17 @@ async fn manage_pool() {
 /// To run multiple tasks in parallel and receive their results, join
 /// handles can be stored in a vector.
 /// ```
-/// # async fn start() {
 /// async fn my_background_op(id: i32) -> String {
 ///     let s = format!("Starting background task {}.", id);
 ///     println!("{}", s);
 ///     s
-/// }
 ///
 /// let ops = vec![1, 2, 3];
 /// let mut tasks = Vec::with_capacity(ops.len());
 /// for op in ops {
 ///     // This call will make them start running in the background
 ///     // immediately.
-///     tasks.push(tokio_with_wasm::spawn(my_background_op(op)));
+///     tasks.push(tokio_with_wasm::tokio::spawn(my_background_op(op)));
 /// }
 ///
 /// let mut outputs = Vec::with_capacity(tasks.len());
@@ -121,8 +119,8 @@ async fn manage_pool() {
 /// # drop(rc);
 /// }
 ///
-/// async fn start() {
-///     tokio_with_wasm::spawn(async {
+/// async fn work() {
+///     tokio_with_wasm::tokio::spawn(async {
 ///         // Force the `Rc` to stay in a scope with no `.await`
 ///         {
 ///             let rc = Rc::new(());
@@ -145,8 +143,8 @@ async fn manage_pool() {
 /// # drop(rc);
 /// }
 ///
-/// async fn start() {
-///     tokio_with_wasm::spawn(async {
+/// async fn work() {
+///     tokio_with_wasm::tokio::spawn(async {
 ///         let rc = Rc::new(());
 ///
 ///         tokio_with_wasm::yield_now().await;
@@ -205,10 +203,9 @@ where
 /// Pass an input value and receive result of computation:
 ///
 /// ```
-/// # async fn start() -> Result<(), Box<dyn std::error::Error>>{
 /// // Initial input
 /// let mut data = "Hello, ".to_string();
-/// let output = tokio_with_wasm::spawn_blocking(move || {
+/// let output = tokio_with_wasm::tokio::task::spawn_blocking(move || {
 ///     // Stand-in for compute-heavy work or using synchronous APIs
 ///     data.push_str("world");
 ///     // Pass ownership of the value back to the asynchronous context
@@ -218,7 +215,6 @@ where
 /// // `output` is the value returned from the thread
 /// assert_eq!(output.as_str(), "Hello, world");
 /// Ok(())
-/// }
 /// ```
 pub fn spawn_blocking<C, T>(callable: C) -> JoinHandle<T>
 where
@@ -293,29 +289,33 @@ pub async fn yield_now() {
 /// Creation from [`crate::spawn`]:
 ///
 /// ```
-/// # async fn start() {
-/// let join_handle: tokio_with_wasm::JoinHandle<_> = tokio_with_wasm::spawn(async {
+/// use tokio_with_wasm::tokio;
+/// use tokio::spawn;
+///
+/// let join_handle: tokio_with_wasm::JoinHandle<_> = spawn(async {
 ///     // some work here
 /// });
-/// # }
 /// ```
 ///
 /// Creation from [`crate::spawn_blocking`]:
 ///
 /// ```
-/// # async fn start() {
-/// let join_handle: tokio_with_wasm::JoinHandle<_> = tokio_with_wasm::spawn_blocking(|| {
+/// use tokio_with_wasm::tokio;
+/// use tokio::task::spawn_blocking;
+///
+/// let join_handle: tokio_with_wasm::JoinHandle<_> = spawn_blocking(|| {
 ///     // some blocking work here
 /// });
-/// # }
 /// ```
 ///
 /// Child being detached and outliving its parent:
 ///
 /// ```no_run
-/// # async fn start() {
-/// let original_task = tokio_with_wasm::spawn(async {
-///     let _detached_task = tokio_with_wasm::spawn(async {
+/// use tokio_with_wasm::tokio;
+/// use tokio::spawn;
+///
+/// let original_task = spawn(async {
+///     let _detached_task = spawn(async {
 ///         // Here we sleep to make sure that the first task returns before.
 ///         // Assume that code takes a few seconds to execute here.
 ///         // This will be called, even though the JoinHandle is dropped.
@@ -325,7 +325,6 @@ pub async fn yield_now() {
 ///
 /// original_task.await;
 /// println!("Original task is joined.");
-/// # }
 /// ```
 pub struct JoinHandle<T> {
     join_receiver: oneshot::Receiver<Result<T, JoinError>>,
