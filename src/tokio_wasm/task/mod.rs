@@ -222,12 +222,25 @@ where
     T: Send + 'static,
 {
     let (join_sender, join_receiver) = oneshot::channel();
+    let (returned_sender, returned_receiver) = oneshot::channel();
     let (cancel_sender, cancel_receiver) = oneshot::channel();
     WORKER_POOL.with(|worker_pool| {
         worker_pool.queue_task(move || {
-            let output = callable();
-            let _ = join_sender.send(Ok(output));
+            let returned = callable();
+            let _ = returned_sender.send(returned);
         })
+    });
+    wasm_bindgen_futures::spawn_local(async move {
+        let output = tokio::select! {
+            received = returned_receiver => {
+                match received{
+                    Ok(inner) => Ok(inner),
+                    Err(_) => Err(JoinError { cancelled : false})
+                }
+            },
+            _ = cancel_receiver => Err(JoinError { cancelled: true }),
+        };
+        let _ = join_sender.send(output);
     });
     JoinHandle {
         join_receiver,
