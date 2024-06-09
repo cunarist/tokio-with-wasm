@@ -363,7 +363,7 @@ where
 }
 
 impl<T> JoinHandle<T> {
-    pub fn abort(&mut self) {
+    pub fn abort(&self) {
         self.cancel_notify.notify_one();
     }
 }
