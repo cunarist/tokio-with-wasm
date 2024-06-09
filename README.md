@@ -10,13 +10,11 @@
 
 `tokio_with_wasm` is a Rust library that provides `tokio` specifically designed for web browsers. It aims to provide the exact same `tokio` features for web applications, leveraging JavaScript web API.
 
-This library assumes that you're compilng your Rust project with `wasm-pack` and `wasm-bindgen`, which currently uses `wasm32-unknown-unknown` Rust target. Note that this library currently only supports the `web` target of `wasm-bindgen`, not [others](https://rustwasm.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
+On native platforms, `tokio_with_wasm::tokio` is the real `tokio` with the `full` feature enabled. On the web, `tokio_with_wasm::tokio` is made up of JavaScript glue code that mimics the behavior of real `tokio`. Because `tokio_with_wasm` doesn't have its own runtime and adapts to the JavaScript event loop, advanced features of `tokio` might not work.
 
 When using `spawn_blocking()`, the number of web workers are automatically adjusted adapting to the number of parallel tasks. Refer to the docs for additional details.
 
-On native platforms, `tokio_with_wasm::tokio` is the real `tokio` with the `full` feature enabled. On the web, `tokio_with_wasm::tokio` is made up of JavaScript glue code that mimics the behavior of real `tokio`. Because `tokio_with_wasm` doesn't have its own runtime and adapts to the JavaScript event loop, advanced features of `tokio` might not work.
-
-After building your webassembly module and preparing it for deployment, ensure that your web server is configured to include cross-origin-related HTTP headers in its responses. Set the [`cross-origin-opener-policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy) to `same-origin` and [`cross-origin-embedder-policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy) to `require-corp`. These headers enable clients using your website to gain access to `SharedArrayBuffer` web API, which is something similar to shared memory on the web. Additionally, don't forget to specify the MIME type `application/wasm` for `.wasm` files within the server configurations to ensure optimal performance.
+This library assumes that you're compilng your Rust project with `wasm-pack` and `wasm-bindgen`, which currently uses `wasm32-unknown-unknown` Rust target. Note that this library currently only supports the `web` target of `wasm-bindgen`, not [others](https://rustwasm.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
 
 ## Features
 
@@ -77,13 +75,17 @@ async fn start() {
 }
 ```
 
+## Documentation
+
+API documentation can be found on [docs.rs](https://docs.rs/tokio_with_wasm).
+
 ## Caution
 
 Keep in mind that you should NEVER write panicking code. For `wasm32-unknown-unknown` there's currently [no way](https://rustwasm.github.io/wasm-bindgen/api/wasm_bindgen_futures/fn.future_to_promise.html#panics) to catch panics like on native platforms. Panics will eventually lead to leaked JavaScript `Promise`s.
 
-## Documentation
+## Deploying the Web App
 
-Detailed documentation can be found on [docs.rs](https://docs.rs/tokio_with_wasm).
+After building your webassembly module and preparing it for deployment, ensure that your web server is configured to include cross-origin-related HTTP headers in its responses. Set the [`Cross-Origin-Opener-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy) to `same-origin` and [`Cross-Origin-Embedder-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy) to `require-corp`. These headers enable clients using your website to gain access to `SharedArrayBuffer` web API, which is something similar to shared memory on the web. Additionally, don't forget to specify the MIME type `application/wasm` for `.wasm` files within the server configurations to ensure optimal performance.
 
 ## Contribution Guide
 
