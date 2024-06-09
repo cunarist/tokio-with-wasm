@@ -1,9 +1,13 @@
-pub mod task;
-pub mod time;
+#[cfg(feature = "macros")]
+pub use tokio::macros;
 
+#[cfg(feature = "rt")]
+pub mod task;
+#[cfg(feature = "rt")]
 pub use task::spawn;
 
-pub use tokio::macros;
-pub use tokio::sync;
+#[cfg(feature = "time")]
+pub mod time;
 
-pub use tokio::*;
+#[cfg(feature = "sync")]
+pub use tokio::sync;

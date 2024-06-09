@@ -11,8 +11,18 @@ default-target = "wasm32-unknown-unknown"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-tokio = { version = "1", features = ["full"] }
+[features]
+# https://github.com/tokio-rs/tokio/blob/master/tokio/Cargo.toml
+default = ["full"]
+full = ["macros", "rt", "sync", "time"]
+macros = ["tokio/macros"]
+rt = ["tokio/rt"]
+sync = ["tokio/sync"]
+time = ["tokio/time"]
+
+
+[dependencies]
+tokio = { version = "1", features = ["sync", "macros"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 js-sys = "0.3.68"
@@ -29,4 +39,3 @@ web-sys = { version = "0.3.68", features = [
     "BlobPropertyBag",
     'Url',
 ] }
-tokio = { version = "1", features = ["sync", "macros"] }

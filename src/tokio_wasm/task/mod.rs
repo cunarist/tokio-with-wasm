@@ -1,8 +1,5 @@
-//! `tokio_with_wasm` is a Rust library that enables
-//! seamless integration of asynchronous Rust tasks
-//! and `Future`s in JavaScript,
-//! resembling the familiar `tokio::task` patterns.
-//! It leverages web workers to execute tasks in parallel,
+//! Resembling the familiar `tokio::task` patterns.
+//! this module leverages web workers to execute tasks in parallel,
 //! making it ideal for high-performance web applications.
 
 mod pool;
