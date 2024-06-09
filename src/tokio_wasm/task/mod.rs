@@ -171,6 +171,7 @@ where
     JoinHandle {
         join_receiver,
         cancel_notify,
+        is_cancelled: Arc::new(Mutex::new(false)),
     }
 }
 
@@ -222,8 +223,6 @@ where
     T: Send + 'static,
 {
     let (join_sender, join_receiver) = oneshot::channel();
-    let cancel_notify = Arc::new(Notify::new());
-    let cancel_notify_cloned = Arc::new(Notify::new());
     let is_cancelled = Arc::new(Mutex::new(false));
     let is_cancelled_cloned = is_cancelled.clone();
     WORKER_POOL.with(move |worker_pool| {
@@ -238,15 +237,10 @@ where
             let _ = join_sender.send(Ok(returned));
         })
     });
-    wasm_bindgen_futures::spawn_local(async move {
-        cancel_notify_cloned.notified().await;
-        if let Ok(mut inner) = is_cancelled.lock() {
-            *inner = true;
-        }
-    });
     JoinHandle {
         join_receiver,
-        cancel_notify,
+        cancel_notify: Arc::new(Notify::new()),
+        is_cancelled,
     }
 }
 
@@ -329,6 +323,7 @@ pub async fn yield_now() {
 pub struct JoinHandle<T> {
     join_receiver: oneshot::Receiver<Result<T, JoinError>>,
     cancel_notify: Arc<Notify>,
+    is_cancelled: Arc<Mutex<bool>>,
 }
 
 unsafe impl<T: Send> Send for JoinHandle<T> {}
@@ -403,6 +398,9 @@ impl<T> JoinHandle<T> {
     /// ```
     pub fn abort(&self) {
         self.cancel_notify.notify_one();
+        if let Ok(mut inner) = self.is_cancelled.lock() {
+            *inner = true;
+        }
     }
 }
 
