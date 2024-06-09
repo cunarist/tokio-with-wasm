@@ -11,9 +11,11 @@ use pool::*;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
+use tokio::sync::Notify;
 use wasm_bindgen::prelude::*;
 
 thread_local! {
@@ -159,17 +161,18 @@ where
     T: 'static,
 {
     let (join_sender, join_receiver) = oneshot::channel();
-    let (cancel_sender, cancel_receiver) = oneshot::channel();
+    let cancel_notify = Arc::new(Notify::new());
+    let cancel_notify_cloned = cancel_notify.clone();
     wasm_bindgen_futures::spawn_local(async move {
         let output = tokio::select! {
-            returned = future => Ok(returned),
-            _ = cancel_receiver => Err(JoinError { cancelled: true }),
+            returned = future => { Ok(returned) },
+            _ = cancel_notify_cloned.notified() => Err(JoinError { cancelled: true }),
         };
         let _ = join_sender.send(output);
     });
     JoinHandle {
         join_receiver,
-        cancel_sender: Some(cancel_sender),
+        cancel_notify,
     }
 }
 
@@ -224,8 +227,9 @@ where
 {
     let (join_sender, join_receiver) = oneshot::channel();
     let (returned_sender, returned_receiver) = oneshot::channel();
-    let (cancel_sender, cancel_receiver) = oneshot::channel();
-    WORKER_POOL.with(|worker_pool| {
+    let cancel_notify = Arc::new(Notify::new());
+    let cancel_notify_cloned = cancel_notify.clone();
+    WORKER_POOL.with(move |worker_pool| {
         worker_pool.queue_task(move || {
             let returned = callable();
             let _ = returned_sender.send(returned);
@@ -236,16 +240,16 @@ where
             received = returned_receiver => {
                 match received{
                     Ok(inner) => Ok(inner),
-                    Err(_) => Err(JoinError { cancelled : false})
+                    Err(_) => Err(JoinError { cancelled : false })
                 }
             },
-            _ = cancel_receiver => Err(JoinError { cancelled: true }),
+            _ = cancel_notify_cloned.notified() => Err(JoinError { cancelled: true }),
         };
         let _ = join_sender.send(output);
     });
     JoinHandle {
         join_receiver,
-        cancel_sender: Some(cancel_sender),
+        cancel_notify,
     }
 }
 
@@ -324,7 +328,7 @@ pub async fn yield_now() {
 /// ```
 pub struct JoinHandle<T> {
     join_receiver: oneshot::Receiver<Result<T, JoinError>>,
-    cancel_sender: Option<oneshot::Sender<()>>,
+    cancel_notify: Arc<Notify>,
 }
 
 unsafe impl<T: Send> Send for JoinHandle<T> {}
@@ -333,10 +337,17 @@ impl<T> Unpin for JoinHandle<T> {}
 
 impl<T> Future for JoinHandle<T> {
     type Output = Result<T, JoinError>;
-    fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
         match self.join_receiver.try_recv() {
             Ok(received) => Poll::Ready(received),
-            Err(TryRecvError::Empty) => Poll::Pending,
+            Err(TryRecvError::Empty) => {
+                let waker = context.waker().clone();
+                let wake_future = async move {
+                    waker.wake();
+                };
+                wasm_bindgen_futures::spawn_local(wake_future);
+                Poll::Pending
+            }
             Err(TryRecvError::Closed) => Poll::Ready(Err(JoinError { cancelled: false })),
         }
     }
@@ -353,10 +364,7 @@ where
 
 impl<T> JoinHandle<T> {
     pub fn abort(&mut self) {
-        let option = self.cancel_sender.take();
-        if let Some(cancel_sender) = option {
-            let _ = cancel_sender.send(());
-        }
+        self.cancel_notify.notify_one();
     }
 }
 
