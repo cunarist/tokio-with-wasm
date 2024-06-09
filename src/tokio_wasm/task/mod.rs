@@ -11,7 +11,7 @@ use pool::*;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
@@ -226,26 +226,27 @@ where
     T: Send + 'static,
 {
     let (join_sender, join_receiver) = oneshot::channel();
-    let (returned_sender, returned_receiver) = oneshot::channel();
     let cancel_notify = Arc::new(Notify::new());
-    let cancel_notify_cloned = cancel_notify.clone();
+    let cancel_notify_cloned = Arc::new(Notify::new());
+    let is_cancelled = Arc::new(Mutex::new(false));
+    let is_cancelled_cloned = is_cancelled.clone();
     WORKER_POOL.with(move |worker_pool| {
         worker_pool.queue_task(move || {
+            if let Ok(inner) = is_cancelled_cloned.lock() {
+                if *inner {
+                    let _ = join_sender.send(Err(JoinError { cancelled: true }));
+                    return;
+                }
+            }
             let returned = callable();
-            let _ = returned_sender.send(returned);
+            let _ = join_sender.send(Ok(returned));
         })
     });
     wasm_bindgen_futures::spawn_local(async move {
-        let output = tokio::select! {
-            received = returned_receiver => {
-                match received{
-                    Ok(inner) => Ok(inner),
-                    Err(_) => Err(JoinError { cancelled : false })
-                }
-            },
-            _ = cancel_notify_cloned.notified() => Err(JoinError { cancelled: true }),
-        };
-        let _ = join_sender.send(output);
+        cancel_notify_cloned.notified().await;
+        if let Ok(mut inner) = is_cancelled.lock() {
+            *inner = true;
+        }
     });
     JoinHandle {
         join_receiver,
