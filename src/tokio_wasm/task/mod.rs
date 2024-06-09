@@ -363,6 +363,45 @@ where
 }
 
 impl<T> JoinHandle<T> {
+    /// Abort the task associated with the handle.
+    ///
+    /// Awaiting a cancelled task might complete as usual if the task was
+    /// already completed at the time it was cancelled, but most likely it
+    /// will fail with a cancelled `JoinError`.
+    ///
+    /// Be aware that tasks spawned using [`spawn_blocking`] cannot be aborted
+    /// because they are not async. If you call `abort` on a `spawn_blocking`
+    /// task, then this *will not have any effect*, and the task will continue
+    /// running normally. The exception is if the task has not started running
+    /// yet; in that case, calling `abort` may prevent the task from starting.
+    ///
+    /// ```rust
+    /// use tokio_with_wasm::tokio;
+    /// use tokio::time;
+    ///
+    /// # #[tokio::main(flavor = "current_thread", start_paused = true)]
+    /// # async fn main() {
+    /// let mut handles = Vec::new();
+    ///
+    /// handles.push(tokio::spawn(async {
+    ///    time::sleep(time::Duration::from_secs(10)).await;
+    ///    true
+    /// }));
+    ///
+    /// handles.push(tokio::spawn(async {
+    ///    time::sleep(time::Duration::from_secs(10)).await;
+    ///    false
+    /// }));
+    ///
+    /// for handle in &handles {
+    ///     handle.abort();
+    /// }
+    ///
+    /// for handle in handles {
+    ///     assert!(handle.await.unwrap_err().is_cancelled());
+    /// }
+    /// # }
+    /// ```
     pub fn abort(&self) {
         self.cancel_notify.notify_one();
     }
