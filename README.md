@@ -77,6 +77,10 @@ async fn start() {
 }
 ```
 
+## Caution
+
+Keep in mind that you should NEVER write panicking code. For `wasm32-unknown-unknown` there's currently [no way](https://rustwasm.github.io/wasm-bindgen/api/wasm_bindgen_futures/fn.future_to_promise.html#panics) to catch panics like on native platforms. Panics will eventually lead to leaked JavaScript `Promise`s.
+
 ## Documentation
 
 Detailed documentation can be found on [docs.rs](https://docs.rs/tokio_with_wasm).
