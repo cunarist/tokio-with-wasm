@@ -8,6 +8,7 @@ repository = "https://github.com/cunarist/tokio-with-wasm"
 
 [package.metadata.docs.rs]
 default-target = "wasm32-unknown-unknown"
+all-features = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
