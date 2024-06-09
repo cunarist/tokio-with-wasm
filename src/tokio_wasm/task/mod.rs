@@ -5,13 +5,15 @@
 //! It leverages web workers to execute tasks in parallel,
 //! making it ideal for high-performance web applications.
 
-use futures_channel::oneshot;
-pub use join_handle::*;
-use pool::*;
-use wasm_bindgen::prelude::*;
-
-mod join_handle;
 mod pool;
+
+use futures_channel::oneshot;
+use pool::*;
+use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use wasm_bindgen::prelude::*;
 
 thread_local! {
     pub(crate) static WORKER_POOL: WorkerPool = {
@@ -155,12 +157,19 @@ where
     F: std::future::Future<Output = T> + 'static,
     T: 'static,
 {
-    let (sender, receiver) = oneshot::channel();
+    let (join_sender, join_receiver) = oneshot::channel();
+    let (cancel_sender, cancel_receiver) = oneshot::channel();
     wasm_bindgen_futures::spawn_local(async move {
-        let output = future.await;
-        drop(sender.send(output));
+        let output = tokio::select! {
+            returned = future => Ok(returned),
+            _ = cancel_receiver => Err(JoinError { cancelled: true }),
+        };
+        let _ = join_sender.send(output);
     });
-    JoinHandle::new(receiver)
+    JoinHandle {
+        join_receiver,
+        cancel_sender: Some(cancel_sender),
+    }
 }
 
 /// Runs the provided closure on a web worker(thread) where blocking is acceptable.
@@ -212,14 +221,18 @@ where
     C: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    let (sender, receiver) = oneshot::channel();
+    let (join_sender, join_receiver) = oneshot::channel();
+    let (cancel_sender, cancel_receiver) = oneshot::channel();
     WORKER_POOL.with(|worker_pool| {
         worker_pool.queue_task(move || {
             let output = callable();
-            drop(sender.send(output));
+            let _ = join_sender.send(Ok(output));
         })
     });
-    JoinHandle::new(receiver)
+    JoinHandle {
+        join_receiver,
+        cancel_sender: Some(cancel_sender),
+    }
 }
 
 /// Yields execution back to the JavaScript event loop.
@@ -241,4 +254,123 @@ pub async fn yield_now() {
         queue_microtask(&resolve);
     });
     let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
+
+/// An owned permission to join on a task (awaiting its termination).
+///
+/// This can be thought of as the equivalent of
+/// [`std::thread::JoinHandle`] or `tokio::task::JoinHandle` for
+/// a task that is executed concurrently.
+///
+/// A `JoinHandle` *detaches* the associated task when it is dropped, which
+/// means that there is no longer any handle to the task, and no way to `join`
+/// on it.
+///
+/// This struct is created by the [crate::spawn] and [crate::spawn_blocking]
+/// functions.
+///
+/// # Examples
+///
+/// Creation from [`crate::spawn`]:
+///
+/// ```
+/// # async fn start() {
+/// let join_handle: tokio_with_wasm::JoinHandle<_> = tokio_with_wasm::spawn(async {
+///     // some work here
+/// });
+/// # }
+/// ```
+///
+/// Creation from [`crate::spawn_blocking`]:
+///
+/// ```
+/// # async fn start() {
+/// let join_handle: tokio_with_wasm::JoinHandle<_> = tokio_with_wasm::spawn_blocking(|| {
+///     // some blocking work here
+/// });
+/// # }
+/// ```
+///
+/// Child being detached and outliving its parent:
+///
+/// ```no_run
+/// # async fn start() {
+/// let original_task = tokio_with_wasm::spawn(async {
+///     let _detached_task = tokio_with_wasm::spawn(async {
+///         // Here we sleep to make sure that the first task returns before.
+///         // Assume that code takes a few seconds to execute here.
+///         // This will be called, even though the JoinHandle is dropped.
+///         println!("♫ Still alive ♫");
+///     });
+/// });
+///
+/// original_task.await;
+/// println!("Original task is joined.");
+/// # }
+/// ```
+pub struct JoinHandle<T> {
+    join_receiver: oneshot::Receiver<Result<T, JoinError>>,
+    cancel_sender: Option<oneshot::Sender<()>>,
+}
+
+unsafe impl<T: Send> Send for JoinHandle<T> {}
+unsafe impl<T: Send> Sync for JoinHandle<T> {}
+impl<T> Unpin for JoinHandle<T> {}
+
+impl<T> Future for JoinHandle<T> {
+    type Output = Result<T, JoinError>;
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        if let Ok(received) = self.join_receiver.try_recv() {
+            if let Some(payload) = received {
+                Poll::Ready(payload)
+            } else {
+                let waker = context.waker().clone();
+                let wake_future = async move {
+                    waker.wake();
+                };
+                wasm_bindgen_futures::spawn_local(wake_future);
+                Poll::Pending
+            }
+        } else {
+            Poll::Ready(Err(JoinError { cancelled: false }))
+        }
+    }
+}
+
+impl<T> fmt::Debug for JoinHandle<T>
+where
+    T: fmt::Debug,
+{
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("JoinHandle").finish()
+    }
+}
+
+impl<T> JoinHandle<T> {
+    pub fn abort(&mut self) {
+        let option = self.cancel_sender.take();
+        if let Some(cancel_sender) = option {
+            let _ = cancel_sender.send(());
+        }
+    }
+}
+
+/// Returned when a task failed to execute to completion.
+#[derive(Debug)]
+pub struct JoinError {
+    cancelled: bool,
+}
+
+impl fmt::Display for JoinError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.write_str("task failed to execute to completion")
+    }
+}
+
+impl std::error::Error for JoinError {}
+
+impl JoinError {
+    pub fn is_cancelled(&self) -> bool {
+        return self.cancelled;
+    }
 }
