@@ -343,10 +343,9 @@ impl<T> Future for JoinHandle<T> {
             Ok(received) => Poll::Ready(received),
             Err(TryRecvError::Empty) => {
                 let waker = context.waker().clone();
-                let wake_future = async move {
+                wasm_bindgen_futures::spawn_local(async move {
                     waker.wake();
-                };
-                wasm_bindgen_futures::spawn_local(wake_future);
+                });
                 Poll::Pending
             }
             Err(TryRecvError::Closed) => Poll::Ready(Err(JoinError { cancelled: false })),
