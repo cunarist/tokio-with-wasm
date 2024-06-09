@@ -13,7 +13,7 @@ default-target = "wasm32-unknown-unknown"
 
 [features]
 # https://github.com/tokio-rs/tokio/blob/master/tokio/Cargo.toml
-default = ["full"]
+default = []
 full = ["macros", "rt", "sync", "time"]
 macros = ["tokio/macros"]
 rt = ["tokio/rt"]
