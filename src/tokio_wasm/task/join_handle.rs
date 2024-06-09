@@ -52,7 +52,7 @@ use std::task::{Context, Poll};
 ///     });
 /// });
 ///
-/// original_task.await.expect("The task being joined has panicked");
+/// original_task.await;
 /// println!("Original task is joined.");
 /// # }
 /// ```

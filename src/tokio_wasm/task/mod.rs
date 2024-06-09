@@ -15,7 +15,7 @@ mod pool;
 
 thread_local! {
     pub(crate) static WORKER_POOL: WorkerPool = {
-        let worker_pool=WorkerPool::new().unwrap();
+        let worker_pool=WorkerPool::new();
         spawn(manage_pool());
         worker_pool
     }
@@ -87,7 +87,12 @@ async fn manage_pool() {
 ///
 /// let mut outputs = Vec::with_capacity(tasks.len());
 /// for task in tasks {
-///     outputs.push(task.await.unwrap());
+///     match task.await {
+///         Ok(output) => outputs.push(output),
+///         Err(err) => {
+///             println!("An error occurred: {}", err);
+///         }
+///     }
 /// }
 /// println!("{:?}", outputs);
 /// # }
@@ -120,7 +125,7 @@ async fn manage_pool() {
 ///         }
 ///
 ///         tokio_with_wasm::yield_now().await;
-///     }).await.unwrap();
+///     }).await;
 /// }
 /// ```
 ///
@@ -142,7 +147,7 @@ async fn manage_pool() {
 ///         tokio_with_wasm::yield_now().await;
 ///
 ///         use_rc(rc.clone());
-///     }).await.unwrap();
+///     }).await;
 /// }
 /// ```
 pub fn spawn<F, T>(future: F) -> JoinHandle<T>

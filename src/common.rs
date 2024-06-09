@@ -16,3 +16,5 @@ macro_rules! console_log {
     ($($t:tt)*) => (crate::common::log(&format_args!($($t)*).to_string()))
 }
 pub(crate) use console_log;
+
+pub type Result<T> = std::result::Result<T, JsValue>;

@@ -1,3 +1,4 @@
+use crate::common::*;
 use js_sys::Array;
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -44,7 +45,7 @@ impl WorkerPool {
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
     #[wasm_bindgen(constructor)]
-    pub fn new() -> Result<WorkerPool, JsValue> {
+    pub fn new() -> WorkerPool {
         let worker_pool = WorkerPool {
             pool_state: Rc::new(PoolState {
                 total_workers_count: RefCell::new(0),
@@ -56,7 +57,7 @@ impl WorkerPool {
                 }),
             }),
         };
-        Ok(worker_pool)
+        worker_pool
     }
 
     /// Unconditionally spawns a new worker
@@ -68,7 +69,7 @@ impl WorkerPool {
     ///
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
-    fn create_worker(&self) -> Result<Worker, JsValue> {
+    fn create_worker(&self) -> Result<Worker> {
         *self.pool_state.total_workers_count.borrow_mut() += 1;
         let script = format!(
             "
@@ -91,18 +92,16 @@ impl WorkerPool {
                 }};
             }};
             ",
-            get_script_path().unwrap()
+            get_script_path()?
         );
         let blob = Blob::new_with_blob_sequence_and_options(
             &Array::from_iter([JsValue::from(script)]).into(),
             BlobPropertyBag::new().type_("text/javascript"),
-        )
-        .expect("Unable to create blob with JavaScript glue code.");
-        let url = Url::create_object_url_with_blob(&blob)
-            .expect("Unable to create object JavaScript blob URL.");
+        )?;
+        let url = Url::create_object_url_with_blob(&blob)?;
         let mut options = WorkerOptions::new();
         options.type_(web_sys::WorkerType::Module);
-        let worker = Worker::new_with_options(&url, &options).expect("Unable to create worker.");
+        let worker = Worker::new_with_options(&url, &options)?;
 
         // With a worker spun up send it the module/memory so it can start
         // instantiating the wasm module. Later it might receive further
@@ -125,7 +124,7 @@ impl WorkerPool {
     ///
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
-    fn get_worker(&self) -> Result<Worker, JsValue> {
+    fn get_worker(&self) -> Result<Worker> {
         if let Some(managed_worker) = self.pool_state.idle_workers.borrow_mut().pop() {
             Ok(managed_worker.worker)
         } else {
@@ -145,17 +144,17 @@ impl WorkerPool {
     ///
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
-    fn execute(&self, task: Task) -> Result<Worker, JsValue> {
+    fn execute(&self, task: Task) -> Result<Worker> {
         let worker = self.get_worker()?;
         let work = Box::new(task);
         let ptr = Box::into_raw(work);
         match worker.post_message(&JsValue::from(ptr as u32)) {
             Ok(()) => Ok(worker),
-            Err(e) => {
+            Err(error) => {
                 unsafe {
                     drop(Box::from_raw(ptr));
                 }
-                Err(e)
+                Err(error)
             }
         }
     }
@@ -215,7 +214,7 @@ impl WorkerPool {
     ///
     /// If an error happens while spawning a web worker or sending a message to
     /// a web worker, that error is returned.
-    fn run(&self, task: Task) -> Result<(), JsValue> {
+    fn run(&self, task: Task) -> Result<()> {
         let worker = self.execute(task)?;
         self.reclaim_on_message(worker);
         Ok(())
@@ -239,7 +238,7 @@ impl WorkerPool {
         while *self.pool_state.total_workers_count.borrow() < MAX_WORKERS {
             let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
             if let Some(queued_task) = queued_tasks.pop_front() {
-                self.run(queued_task).expect("Unable to run a queued task.");
+                let _ = self.run(queued_task);
             } else {
                 break;
             }
@@ -275,7 +274,7 @@ impl PoolState {
 
 /// Entry point invoked by JavaScript in a worker.
 #[wasm_bindgen]
-pub fn task_worker_entry_point(ptr: u32) -> Result<(), JsValue> {
+pub fn task_worker_entry_point(ptr: u32) -> Result<()> {
     let ptr = unsafe { Box::from_raw(ptr as *mut Task) };
     let global = js_sys::global().unchecked_into::<DedicatedWorkerGlobalScope>();
     (ptr.callable)();
@@ -283,8 +282,8 @@ pub fn task_worker_entry_point(ptr: u32) -> Result<(), JsValue> {
     Ok(())
 }
 
-pub fn get_script_path() -> Option<String> {
-    js_sys::eval(
+pub fn get_script_path() -> Result<String> {
+    let string = js_sys::eval(
         r"
         (() => {
             try {
@@ -295,7 +294,10 @@ pub fn get_script_path() -> Option<String> {
             }
         })()
         ",
-    )
-    .ok()?
+    )?
     .as_string()
+    .ok_or(JsValue::from(
+        "Could not convert JS string path to native string",
+    ))?;
+    Ok(string)
 }
