@@ -3,7 +3,3 @@
 # type checking and linting in webassembly mode, for the web target.
 # You might have to restart Rust-analyzer for this change to take effect.
 target = "wasm32-unknown-unknown"
-rustflags = ["-C", "target-feature=+atomics,+bulk-memory,+mutable-globals"]
-
-[unstable]
-build-std = ['std', 'panic_abort']

@@ -56,13 +56,14 @@ async fn manage_pool() {
 ///
 /// ```no_run
 /// use std::io;
+/// use tokio_with_wasm as tokio;
 ///
 /// async fn process() -> io::Result<()> {
 ///     // Some process...
 /// }
 ///
 /// async fn work() -> io::Result<()> {
-///     let result = tokio_with_wasm::tokio::spawn(async move {
+///     let result = tokio::spawn(async move {
 ///         // Process this job concurrently.
 ///         process(socket).await
 ///     }).await?;;
@@ -72,6 +73,8 @@ async fn manage_pool() {
 /// To run multiple tasks in parallel and receive their results, join
 /// handles can be stored in a vector.
 /// ```
+/// use tokio_with_wasm as tokio;
+///
 /// async fn my_background_op(id: i32) -> String {
 ///     let s = format!("Starting background task {}.", id);
 ///     println!("{}", s);
@@ -82,7 +85,7 @@ async fn manage_pool() {
 /// for op in ops {
 ///     // This call will make them start running in the background
 ///     // immediately.
-///     tasks.push(tokio_with_wasm::tokio::spawn(my_background_op(op)));
+///     tasks.push(tokio::spawn(my_background_op(op)));
 /// }
 ///
 /// let mut outputs = Vec::with_capacity(tasks.len());
@@ -110,6 +113,7 @@ async fn manage_pool() {
 ///
 /// ```
 /// use std::rc::Rc;
+/// use tokio_with_wasm as tokio;
 ///
 /// fn use_rc(rc: Rc<()>) {
 ///     // Do stuff w/ rc
@@ -117,14 +121,14 @@ async fn manage_pool() {
 /// }
 ///
 /// async fn work() {
-///     tokio_with_wasm::tokio::spawn(async {
+///     tokio::spawn(async {
 ///         // Force the `Rc` to stay in a scope with no `.await`
 ///         {
 ///             let rc = Rc::new(());
 ///             use_rc(rc.clone());
 ///         }
 ///
-///         tokio_with_wasm::yield_now().await;
+///         tokio::task::yield_now().await;
 ///     }).await;
 /// }
 /// ```
@@ -134,6 +138,7 @@ async fn manage_pool() {
 ///
 /// ```
 /// use std::rc::Rc;
+/// use tokio_with_wasm as tokio;
 ///
 /// fn use_rc(rc: Rc<()>) {
 ///     // Do stuff w/ rc
@@ -141,10 +146,10 @@ async fn manage_pool() {
 /// }
 ///
 /// async fn work() {
-///     tokio_with_wasm::tokio::spawn(async {
+///     tokio::spawn(async {
 ///         let rc = Rc::new(());
 ///
-///         tokio_with_wasm::yield_now().await;
+///         tokio::task::yield_now().await;
 ///
 ///         use_rc(rc.clone());
 ///     }).await;
@@ -201,9 +206,11 @@ where
 /// Pass an input value and receive result of computation:
 ///
 /// ```
+/// use tokio_with_wasm as tokio;
+///
 /// // Initial input
 /// let mut data = "Hello, ".to_string();
-/// let output = tokio_with_wasm::tokio::task::spawn_blocking(move || {
+/// let output = tokio::task::spawn_blocking(move || {
 ///     // Stand-in for compute-heavy work or using synchronous APIs
 ///     data.push_str("world");
 ///     // Pass ownership of the value back to the asynchronous context
@@ -280,10 +287,10 @@ pub async fn yield_now() {
 /// Creation from [`crate::spawn`]:
 ///
 /// ```
-/// use tokio_with_wasm::tokio;
+/// use tokio_with_wasm as tokio;
 /// use tokio::spawn;
 ///
-/// let join_handle: tokio_with_wasm::JoinHandle<_> = spawn(async {
+/// let join_handle: tokio::task::JoinHandle<_> = spawn(async {
 ///     // some work here
 /// });
 /// ```
@@ -291,10 +298,10 @@ pub async fn yield_now() {
 /// Creation from [`crate::spawn_blocking`]:
 ///
 /// ```
-/// use tokio_with_wasm::tokio;
+/// use tokio_with_wasm as tokio;
 /// use tokio::task::spawn_blocking;
 ///
-/// let join_handle: tokio_with_wasm::JoinHandle<_> = spawn_blocking(|| {
+/// let join_handle: tokio::task::JoinHandle<_> = spawn_blocking(|| {
 ///     // some blocking work here
 /// });
 /// ```
@@ -302,7 +309,7 @@ pub async fn yield_now() {
 /// Child being detached and outliving its parent:
 ///
 /// ```no_run
-/// use tokio_with_wasm::tokio;
+/// use tokio_with_wasm as tokio;
 /// use tokio::spawn;
 ///
 /// let original_task = spawn(async {
@@ -367,7 +374,7 @@ impl<T> JoinHandle<T> {
     /// yet; in that case, calling `abort` may prevent the task from starting.
     ///
     /// ```rust
-    /// use tokio_with_wasm::tokio;
+    /// use tokio_with_wasm as tokio;
     /// use tokio::time;
     ///
     /// # #[tokio::main(flavor = "current_thread", start_paused = true)]

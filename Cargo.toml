@@ -14,17 +14,14 @@ default-target = "wasm32-unknown-unknown"
 [features]
 # https://github.com/tokio-rs/tokio/blob/master/tokio/Cargo.toml
 default = []
-full = ["macros", "rt", "sync", "time"]
-macros = ["tokio/macros"]
-rt = ["tokio/rt"]
-sync = ["tokio/sync"]
-time = ["tokio/time"]
-
+full = ["macros", "sync", "rt", "time"]
+macros = []
+sync = []
+rt = []
+time = []
 
 [dependencies]
 tokio = { version = "1", features = ["sync", "macros"] }
-
-[target.'cfg(target_family = "wasm")'.dependencies]
 js-sys = "0.3.68"
 wasm-bindgen = "0.2.91"
 wasm-bindgen-futures = "0.4.41"

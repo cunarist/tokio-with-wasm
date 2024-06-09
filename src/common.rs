@@ -1,3 +1,5 @@
+#![allow(unused_macros, unused_imports, dead_code)]
+
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
