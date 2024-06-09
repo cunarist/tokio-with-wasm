@@ -10,7 +10,7 @@
 
 `tokio_with_wasm` is a Rust library that provides `tokio` specifically designed for web browsers. It aims to provide the exact same `tokio` features for web applications, leveraging JavaScript web API.
 
-This library assumes that you're compilng your Rust project with `wasm-pack` and `wasm-bindgen`, which currently uses `wasm32-unknown-unknown` Rust target. Note that this library currently only supports the `web` target of `wasm-bindgen`, not [others](https://rustwasm.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`. Support for them can be added if there is a demand for it.
+This library assumes that you're compilng your Rust project with `wasm-pack` and `wasm-bindgen`, which currently uses `wasm32-unknown-unknown` Rust target. Note that this library currently only supports the `web` target of `wasm-bindgen`, not [others](https://rustwasm.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
 
 When using `spawn_blocking()`, the number of web workers are automatically adjusted adapting to the number of parallel tasks. Refer to the docs for additional details.
 
