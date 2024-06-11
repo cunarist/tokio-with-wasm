@@ -101,12 +101,10 @@ There are situations where you cannot use native Rust code directly on the web. 
 - https://rustwasm.github.io/wasm-bindgen/reference/attributes/on-js-imports/js_name.html
 - https://rustwasm.github.io/wasm-bindgen/reference/attributes/on-js-imports/js_namespace.html
 
-We should always assume that Rust code is executed in a **web worker**. Therefore, we cannot access the global `window` JavaScript object
+It is possible for rust code to be called in a **web worker**. Therefore, we cannot access the global `window` JavaScript object
 just like when you work in the main thread of JavaScript. Refer to the link below to check which web APIs are available in a web worker.
 You'll be surprised by various capabilities that modern JavaScript has.
 
 - https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Functions_and_classes_available_to_workers
-
-Also, there are many crates at `crates.io` that mimic native functionalities on the web. Let's use them to avoid reinventing the wheels if needed.
 
 Please note that this library uses a quite hacky and naive approach to mimic native `tokio` functionalities. That's because this library is regarded as a temporary solution for the period before `wasm32-wasi`. Any kind of PR is possible, as long as it makes things just work on the web.
