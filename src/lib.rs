@@ -1,28 +1,41 @@
-mod common;
+//! A library that adapts the popular async runtime `tokio` for web browsers.
+//!
+//! It provides a similar set of features specifically for web applications
+//! by leveraging the JavaScript web API.
+//!
+//! This library includes JavaScript glue code
+//! to mimic the behavior of real `tokio`,
+//! making it possible to run asynchronous Rust code in the browser.
+//! Since `tokio_with_wasm` adapts to the JavaScript event loop
+//! and does not include its own runtime,
+//! some advanced features of `tokio` might not be fully supported.
+
+#![allow(unused_imports)]
 
 #[cfg(not(all(
     target_arch = "wasm32",
     target_vendor = "unknown",
     target_os = "unknown"
 )))]
-compile_error!("`tokio_with_wasm` only supports `wasm32-unknown-unknown`");
+pub use tokio as alias;
 
-#[cfg(feature = "macros")]
-pub use tokio::join;
-#[cfg(feature = "macros")]
-pub use tokio::pin;
-#[cfg(feature = "macros")]
-pub use tokio::select;
-#[cfg(feature = "macros")]
-pub use tokio::try_join;
+#[cfg(all(
+    target_arch = "wasm32",
+    target_vendor = "unknown",
+    target_os = "unknown"
+))]
+pub use crate as alias;
 
-#[cfg(feature = "rt")]
-pub mod task;
-#[cfg(feature = "rt")]
-pub use task::spawn;
+#[cfg(all(
+    target_arch = "wasm32",
+    target_vendor = "unknown",
+    target_os = "unknown"
+))]
+mod glue;
 
-#[cfg(feature = "time")]
-pub mod time;
-
-#[cfg(feature = "sync")]
-pub use tokio::sync;
+#[cfg(all(
+    target_arch = "wasm32",
+    target_vendor = "unknown",
+    target_os = "unknown"
+))]
+pub use glue::*;

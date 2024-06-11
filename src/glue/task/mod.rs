@@ -6,6 +6,7 @@
 
 mod pool;
 
+use crate::glue::common::*;
 use pool::*;
 use std::fmt;
 use std::future::Future;
@@ -34,7 +35,7 @@ async fn manage_pool() {
             worker_pool.flush_queued_tasks();
         });
         let promise = js_sys::Promise::new(&mut |resolve, _reject| {
-            crate::common::set_timeout(&resolve, 100.0);
+            set_timeout(&resolve, 100.0);
         });
         let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
     }
@@ -327,7 +328,7 @@ pub async fn yield_now() {
 /// println!("Original task is joined.");
 /// ```
 pub struct JoinHandle<T> {
-    join_receiver: oneshot::Receiver<Result<T, JoinError>>,
+    join_receiver: oneshot::Receiver<std::result::Result<T, JoinError>>,
     cancel_notify: Arc<Notify>,
     is_cancelled: Arc<Mutex<bool>>,
 }
@@ -337,7 +338,7 @@ unsafe impl<T: Send> Sync for JoinHandle<T> {}
 impl<T> Unpin for JoinHandle<T> {}
 
 impl<T> Future for JoinHandle<T> {
-    type Output = Result<T, JoinError>;
+    type Output = std::result::Result<T, JoinError>;
     fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
         match self.join_receiver.try_recv() {
             Ok(received) => Poll::Ready(received),

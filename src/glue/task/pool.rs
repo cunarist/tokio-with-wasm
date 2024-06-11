@@ -1,4 +1,4 @@
-use crate::common::*;
+use crate::glue::common::*;
 use js_sys::Array;
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -52,8 +52,8 @@ impl WorkerPool {
                 idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
                 queued_tasks: RefCell::new(VecDeque::new()),
                 callback: Closure::new(|event: Event| {
-                    crate::common::console_log!("unhandled event: {}", event.type_());
-                    crate::common::log_js_value(&event);
+                    console_log!("unhandled event: {}", event.type_());
+                    log_js_value(&event);
                 }),
             }),
         };
@@ -175,7 +175,7 @@ impl WorkerPool {
         let slot2 = reclaim_slot.clone();
         let reclaim = Closure::<dyn FnMut(_)>::new(move |event: Event| {
             if let Some(error) = event.dyn_ref::<ErrorEvent>() {
-                crate::common::console_log!("error in worker: {}", error.message());
+                console_log!("error in worker: {}", error.message());
                 // TODO: this probably leaks memory somehow? It's sort of
                 // unclear what to do about errors in workers right now.
                 return;
@@ -191,8 +191,8 @@ impl WorkerPool {
                 return;
             }
 
-            crate::common::console_log!("unhandled event: {}", event.type_());
-            crate::common::log_js_value(&event);
+            console_log!("unhandled event: {}", event.type_());
+            log_js_value(&event);
         });
         worker.set_onmessage(Some(reclaim.as_ref().unchecked_ref()));
         *reclaim_slot.borrow_mut() = Some(reclaim);
@@ -222,7 +222,7 @@ impl WorkerPool {
 
     pub fn remove_inactive_workers(&self) {
         let mut idle_workers = self.pool_state.idle_workers.borrow_mut();
-        let current_timestamp = crate::common::now();
+        let current_timestamp = now();
         idle_workers.retain(|managed_worker| {
             let passed_time = current_timestamp - *managed_worker.deactivated_time.borrow();
             let is_active = passed_time < 10000.0; // 10 seconds
@@ -266,7 +266,7 @@ impl PoolState {
             assert!(prev != worker);
         }
         workers.push(ManagedWorker {
-            deactivated_time: RefCell::new(crate::common::now()),
+            deactivated_time: RefCell::new(now()),
             worker,
         });
     }
