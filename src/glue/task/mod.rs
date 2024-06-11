@@ -9,7 +9,7 @@ mod pool;
 use crate::glue::common::*;
 use pool::*;
 use std::fmt;
-use std::future::Future;
+use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -339,17 +339,14 @@ impl<T> Unpin for JoinHandle<T> {}
 
 impl<T> Future for JoinHandle<T> {
     type Output = std::result::Result<T, JoinError>;
-    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.join_receiver.try_recv() {
-            Ok(received) => Poll::Ready(received),
-            Err(TryRecvError::Empty) => {
-                let waker = context.waker().clone();
-                wasm_bindgen_futures::spawn_local(async move {
-                    waker.wake();
-                });
-                Poll::Pending
-            }
-            Err(TryRecvError::Closed) => Poll::Ready(Err(JoinError { cancelled: false })),
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let pinned_receiver = Pin::new(&mut self.join_receiver);
+        match pinned_receiver.poll(cx) {
+            Poll::Ready(received) => match received {
+                Ok(result) => Poll::Ready(result),
+                Err(_) => Poll::Ready(Err(JoinError { cancelled: false })),
+            },
+            Poll::Pending => Poll::Pending,
         }
     }
 }
