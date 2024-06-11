@@ -42,20 +42,18 @@ Until that time, there's `tokio_with_wasm`!
 
 ## Usage
 
-Add this library to your `Cargo.toml`:
+Add this library to your `Cargo.toml` alongside `tokio`:
 
 ```toml
 [dependencies]
+tokio = { version = "0.0.0", features = ["rt"] }
 tokio_with_wasm = { version = "0.0.0", features = ["rt"] }
 ```
 
 Here's a simple example of how to use `tokio_with_wasm`:
 
 ```rust
-#[cfg(target_family = "wasm")]
-use tokio_with_wasm as tokio;
-#[cfg(not(target_family = "wasm"))]
-use tokio;
+use tokio_with_wasm::alias as tokio;
 
 #[cfg_attr(target_family = "wasm", wasm_bindgen(start))]
 #[cfg_attr(not(target_family = "wasm"), tokio::main)]
@@ -78,6 +76,24 @@ async fn main() {
         tokio::task::yield_now().await;
     }
 }
+```
+
+The `use tokio_with_wasm::alias as tokio;` statement is functionally equivalent to the code below. This import is provided for convenience and to allow for shorter code.
+
+```rust
+#[cfg(all(
+    target_arch = "wasm32",
+    target_vendor = "unknown",
+    target_os = "unknown"
+))]
+use tokio_with_wasm as tokio;
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    target_vendor = "unknown",
+    target_os = "unknown"
+)))]
+use tokio;
 ```
 
 ## Documentation
