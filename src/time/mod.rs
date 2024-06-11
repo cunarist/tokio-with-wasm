@@ -1,3 +1,8 @@
+//! Utilities for tracking time.
+//!
+//! This module provides a number of types for executing code after a set period
+//! of time.
+
 /// Waits until `duration` has elapsed.
 ///
 /// Because this is a naive implemenation

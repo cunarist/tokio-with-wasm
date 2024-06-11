@@ -1,3 +1,5 @@
+//! Asynchronous green-threads.
+//!
 //! Resembling the familiar `tokio::task` patterns.
 //! this module leverages web workers to execute tasks in parallel,
 //! making it ideal for high-performance web applications.
