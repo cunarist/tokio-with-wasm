@@ -261,11 +261,6 @@ where
 /// by the JavaScript runtime.
 pub async fn yield_now() {
     use wasm_bindgen::prelude::*;
-    #[wasm_bindgen]
-    extern "C" {
-        #[wasm_bindgen(js_name = queueMicrotask)]
-        fn queue_microtask(callback: &js_sys::Function);
-    }
     let promise = js_sys::Promise::new(&mut |resolve, _reject| {
         queue_microtask(&resolve);
     });

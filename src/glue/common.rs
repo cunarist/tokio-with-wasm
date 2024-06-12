@@ -6,12 +6,12 @@ use wasm_bindgen::prelude::*;
 extern "C" {
     #[wasm_bindgen(js_namespace = console, js_name = log)]
     pub fn log(s: &str);
-    #[wasm_bindgen(js_namespace = console, js_name = log)]
-    pub fn log_js_value(x: &JsValue);
     #[wasm_bindgen(js_namespace = Date, js_name = now)]
     pub fn now() -> f64;
     #[wasm_bindgen(js_name = setTimeout)]
     pub fn set_timeout(callback: &js_sys::Function, milliseconds: f64);
+    #[wasm_bindgen(js_name = queueMicrotask)]
+    pub fn queue_microtask(callback: &js_sys::Function);
 }
 
 macro_rules! console_log {

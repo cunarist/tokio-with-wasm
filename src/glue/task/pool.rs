@@ -52,8 +52,7 @@ impl WorkerPool {
                 idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
                 queued_tasks: RefCell::new(VecDeque::new()),
                 callback: Closure::new(|event: Event| {
-                    console_log!("unhandled event: {}", event.type_());
-                    log_js_value(&event);
+                    console_log!("unhandled event: {:?}", event);
                 }),
             }),
         };
@@ -191,8 +190,7 @@ impl WorkerPool {
                 return;
             }
 
-            console_log!("unhandled event: {}", event.type_());
-            log_js_value(&event);
+            console_log!("unhandled event: {:?}", event);
         });
         worker.set_onmessage(Some(reclaim.as_ref().unchecked_ref()));
         *reclaim_slot.borrow_mut() = Some(reclaim);
