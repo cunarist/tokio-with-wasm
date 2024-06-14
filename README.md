@@ -56,7 +56,7 @@ Here's a simple example of how to use `tokio_with_wasm`:
 use tokio_with_wasm::alias as tokio;
 
 #[cfg_attr(target_family = "wasm", wasm_bindgen(start))]
-#[cfg_attr(not(target_family = "wasm"), tokio::main)]
+#[cfg_attr(not(target_family = "wasm"), tokio::main(flavor = "current_thread"))]
 async fn main() {
     let async_join_handle = tokio::spawn(async {
         // Your asynchronous code here.
