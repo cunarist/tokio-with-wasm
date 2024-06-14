@@ -7,7 +7,7 @@
 mod pool;
 
 use crate::glue::common::*;
-use pool::*;
+use pool::WorkerPool;
 use std::fmt;
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
@@ -167,11 +167,18 @@ where
     let cancel_notify = Arc::new(Notify::new());
     let cancel_notify_cloned = cancel_notify.clone();
     wasm_bindgen_futures::spawn_local(async move {
-        let output = tokio::select! {
-            returned = future => { Ok(returned) },
-            _ = cancel_notify_cloned.notified() => Err(JoinError { cancelled: true }),
-        };
-        let _ = join_sender.send(output);
+        let result = SelectFuture::new(
+            async move {
+                let output = future.await;
+                Ok(output)
+            },
+            async move {
+                cancel_notify_cloned.notified().await;
+                Err(JoinError { cancelled: true })
+            },
+        )
+        .await;
+        let _ = join_sender.send(result);
     });
     JoinHandle {
         join_receiver,

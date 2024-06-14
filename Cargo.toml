@@ -14,13 +14,13 @@ all-features = true
 # https://github.com/tokio-rs/tokio/blob/master/tokio/Cargo.toml
 default = []
 full = ["macros", "sync", "rt", "time"]
-macros = []
+macros = ["tokio/macros"]
 sync = []
 rt = []
 time = []
 
 [dependencies]
-tokio = { version = "1", features = ["sync", "macros"] }
+tokio = { version = "1", features = ["sync"] }
 js-sys = "0.3.68"
 wasm-bindgen = "0.2.91"
 wasm-bindgen-futures = "0.4.41"
