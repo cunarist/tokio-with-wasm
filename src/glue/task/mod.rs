@@ -20,7 +20,7 @@ use wasm_bindgen::prelude::*;
 
 thread_local! {
     pub(crate) static WORKER_POOL: WorkerPool = {
-        let worker_pool=WorkerPool::new();
+        let worker_pool = WorkerPool::new();
         wasm_bindgen_futures::spawn_local(manage_pool());
         worker_pool
     }
@@ -184,6 +184,7 @@ where
         join_receiver,
         cancel_notify,
         is_cancelled: Arc::new(Mutex::new(false)),
+        is_finished: false,
     }
 }
 
@@ -255,6 +256,7 @@ where
         join_receiver,
         cancel_notify: Arc::new(Notify::new()),
         is_cancelled,
+        is_finished: false,
     }
 }
 
@@ -333,6 +335,7 @@ pub struct JoinHandle<T> {
     join_receiver: oneshot::Receiver<std::result::Result<T, JoinError>>,
     cancel_notify: Arc<Notify>,
     is_cancelled: Arc<Mutex<bool>>,
+    is_finished: bool,
 }
 
 unsafe impl<T: Send> Send for JoinHandle<T> {}
@@ -344,9 +347,12 @@ impl<T> Future for JoinHandle<T> {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let pinned_receiver = Pin::new(&mut self.join_receiver);
         match pinned_receiver.poll(cx) {
-            Poll::Ready(received) => match received {
-                Ok(result) => Poll::Ready(result),
-                Err(_) => Poll::Ready(Err(JoinError { cancelled: false })),
+            Poll::Ready(received) => {
+                self.is_finished = true;
+                match received {
+                    Ok(result) => Poll::Ready(result),
+                    Err(_) => Poll::Ready(Err(JoinError { cancelled: false })),
+                }
             },
             Poll::Pending => Poll::Pending,
         }
@@ -407,6 +413,16 @@ impl<T> JoinHandle<T> {
         if let Ok(mut inner) = self.is_cancelled.lock() {
             *inner = true;
         }
+    }
+
+    /// Checks if the task associated with this `JoinHandle` has finished.
+    ///
+    /// Please note that this method can return `false` even if [`abort`] has been
+    /// called on the task. This is because the cancellation process may take
+    /// some time, and this method does not return `true` until it has
+    /// completed.
+    pub fn is_finished(&self) -> bool {
+        self.is_finished
     }
 }
 
