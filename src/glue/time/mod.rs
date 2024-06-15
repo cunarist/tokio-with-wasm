@@ -3,14 +3,14 @@
 //! This module provides a number of types for executing code after a set period
 //! of time.
 
+use crate::glue::common::*;
+
 /// Waits until `duration` has elapsed.
 ///
 /// Because this is a naive implemenation
 /// based on `setTimeout()` of JavaScript,
 /// web browsers might increase the interval arbitrarily
 /// to save system resources.
-use crate::glue::common::*;
-
 pub async fn sleep(duration: std::time::Duration) {
     use wasm_bindgen::prelude::*;
     let milliseconds = duration.as_millis() as f64;
