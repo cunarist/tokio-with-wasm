@@ -259,7 +259,6 @@ where
 /// Meanwhile, any other pending tasks will be scheduled
 /// by the JavaScript runtime.
 pub async fn yield_now() {
-    use wasm_bindgen::prelude::*;
     let promise = js_sys::Promise::new(&mut |resolve, _reject| {
         queue_microtask(&resolve);
     });
