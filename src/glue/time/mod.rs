@@ -11,6 +11,7 @@ use std::pin::Pin;
 use std::result::Result as StdResult;
 use std::task::{Context, Poll};
 use std::time::Duration;
+use wasm_bindgen::prelude::*;
 
 use crate::glue::common::*;
 
@@ -21,12 +22,12 @@ use crate::glue::common::*;
 /// web browsers might increase the interval arbitrarily
 /// to save system resources.
 pub async fn sleep(duration: Duration) {
-    use wasm_bindgen::prelude::*;
     let milliseconds = duration.as_millis() as f64;
     let promise = js_sys::Promise::new(&mut |resolve, _reject| {
         set_timeout(&resolve, milliseconds);
     });
-    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+    let future = wasm_bindgen_futures::JsFuture::from(promise);
+    let _ = future.await;
 }
 
 /// Poll a future with a timeout.
@@ -36,16 +37,20 @@ pub fn timeout<F>(duration: Duration, future: F) -> Timeout<F>
 where
     F: Future,
 {
-    let sleep = async move {
-        sleep(duration).await;
-        ()
+    let milliseconds = duration.as_millis() as f64;
+    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        set_timeout(&resolve, milliseconds);
+    });
+    let time_future = async {
+        let _ = wasm_bindgen_futures::JsFuture::from(promise);
     };
     Timeout {
-        future: Box::pin(future.into_future()),
-        sleep: Box::pin(sleep),
+        future: Box::pin(future),
+        sleep: Box::pin(time_future),
     }
 }
 
+/// Future returned by `timeout`.
 pub struct Timeout<F: Future> {
     future: Pin<Box<F>>,
     sleep: Pin<Box<dyn Future<Output = ()>>>,

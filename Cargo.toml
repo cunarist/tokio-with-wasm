@@ -12,7 +12,7 @@ all-features = true
 
 [features]
 # https://github.com/tokio-rs/tokio/blob/master/tokio/Cargo.toml
-default = []
+default = ["full"]
 full = ["macros", "sync", "rt", "time"]
 macros = ["tokio/macros"]
 sync = ["tokio/sync"]
