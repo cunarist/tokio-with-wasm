@@ -82,9 +82,6 @@ pub struct OnceSender<T> {
 }
 
 impl<T> OnceSender<T> {
-    pub fn is_done(&self) -> bool {
-        self.notified.load(Ordering::SeqCst)
-    }
     pub fn send(&self, value: T) {
         if let Ok(mut guard) = self.value.lock() {
             guard.replace(value);

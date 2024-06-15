@@ -18,7 +18,7 @@ use wasm_bindgen::prelude::*;
 
 thread_local! {
     pub(crate) static WORKER_POOL: WorkerPool = {
-        let worker_pool=WorkerPool::new();
+        let worker_pool = WorkerPool::new();
         wasm_bindgen_futures::spawn_local(manage_pool());
         worker_pool
     }
@@ -259,7 +259,6 @@ where
 /// Meanwhile, any other pending tasks will be scheduled
 /// by the JavaScript runtime.
 pub async fn yield_now() {
-    use wasm_bindgen::prelude::*;
     let promise = js_sys::Promise::new(&mut |resolve, _reject| {
         queue_microtask(&resolve);
     });
@@ -388,6 +387,16 @@ impl<T> JoinHandle<T> {
     /// ```
     pub fn abort(&self) {
         self.cancel_sender.send(());
+    }
+
+    /// Checks if the task associated with this `JoinHandle` has finished.
+    ///
+    /// Please note that this method can return `false` even if [`abort`] has been
+    /// called on the task. This is because the cancellation process may take
+    /// some time, and this method does not return `true` until it has
+    /// completed.
+    pub fn is_finished(&self) -> bool {
+        self.join_receiver.is_done()
     }
 }
 
