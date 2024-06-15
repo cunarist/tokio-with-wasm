@@ -175,7 +175,7 @@ where
             },
         )
         .await;
-        let _ = join_sender.send(result);
+        join_sender.send(result);
     });
     JoinHandle {
         join_receiver,
@@ -237,11 +237,11 @@ where
     WORKER_POOL.with(move |worker_pool| {
         worker_pool.queue_task(move || {
             if cancel_receiver.is_done() {
-                let _ = join_sender.send(Err(JoinError { cancelled: true }));
+                join_sender.send(Err(JoinError { cancelled: true }));
                 return;
             }
             let returned = callable();
-            let _ = join_sender.send(Ok(returned));
+            join_sender.send(Ok(returned));
         })
     });
     JoinHandle {
@@ -416,6 +416,6 @@ impl std::error::Error for JoinError {}
 
 impl JoinError {
     pub fn is_cancelled(&self) -> bool {
-        return self.cancelled;
+        self.cancelled
     }
 }
