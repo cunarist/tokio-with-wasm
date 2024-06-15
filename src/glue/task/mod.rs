@@ -8,14 +8,12 @@ mod pool;
 
 use crate::glue::common::*;
 use pool::WorkerPool;
+use std::borrow::BorrowMut;
 use std::fmt;
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use tokio::sync::oneshot;
-use tokio::sync::oneshot::error::TryRecvError;
-use tokio::sync::Notify;
 use wasm_bindgen::prelude::*;
 
 thread_local! {
@@ -163,9 +161,8 @@ where
     F: std::future::Future<Output = T> + 'static,
     T: 'static,
 {
-    let (join_sender, join_receiver) = oneshot::channel();
-    let cancel_notify = Arc::new(Notify::new());
-    let cancel_notify_cloned = cancel_notify.clone();
+    let (join_sender, join_receiver) = once_channel();
+    let (cancel_sender, cancel_receiver) = once_channel::<()>();
     wasm_bindgen_futures::spawn_local(async move {
         let result = SelectFuture::new(
             async move {
@@ -173,7 +170,7 @@ where
                 Ok(output)
             },
             async move {
-                cancel_notify_cloned.notified().await;
+                cancel_receiver.await;
                 Err(JoinError { cancelled: true })
             },
         )
@@ -182,9 +179,7 @@ where
     });
     JoinHandle {
         join_receiver,
-        cancel_notify,
-        is_cancelled: Arc::new(Mutex::new(false)),
-        is_finished: false,
+        cancel_sender,
     }
 }
 
@@ -237,16 +232,13 @@ where
     C: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    let (join_sender, join_receiver) = oneshot::channel();
-    let is_cancelled = Arc::new(Mutex::new(false));
-    let is_cancelled_cloned = is_cancelled.clone();
+    let (join_sender, join_receiver) = once_channel();
+    let (cancel_sender, cancel_receiver) = once_channel::<()>();
     WORKER_POOL.with(move |worker_pool| {
         worker_pool.queue_task(move || {
-            if let Ok(inner) = is_cancelled_cloned.lock() {
-                if *inner {
-                    let _ = join_sender.send(Err(JoinError { cancelled: true }));
-                    return;
-                }
+            if cancel_receiver.is_done() {
+                let _ = join_sender.send(Err(JoinError { cancelled: true }));
+                return;
             }
             let returned = callable();
             let _ = join_sender.send(Ok(returned));
@@ -254,9 +246,7 @@ where
     });
     JoinHandle {
         join_receiver,
-        cancel_notify: Arc::new(Notify::new()),
-        is_cancelled,
-        is_finished: false,
+        cancel_sender,
     }
 }
 
@@ -332,30 +322,18 @@ pub async fn yield_now() {
 /// println!("Original task is joined.");
 /// ```
 pub struct JoinHandle<T> {
-    join_receiver: oneshot::Receiver<std::result::Result<T, JoinError>>,
-    cancel_notify: Arc<Notify>,
-    is_cancelled: Arc<Mutex<bool>>,
-    is_finished: bool,
+    join_receiver: OnceReceiver<std::result::Result<T, JoinError>>,
+    cancel_sender: OnceSender<()>,
 }
 
 unsafe impl<T: Send> Send for JoinHandle<T> {}
 unsafe impl<T: Send> Sync for JoinHandle<T> {}
-impl<T> Unpin for JoinHandle<T> {}
 
 impl<T> Future for JoinHandle<T> {
     type Output = std::result::Result<T, JoinError>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let pinned_receiver = Pin::new(&mut self.join_receiver);
-        match pinned_receiver.poll(cx) {
-            Poll::Ready(received) => {
-                self.is_finished = true;
-                match received {
-                    Ok(result) => Poll::Ready(result),
-                    Err(_) => Poll::Ready(Err(JoinError { cancelled: false })),
-                }
-            },
-            Poll::Pending => Poll::Pending,
-        }
+        pinned_receiver.poll(cx)
     }
 }
 
@@ -409,10 +387,7 @@ impl<T> JoinHandle<T> {
     /// # }
     /// ```
     pub fn abort(&self) {
-        self.cancel_notify.notify_one();
-        if let Ok(mut inner) = self.is_cancelled.lock() {
-            *inner = true;
-        }
+        self.cancel_sender.send(());
     }
 
     /// Checks if the task associated with this `JoinHandle` has finished.
@@ -422,7 +397,7 @@ impl<T> JoinHandle<T> {
     /// some time, and this method does not return `true` until it has
     /// completed.
     pub fn is_finished(&self) -> bool {
-        self.is_finished
+        self.join_receiver.is_done()
     }
 }
 

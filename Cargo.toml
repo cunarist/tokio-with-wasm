@@ -15,12 +15,12 @@ all-features = true
 default = []
 full = ["macros", "sync", "rt", "time"]
 macros = ["tokio/macros"]
-sync = []
+sync = ["tokio/sync"]
 rt = []
 time = []
 
 [dependencies]
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1" }
 js-sys = "0.3.68"
 wasm-bindgen = "0.2.91"
 wasm-bindgen-futures = "0.4.41"

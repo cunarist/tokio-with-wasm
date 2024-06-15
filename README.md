@@ -26,20 +26,6 @@ This library assumes that you're compilng your Rust project with `wasm-pack` and
 
 > Though various IO functionalities can be added in the future, they're not included yet.
 
-## Why This is Needed
-
-The web has many restrictions due to its sandboxed environment which prevents the use of threads, time, file IO, network IO, and many other native functionalities. Consequently, certain features are missing from Rust's `std` due to these limitations. That's why `tokio` doesn't really work well on web browsers.
-
-To address this issue, this crate offers `tokio` modules with the **same names** as the original native ones, providing workarounds for these constraints.
-
-## Future Vision
-
-Because a large portion of Rust's web ecosystem is based on `wasm32-unknown-unknown` right now, we had to make an alias crate of `tokio` to use its functionalities directly on the web.
-
-Hopefully, when `wasm32-wasi` becomes the mainstream Rust target for the web, [`jco`](https://github.com/bytecodealliance/jco) might be an alternative to `wasm-bindgen` as it can provide full `std` functionalities with browser shims (polyfills). However, this will take time because the [`wasi-threads`](https://github.com/WebAssembly/wasi-threads) proposal still has a long way to go.
-
-Until that time, there's `tokio_with_wasm`!
-
 ## Usage
 
 Add this library to your `Cargo.toml` alongside `tokio`:
@@ -56,7 +42,7 @@ Here's a simple example of how to use `tokio_with_wasm`:
 use tokio_with_wasm::alias as tokio;
 
 #[cfg_attr(target_family = "wasm", wasm_bindgen(start))]
-#[cfg_attr(not(target_family = "wasm"), tokio::main)]
+#[cfg_attr(not(target_family = "wasm"), tokio::main(flavor = "current_thread"))]
 async fn main() {
     let async_join_handle = tokio::spawn(async {
         // Your asynchronous code here.
@@ -102,11 +88,29 @@ API documentation can be found on [docs.rs](https://docs.rs/tokio_with_wasm).
 
 ## Caution
 
-Keep in mind that you should NEVER write panicking code. For `wasm32-unknown-unknown` there's currently [no way](https://rustwasm.github.io/wasm-bindgen/api/wasm_bindgen_futures/fn.future_to_promise.html#panics) to catch and unwind panics like on native platforms. Panics will eventually lead to leaked JavaScript `Promise`s.
+Keep in mind that you should NEVER write panicking code.
+
+For `wasm32-unknown-unknown`, there's currently [no way](https://rustwasm.github.io/wasm-bindgen/api/wasm_bindgen_futures/fn.future_to_promise.html#panics) to catch and unwind panics like on native platforms. Panics will eventually lead to leaked JavaScript `Promise`s.
+
+Stick to the `Result` enum whenever possible.
 
 ## Deploying the Web App
 
 After building your webassembly module and preparing it for deployment, ensure that your web server is configured to include cross-origin-related HTTP headers in its responses. Set the [`Cross-Origin-Opener-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy) to `same-origin` and [`Cross-Origin-Embedder-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy) to `require-corp`. These headers enable clients using your website to gain access to `SharedArrayBuffer` web API, which is something similar to shared memory on the web. Additionally, don't forget to specify the MIME type `application/wasm` for `.wasm` files within the server configurations to ensure optimal performance.
+
+## Why This is Needed
+
+The web has many restrictions due to its sandboxed environment which prevents the use of threads, time, file IO, network IO, and many other native functionalities. Consequently, certain features are missing from Rust's `std` due to these limitations. That's why `tokio` doesn't really work well on web browsers.
+
+To address this issue, this crate offers `tokio` modules with the **same names** as the original native ones, providing workarounds for these constraints.
+
+## Future Vision
+
+Because a large portion of Rust's web ecosystem is based on `wasm32-unknown-unknown` right now, we had to make an alias crate of `tokio` to use its functionalities directly on the web.
+
+Hopefully, when `wasm32-wasi` becomes the mainstream Rust target for the web, [`jco`](https://github.com/bytecodealliance/jco) might be an alternative to `wasm-bindgen` as it can provide full `std` functionalities with browser shims (polyfills). However, this will take time because the [`wasi-threads`](https://github.com/WebAssembly/wasi-threads) proposal still has a long way to go.
+
+Until that time, there's `tokio_with_wasm`!
 
 ## Contribution Guide
 
