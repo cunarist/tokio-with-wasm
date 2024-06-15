@@ -12,8 +12,17 @@ use std::result::Result as StdResult;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::JsFuture;
 
 use crate::glue::common::*;
+
+async fn time_future(duration: Duration) {
+    let milliseconds = duration.as_millis() as f64;
+    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        set_timeout(&resolve, milliseconds);
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
 
 /// Waits until `duration` has elapsed.
 ///
@@ -21,13 +30,23 @@ use crate::glue::common::*;
 /// based on `setTimeout()` of JavaScript,
 /// web browsers might increase the interval arbitrarily
 /// to save system resources.
-pub async fn sleep(duration: Duration) {
-    let milliseconds = duration.as_millis() as f64;
-    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
-        set_timeout(&resolve, milliseconds);
-    });
-    let future = wasm_bindgen_futures::JsFuture::from(promise);
-    let _ = future.await;
+pub fn sleep(duration: Duration) -> Sleep {
+    let time_future = time_future(duration);
+    Sleep {
+        time_future: Box::pin(time_future),
+    }
+}
+
+/// Future returned by `sleep`.
+pub struct Sleep {
+    time_future: Pin<Box<dyn Future<Output = ()>>>,
+}
+
+impl Future for Sleep {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.time_future.as_mut().poll(cx)
+    }
 }
 
 /// Poll a future with a timeout.
@@ -37,23 +56,17 @@ pub fn timeout<F>(duration: Duration, future: F) -> Timeout<F>
 where
     F: Future,
 {
-    let milliseconds = duration.as_millis() as f64;
-    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
-        set_timeout(&resolve, milliseconds);
-    });
-    let time_future = async {
-        let _ = wasm_bindgen_futures::JsFuture::from(promise);
-    };
+    let time_future = time_future(duration);
     Timeout {
         future: Box::pin(future),
-        sleep: Box::pin(time_future),
+        time_future: Box::pin(time_future),
     }
 }
 
 /// Future returned by `timeout`.
 pub struct Timeout<F: Future> {
     future: Pin<Box<F>>,
-    sleep: Pin<Box<dyn Future<Output = ()>>>,
+    time_future: Pin<Box<dyn Future<Output = ()>>>,
 }
 
 impl<F: Future> Future for Timeout<F> {
@@ -64,7 +77,7 @@ impl<F: Future> Future for Timeout<F> {
         // If it's pending, poll the sleep future.
         match self.future.as_mut().poll(cx) {
             Poll::Ready(output) => Poll::Ready(Ok(output)),
-            Poll::Pending => match self.sleep.as_mut().poll(cx) {
+            Poll::Pending => match self.time_future.as_mut().poll(cx) {
                 Poll::Ready(()) => Poll::Ready(Err(Elapsed(()))),
                 Poll::Pending => Poll::Pending,
             },
