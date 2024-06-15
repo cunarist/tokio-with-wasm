@@ -260,7 +260,7 @@ where
 /// by the JavaScript runtime.
 pub async fn yield_now() {
     let promise = js_sys::Promise::new(&mut |resolve, _reject| {
-        queue_microtask(&resolve);
+        set_timeout(&resolve, 0.0);
     });
     let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
 }

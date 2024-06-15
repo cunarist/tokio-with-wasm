@@ -15,8 +15,6 @@ extern "C" {
     pub fn now() -> f64;
     #[wasm_bindgen(js_name = setTimeout)]
     pub fn set_timeout(callback: &js_sys::Function, milliseconds: f64);
-    #[wasm_bindgen(js_name = queueMicrotask)]
-    pub fn queue_microtask(callback: &js_sys::Function);
 }
 
 macro_rules! console_log {
