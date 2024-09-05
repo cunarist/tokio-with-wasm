@@ -40,7 +40,7 @@ impl Default for WorkerPool {
                 idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
                 queued_tasks: RefCell::new(VecDeque::new()),
                 callback: Closure::new(|event: Event| {
-                    console_log!("unhandled event: {:?}", event);
+                    console_error!("unhandled event: {:?}", event);
                 }),
             }),
         }
@@ -179,7 +179,7 @@ impl WorkerPool {
         let slot2 = reclaim_slot.clone();
         let reclaim = Closure::<dyn FnMut(_)>::new(move |event: Event| {
             if let Some(error) = event.dyn_ref::<ErrorEvent>() {
-                console_log!("error in worker: {}", error.message());
+                console_error!("Error in worker: {}", error.message());
                 // TODO: this probably leaks memory somehow? It's sort of
                 // unclear what to do about errors in workers right now.
                 return;
@@ -195,7 +195,7 @@ impl WorkerPool {
                 return;
             }
 
-            console_log!("unhandled event: {:?}", event);
+            console_error!("Unhandled event: {:?}", event);
         });
         worker.set_onmessage(Some(reclaim.as_ref().unchecked_ref()));
         *reclaim_slot.borrow_mut() = Some(reclaim);
@@ -241,7 +241,12 @@ impl WorkerPool {
         while *self.pool_state.total_workers_count.borrow() < MAX_WORKERS {
             let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
             if let Some(queued_task) = queued_tasks.pop_front() {
-                let _ = self.run(queued_task);
+                let result = self.run(queued_task);
+                if let Err(error) = result {
+                    console_error!(
+                        "Error from `flush_queued_tasks` in `tokio-with-wasm`: {error:?}"
+                    );
+                }
             } else {
                 break;
             }

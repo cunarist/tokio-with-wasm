@@ -21,7 +21,10 @@ async fn time_future(duration: Duration) {
     let promise = js_sys::Promise::new(&mut |resolve, _reject| {
         set_timeout(&resolve, milliseconds);
     });
-    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+    let result = wasm_bindgen_futures::JsFuture::from(promise).await;
+    if let Err(error) = result {
+        console_error!("Error from `time_future` in `tokio-with-wasm`: {:?}", error);
+    }
 }
 
 /// Waits until `duration` has elapsed.
