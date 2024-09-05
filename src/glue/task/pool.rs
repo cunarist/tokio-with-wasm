@@ -80,7 +80,7 @@ impl WorkerPool {
             import init, * as wasm_bindgen from '{}';
             globalThis.wasm_bindgen = wasm_bindgen;
             self.onmessage = event => {{
-                let initialised = init(...event.data).catch(err => {{
+                let initialised = init(event.data).catch(err => {{
                     // Propagate to main `onerror`:
                     setTimeout(() => {{
                         throw err;
@@ -110,10 +110,23 @@ impl WorkerPool {
         // With a worker spun up send it the module/memory so it can start
         // instantiating the wasm module. Later it might receive further
         // messages about code to run on the wasm module.
-        let array = js_sys::Array::new();
-        array.push(&wasm_bindgen::module());
-        array.push(&wasm_bindgen::memory());
-        worker.post_message(&array)?;
+        let worker_init = js_sys::Object::new();
+
+        js_sys::Reflect::set(
+            &worker_init,
+            &js_sys::JsString::from("module_or_path"),
+            &wasm_bindgen::module(),
+        )
+        .unwrap();
+
+        js_sys::Reflect::set(
+            &worker_init,
+            &js_sys::JsString::from("memory"),
+            &wasm_bindgen::memory(),
+        )
+        .unwrap();
+
+        worker.post_message(&worker_init)?;
 
         Ok(worker)
     }
