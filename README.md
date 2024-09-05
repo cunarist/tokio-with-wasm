@@ -94,7 +94,13 @@ On `wasm32-unknown-unknown`, there's currently [no way](https://rustwasm.github.
 
 Stick to the `Result` enum whenever possible.
 
-## Deploying the Web App
+## Building and Deploying
+
+If you're using Web Workers (threads) by calling `spawn_blocking`, you need to set specific Rust compiler flags:
+
+- `+atomics`
+- `+bulk-memory`
+- `+mutable-globals`
 
 After building your webassembly module and preparing it for deployment, ensure that your web server is configured to include cross-origin-related HTTP headers in its responses. Set the [`Cross-Origin-Opener-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy) to `same-origin` and [`Cross-Origin-Embedder-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy) to `require-corp`. These headers enable clients using your website to gain access to `SharedArrayBuffer` web API, which is something similar to shared memory on the web. Additionally, don't forget to specify the MIME type `application/wasm` for `.wasm` files within the server configurations to ensure optimal performance.
 
