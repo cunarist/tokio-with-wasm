@@ -32,6 +32,21 @@ struct Task {
     callable: Box<dyn FnOnce() + Send>,
 }
 
+impl Default for WorkerPool {
+    fn default() -> Self {
+        WorkerPool {
+            pool_state: Rc::new(PoolState {
+                total_workers_count: RefCell::new(0),
+                idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
+                queued_tasks: RefCell::new(VecDeque::new()),
+                callback: Closure::new(|event: Event| {
+                    console_log!("unhandled event: {:?}", event);
+                }),
+            }),
+        }
+    }
+}
+
 #[wasm_bindgen]
 impl WorkerPool {
     /// Creates a new `WorkerPool` which immediately creates `initial` workers.
@@ -46,17 +61,7 @@ impl WorkerPool {
     /// message is sent to it.
     #[wasm_bindgen(constructor)]
     pub fn new() -> WorkerPool {
-        let worker_pool = WorkerPool {
-            pool_state: Rc::new(PoolState {
-                total_workers_count: RefCell::new(0),
-                idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
-                queued_tasks: RefCell::new(VecDeque::new()),
-                callback: Closure::new(|event: Event| {
-                    console_log!("unhandled event: {:?}", event);
-                }),
-            }),
-        };
-        worker_pool
+        WorkerPool::default()
     }
 
     /// Unconditionally spawns a new worker
