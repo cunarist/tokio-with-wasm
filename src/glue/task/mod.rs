@@ -35,7 +35,10 @@ async fn manage_pool() {
         let promise = js_sys::Promise::new(&mut |resolve, _reject| {
             set_timeout(&resolve, 100.0);
         });
-        let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+        let result = wasm_bindgen_futures::JsFuture::from(promise).await;
+        if let Err(error) = result {
+            console_error!("Error from `manage_pool` in `tokio-with-wasm`: {error:?}");
+        }
     }
 }
 
@@ -262,7 +265,10 @@ pub async fn yield_now() {
     let promise = js_sys::Promise::new(&mut |resolve, _reject| {
         set_timeout(&resolve, 0.0);
     });
-    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+    let result = wasm_bindgen_futures::JsFuture::from(promise).await;
+    if let Err(error) = result {
+        console_error!("Error from `yield_now` in `tokio-with-wasm`: {error:?}");
+    }
 }
 
 /// An owned permission to join on a task (awaiting its termination).
