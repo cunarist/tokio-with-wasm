@@ -98,34 +98,31 @@ impl WorkerPool {
             ",
             get_script_path()?
         );
+        let blob_property_bag = BlobPropertyBag::new();
+        blob_property_bag.set_type("text/javascript");
         let blob = Blob::new_with_blob_sequence_and_options(
             &Array::from_iter([JsValue::from(script)]).into(),
-            BlobPropertyBag::new().type_("text/javascript"),
+            &blob_property_bag,
         )?;
         let url = Url::create_object_url_with_blob(&blob)?;
-        let mut options = WorkerOptions::new();
-        options.type_(web_sys::WorkerType::Module);
+        let options = WorkerOptions::new();
+        options.set_type(web_sys::WorkerType::Module);
         let worker = Worker::new_with_options(&url, &options)?;
 
         // With a worker spun up send it the module/memory so it can start
         // instantiating the wasm module. Later it might receive further
         // messages about code to run on the wasm module.
         let worker_init = js_sys::Object::new();
-
         js_sys::Reflect::set(
             &worker_init,
             &js_sys::JsString::from("module_or_path"),
             &wasm_bindgen::module(),
-        )
-        .unwrap();
-
+        )?;
         js_sys::Reflect::set(
             &worker_init,
             &js_sys::JsString::from("memory"),
             &wasm_bindgen::memory(),
-        )
-        .unwrap();
-
+        )?;
         worker.post_message(&worker_init)?;
 
         Ok(worker)
