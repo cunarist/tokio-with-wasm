@@ -3,13 +3,7 @@
 mod common;
 
 #[cfg(feature = "macros")]
-pub use tokio::join;
-#[cfg(feature = "macros")]
-pub use tokio::pin;
-#[cfg(feature = "macros")]
-pub use tokio::select;
-#[cfg(feature = "macros")]
-pub use tokio::try_join;
+pub use tokio::{join, pin, select, try_join};
 
 #[cfg(feature = "rt")]
 pub mod task;
