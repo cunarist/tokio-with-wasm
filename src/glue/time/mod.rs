@@ -8,7 +8,6 @@ use std::fmt;
 use std::future::{Future, IntoFuture};
 use std::io;
 use std::pin::Pin;
-use std::result::Result as StdResult;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
@@ -73,7 +72,7 @@ pub struct Timeout<F: Future> {
 }
 
 impl<F: Future> Future for Timeout<F> {
-    type Output = StdResult<F::Output, Elapsed>;
+    type Output = std::result::Result<F::Output, Elapsed>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // Poll the future first.
         // If it's ready, return the output.
