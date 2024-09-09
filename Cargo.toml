@@ -1,37 +1,6 @@
-[package]
-name = "tokio_with_wasm"
-version = "0.6.3"
-edition = "2021"
-license = "MIT"
-description = "Mimicking tokio functionalies on web browsers"
-repository = "https://github.com/cunarist/tokio-with-wasm"
+[workspace]
+members = ["tokio_with_wasm", "tokio_with_wasm_proc"]
+resolver = "2"
 
-[package.metadata.docs.rs]
-default-target = "wasm32-unknown-unknown"
-all-features = true
-
-[features]
-# https://github.com/tokio-rs/tokio/blob/master/tokio/Cargo.toml
-default = []
-full = ["macros", "sync", "rt", "time"]
-macros = ["tokio/macros"]
-sync = ["tokio/sync"]
-rt = []
-time = []
-
-[dependencies]
-tokio = "1.x.x"
-wasm-bindgen = "0.2.93"
-wasm-bindgen-futures = "0.4.43"
-js-sys = "0.3.70"
-web-sys = { version = "0.3.70", features = [
-    'Worker',
-    'WorkerOptions',
-    'WorkerType',
-    'DedicatedWorkerGlobalScope',
-    'MessageEvent',
-    'ErrorEvent',
-    'Blob',
-    "BlobPropertyBag",
-    'Url',
-] }
+[patch.crates-io]
+tokio_with_wasm_proc = { path = "./tokio_with_wasm_proc" }
