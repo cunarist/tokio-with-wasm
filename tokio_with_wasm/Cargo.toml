@@ -12,12 +12,13 @@ all-features = true
 
 [features]
 # https://github.com/tokio-rs/tokio/blob/master/tokio/Cargo.toml
-default = []
-full = ["macros", "sync", "rt", "time"]
+default = ["full"]
+full = ["macros", "sync", "time", "rt", "rt-multi-thread"]
 macros = ["tokio/macros"]
 sync = ["tokio/sync"]
-rt = []
 time = []
+rt = []
+rt-multi-thread = []
 
 [dependencies]
 tokio_with_wasm_proc = "0.6.3"
