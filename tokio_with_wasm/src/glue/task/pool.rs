@@ -77,8 +77,8 @@ impl WorkerPool {
         *self.pool_state.total_workers_count.borrow_mut() += 1;
         let script = format!(
             "
-            import init, * as wasm_bindgen from '{}';
-            globalThis.wasm_bindgen = wasm_bindgen;
+            import init, * as wasmBindings from '{}';
+            globalThis.wasmBindings = wasmBindings;
             self.onmessage = event => {{
                 let initialised = init(event.data).catch(err => {{
                     // Propagate to main `onerror`:
@@ -92,7 +92,7 @@ impl WorkerPool {
                 self.onmessage = async event => {{
                     // This will queue further commands up until the module is fully initialised:
                     await initialised;
-                    wasm_bindgen.task_worker_entry_point(event.data);
+                    wasmBindings.task_worker_entry_point(event.data);
                 }};
             }};
             ",
