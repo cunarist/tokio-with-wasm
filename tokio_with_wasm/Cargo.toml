@@ -19,8 +19,6 @@ sync = ["tokio/sync"]
 time = []
 rt = []
 rt-multi-thread = []
-# WASM Bindings for WorkerPool
-workerpool-bindgen = []
 
 [dependencies]
 tokio_with_wasm_proc = "0.7.2"
