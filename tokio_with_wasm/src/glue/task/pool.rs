@@ -11,7 +11,7 @@ use web_sys::{
 
 pub static MAX_WORKERS: usize = 512;
 
-#[cfg(feature = "worker_pool_bindgen", wasm_bindgen)]
+#[cfg(feature = "workerpool-bindgen", wasm_bindgen)]
 pub struct WorkerPool {
     pool_state: Rc<PoolState>,
 }
@@ -47,7 +47,7 @@ impl Default for WorkerPool {
     }
 }
 
-#[cfg(feature = "worker_pool_bindgen", wasm_bindgen)]
+#[cfg(feature = "workerpool-bindgen", wasm_bindgen)]
 impl WorkerPool {
     /// Creates a new `WorkerPool` which immediately creates `initial` workers.
     ///
@@ -59,7 +59,7 @@ impl WorkerPool {
     ///
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
-    #[cfg(feature = "worker_pool_bindgen", wasm_bindgen(constructor))]
+    #[cfg(feature = "workerpool-bindgen", wasm_bindgen(constructor))]
     pub fn new() -> WorkerPool {
         WorkerPool::default()
     }
