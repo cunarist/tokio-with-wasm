@@ -36,7 +36,7 @@ tokio = { version = "0.0.0", features = ["rt"] }
 tokio_with_wasm = { version = "0.0.0", features = ["rt"] }
 ```
 
-Here's a simple example of how to use `tokio_with_wasm`:
+Here's a simple example of using `tokio_with_wasm` that works on both native platforms and web browsers:
 
 ```rust
 use tokio_with_wasm::alias as tokio;
@@ -95,13 +95,30 @@ Stick to the `Result` enum whenever possible.
 
 ## Building and Deploying
 
-If you're using Web Workers (threads) by calling `spawn_blocking`, you need to set specific Rust compiler flags:
+If you're using Web Workers (threads) by calling `spawn_blocking`, you need to set specific Rust compiler flags. Also, you must use the `nightly` toolchain and include certain Rust standard library components in the compilation.
 
-- `+atomics`
-- `+bulk-memory`
-- `+mutable-globals`
+- `target-feature` flags
+  - `+atomics`
+  - `+bulk-memory`
+  - `+mutable-globals`
+- `build-std` components
+  - `std`
+  - `panic_abort`
 
-After building your webassembly module and preparing it for deployment, ensure that your web server is configured to include cross-origin-related HTTP headers in its responses. Set the [`Cross-Origin-Opener-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy) to `same-origin` and [`Cross-Origin-Embedder-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy) to `require-corp`. These headers enable clients using your website to gain access to `SharedArrayBuffer` web API, which is something similar to shared memory on the web. Additionally, don't forget to specify the MIME type `application/wasm` for `.wasm` files within the server configurations to ensure optimal performance.
+Here's a full example command:
+
+```sh
+export RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
+export RUSTUP_TOOLCHAIN="nightly"
+wasm-pack build <path> --target web -- -Z build-std=std,panic_abort
+```
+
+After building your webassembly module and preparing it for deployment, ensure that your web server is configured to include cross-origin-related HTTP headers in its responses. These headers enable clients using your website to gain access to `SharedArrayBuffer` web API, which is something similar to shared memory on the web.
+
+- [`Cross-Origin-Opener-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy): `same-origin`
+- [`Cross-Origin-Embedder-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy): `require-corp`
+
+Additionally, don't forget to specify the MIME type `application/wasm` for `.wasm` files within the server configurations to ensure optimal performance.
 
 ## Why This is Needed
 
