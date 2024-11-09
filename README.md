@@ -36,7 +36,7 @@ tokio = { version = "0.0.0", features = ["rt"] }
 tokio_with_wasm = { version = "0.0.0", features = ["rt"] }
 ```
 
-Here's a simple example of how to use `tokio_with_wasm`:
+Here's a simple example of using `tokio_with_wasm` that works on both native platforms and web browsers:
 
 ```rust
 use tokio_with_wasm::alias as tokio;
