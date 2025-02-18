@@ -12,7 +12,7 @@ To compile:
 ```shell
 export RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
 export RUSTUP_TOOLCHAIN="nightly"
-wasm-pack build <path> --target web -- -Z build-std=std,panic_abort
+wasm-pack build . --target web -- -Z build-std=std,panic_abort
 ```
 
 To run on a web browser:
