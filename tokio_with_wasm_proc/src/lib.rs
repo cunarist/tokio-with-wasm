@@ -13,6 +13,7 @@ pub fn main(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(item as ItemFn);
 
     // Extract function components
+    let vis = &input_fn.vis;
     let fn_name = &input_fn.sig.ident;
     let fn_args = &input_fn.sig.inputs;
     let fn_block = &input_fn.block;
@@ -21,7 +22,7 @@ pub fn main(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // Generate a non-async function
     // that calls the original function with `spawn_local`
     let expanded = quote! {
-        fn #fn_name() {
+        #vis fn #fn_name() {
             async fn original(#fn_args) #return_type #fn_block
 
             // Spawn the async function in a local task
