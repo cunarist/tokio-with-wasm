@@ -39,17 +39,19 @@ tokio_with_wasm = { version = "0.0.0", features = ["rt"] }
 Here's a simple example of using `tokio_with_wasm` that works on both native platforms and web browsers:
 
 ```rust
+use tokio::task::{spawn, spawn_blocking, yield_now};
+use tokio::time::sleep;
 use tokio_with_wasm::alias as tokio;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    let async_join_handle = tokio::spawn(async {
-        // Your asynchronous code here.
+    let async_join_handle = spawn(async {
+        // Asynchronous code here.
         // This will run concurrently
         // in the same web worker(thread).
     });
-    let blocking_join_handle = tokio::task::spawn_blocking(|| {
-        // Your blocking code here.
+    let blocking_join_handle = spawn_blocking(|| {
+        // Blocking code here.
         // This will run parallelly
         // in the external pool of web workers.
     });
@@ -58,7 +60,7 @@ async fn main() {
     for i in 1..1000 {
         // Some repeating task here
         // that shouldn't block the JavaScript runtime.
-        tokio::task::yield_now().await;
+        yield_now().await;
     }
 }
 ```
@@ -107,7 +109,7 @@ If you're using Web Workers (threads) by calling `spawn_blocking`, you need to s
 
 Here's a full example command:
 
-```sh
+```shell
 export RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
 export RUSTUP_TOOLCHAIN="nightly"
 wasm-pack build <path> --target web -- -Z build-std=std,panic_abort

@@ -1,6 +1,7 @@
 [workspace]
-members = ["tokio_with_wasm", "tokio_with_wasm_proc"]
+members = ["tokio_with_wasm", "tokio_with_wasm_proc", "example"]
 resolver = "2"
 
 [patch.crates-io]
 tokio_with_wasm_proc = { path = "./tokio_with_wasm_proc" }
+example = { path = "./example" }

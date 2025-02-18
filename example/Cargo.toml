@@ -1,0 +1,15 @@
+[package]
+name = "example"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Example usage of `tokio-with-wasm` crate"
+repository = "https://github.com/cunarist/tokio-with-wasm"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+tokio = { version = "1.x.x", features = ["macros", "sync", "time", "rt"] }
+tokio_with_wasm = { version = "*", features = ["macros", "sync", "time", "rt"] }
+wasm-bindgen = "0.2.95"
