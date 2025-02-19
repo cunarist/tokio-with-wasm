@@ -1,5 +1,6 @@
 [build]
-# Uncomment the line below to switch Rust-analyzer to perform
-# type checking and linting in webassembly mode, for the web target.
-# You might have to restart Rust-analyzer for this change to take effect.
+# Tell Rust-analyzer to perform
+# type checking and linting in webassembly mode.
+# If you make any changes to this field,
+# you might have to restart Rust-analyzer for the change to take effect.
 target = "wasm32-unknown-unknown"
