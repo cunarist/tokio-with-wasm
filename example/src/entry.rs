@@ -1,7 +1,7 @@
 use crate::print_fit;
 use std::time::Duration;
 use tokio::task::{spawn, spawn_blocking, yield_now};
-use tokio::time::sleep;
+use tokio::time::{interval, sleep};
 use tokio_with_wasm::alias as tokio;
 
 #[tokio::main(flavor = "current_thread")]
@@ -37,5 +37,16 @@ pub async fn async_main() {
             // Ensure it doesn't hog CPU by taking some breaks.
             sleep(Duration::from_millis(500)).await;
         }
+    }
+
+    test_interval().await;
+}
+
+pub async fn test_interval() {
+    let mut ticker = interval(Duration::from_secs(1));
+    for i in 1..=5 {
+        ticker.tick().await;
+        yield_now().await;
+        print_fit!("Interval task, iteration: {}", i);
     }
 }
