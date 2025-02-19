@@ -7,6 +7,7 @@ use std::task::{Context, Poll, Waker};
 
 /// Creates an unbounded channel, returning the sender and receiver.
 /// This channel is not `Send`, which means it cannot be sent across threads.
+/// The sender and receiver are not cloneable.
 pub fn local_channel<T>() -> (LocalSender<T>, LocalReceiver<T>) {
     let shared = Rc::new(RefCell::new(ChannelCore {
         queue: VecDeque::new(),
@@ -32,6 +33,7 @@ pub struct LocalSender<T> {
     shared: Rc<RefCell<ChannelCore<T>>>,
 }
 
+/// The sender side of an unbounded channel.
 impl<T> LocalSender<T> {
     /// Attempts to send an item into the channel.
     pub fn send(&self, item: T) {
@@ -58,6 +60,7 @@ impl<T> Drop for LocalSender<T> {
     }
 }
 
+/// The receiver side of an unbounded channel.
 pub struct LocalReceiver<T> {
     shared: Rc<RefCell<ChannelCore<T>>>,
 }
@@ -84,6 +87,7 @@ impl<T> LocalReceiver<T> {
     }
 }
 
+/// A future that resolves to the next item received.
 pub struct ChannelNext<'a, T> {
     receiver: &'a mut LocalReceiver<T>,
 }
