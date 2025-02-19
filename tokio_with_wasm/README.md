@@ -57,7 +57,7 @@ async fn main() {
     });
     let async_result = async_join_handle.await;
     let blocking_result = blocking_join_handle.await;
-    for i in 1..=1000{
+    for i in 1..=1000 {
         // Some repeating task here
         // that shouldn't block the JavaScript runtime.
         yield_now().await;
