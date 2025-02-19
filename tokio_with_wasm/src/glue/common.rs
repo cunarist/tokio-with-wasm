@@ -1,4 +1,4 @@
-#![allow(unused_macros, unused_imports, dead_code)]
+#![allow(dead_code)]
 
 use js_sys::Function;
 use std::collections::VecDeque;

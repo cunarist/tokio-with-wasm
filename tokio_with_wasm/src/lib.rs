@@ -31,6 +31,7 @@ pub use crate as alias;
 ))]
 mod glue;
 
+#[allow(unused_imports)]
 #[cfg(all(
     target_arch = "wasm32",
     target_vendor = "unknown",
