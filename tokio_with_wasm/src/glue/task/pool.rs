@@ -1,12 +1,13 @@
-use crate::glue::common::*;
-use js_sys::Array;
+use crate::glue::common::{console_error, error, now, Result};
+use js_sys::{eval, global, Array, JsString, Object, Reflect};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::prelude::{wasm_bindgen, Closure, JsCast, JsValue};
+use wasm_bindgen::{memory, module};
 use web_sys::{
     Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, ErrorEvent, Event, MessageEvent, Url,
-    Worker, WorkerOptions,
+    Worker, WorkerOptions, WorkerType,
 };
 
 pub static MAX_WORKERS: usize = 512;
@@ -103,23 +104,15 @@ impl WorkerPool {
         )?;
         let url = Url::create_object_url_with_blob(&blob)?;
         let options = WorkerOptions::new();
-        options.set_type(web_sys::WorkerType::Module);
+        options.set_type(WorkerType::Module);
         let worker = Worker::new_with_options(&url, &options)?;
 
         // With a worker spun up send it the module/memory so it can start
         // instantiating the wasm module. Later it might receive further
         // messages about code to run on the wasm module.
-        let worker_init = js_sys::Object::new();
-        js_sys::Reflect::set(
-            &worker_init,
-            &js_sys::JsString::from("module_or_path"),
-            &wasm_bindgen::module(),
-        )?;
-        js_sys::Reflect::set(
-            &worker_init,
-            &js_sys::JsString::from("memory"),
-            &wasm_bindgen::memory(),
-        )?;
+        let worker_init = Object::new();
+        Reflect::set(&worker_init, &JsString::from("module_or_path"), &module())?;
+        Reflect::set(&worker_init, &JsString::from("memory"), &memory())?;
         worker.post_message(&worker_init)?;
 
         Ok(worker)
@@ -291,14 +284,14 @@ impl PoolState {
 #[wasm_bindgen]
 pub fn task_worker_entry_point(ptr: u32) -> Result<()> {
     let ptr = unsafe { Box::from_raw(ptr as *mut Task) };
-    let global = js_sys::global().unchecked_into::<DedicatedWorkerGlobalScope>();
+    let global = global().unchecked_into::<DedicatedWorkerGlobalScope>();
     (ptr.callable)();
     global.post_message(&JsValue::undefined())?;
     Ok(())
 }
 
 pub fn get_script_path() -> Result<String> {
-    let string = js_sys::eval(
+    let string = eval(
         r"
         (() => {
             try {

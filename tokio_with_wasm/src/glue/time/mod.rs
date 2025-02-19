@@ -3,24 +3,23 @@
 //! This module provides a number of types for executing code after a set period
 //! of time.
 
+use crate::glue::common::{console_error, error, set_timeout};
+use js_sys::Promise;
 use std::error;
 use std::fmt;
-use std::future::{Future, IntoFuture};
+use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
-
-use crate::glue::common::*;
 
 async fn time_future(duration: Duration) {
     let milliseconds = duration.as_millis() as f64;
-    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+    let promise = Promise::new(&mut |resolve, _reject| {
         set_timeout(&resolve, milliseconds);
     });
-    let result = wasm_bindgen_futures::JsFuture::from(promise).await;
+    let result = JsFuture::from(promise).await;
     if let Err(error) = result {
         console_error!("Error from `time_future` in `tokio-with-wasm`: {:?}", error);
     }

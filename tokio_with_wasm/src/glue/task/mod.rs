@@ -6,7 +6,10 @@
 
 mod pool;
 
-use crate::glue::common::*;
+use crate::glue::common::{
+    console_error, error, once_channel, set_timeout, OnceReceiver, OnceSender, SelectFuture,
+};
+use js_sys::Promise;
 use pool::WorkerPool;
 use std::borrow::BorrowMut;
 use std::fmt;
@@ -14,12 +17,12 @@ use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::{spawn_local, JsFuture};
 
 thread_local! {
     pub(crate) static WORKER_POOL: WorkerPool = {
         let worker_pool = WorkerPool::new();
-        wasm_bindgen_futures::spawn_local(manage_pool());
+        spawn_local(manage_pool());
         worker_pool
     }
 }
@@ -32,10 +35,10 @@ async fn manage_pool() {
             worker_pool.remove_inactive_workers();
             worker_pool.flush_queued_tasks();
         });
-        let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        let promise = Promise::new(&mut |resolve, _reject| {
             set_timeout(&resolve, 100.0);
         });
-        let result = wasm_bindgen_futures::JsFuture::from(promise).await;
+        let result = JsFuture::from(promise).await;
         if let Err(error) = result {
             console_error!("Error from `manage_pool` in `tokio-with-wasm`: {error:?}");
         }
@@ -166,7 +169,7 @@ where
 {
     let (join_sender, join_receiver) = once_channel();
     let (cancel_sender, cancel_receiver) = once_channel::<()>();
-    wasm_bindgen_futures::spawn_local(async move {
+    spawn_local(async move {
         let result = SelectFuture::new(
             async move {
                 let output = future.await;
@@ -262,10 +265,10 @@ where
 /// Meanwhile, any other pending tasks will be scheduled
 /// by the JavaScript runtime.
 pub async fn yield_now() {
-    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+    let promise = Promise::new(&mut |resolve, _reject| {
         set_timeout(&resolve, 0.0);
     });
-    let result = wasm_bindgen_futures::JsFuture::from(promise).await;
+    let result = JsFuture::from(promise).await;
     if let Err(error) = result {
         console_error!("Error from `yield_now` in `tokio-with-wasm`: {error:?}");
     }
@@ -281,12 +284,12 @@ pub async fn yield_now() {
 /// means that there is no longer any handle to the task, and no way to `join`
 /// on it.
 ///
-/// This struct is created by the [crate::spawn] and [crate::spawn_blocking]
+/// This struct is created by the [`spawn`] and [`spawn_blocking`]
 /// functions.
 ///
 /// # Examples
 ///
-/// Creation from [`crate::spawn`]:
+/// Creation from [`spawn`]:
 ///
 /// ```
 /// use tokio_with_wasm as tokio;
@@ -297,7 +300,7 @@ pub async fn yield_now() {
 /// });
 /// ```
 ///
-/// Creation from [`crate::spawn_blocking`]:
+/// Creation from [`spawn_blocking`]:
 ///
 /// ```
 /// use tokio_with_wasm as tokio;

@@ -1,11 +1,12 @@
 #![allow(unused_macros, unused_imports, dead_code)]
 
+use js_sys::Function;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::prelude::{wasm_bindgen, JsValue};
 
 #[wasm_bindgen]
 extern "C" {
@@ -14,7 +15,7 @@ extern "C" {
     #[wasm_bindgen(js_namespace = Date, js_name = now)]
     pub fn now() -> f64;
     #[wasm_bindgen(js_namespace = globalThis, js_name = setTimeout)]
-    pub fn set_timeout(callback: &js_sys::Function, milliseconds: f64);
+    pub fn set_timeout(callback: &Function, milliseconds: f64);
 }
 
 macro_rules! console_error {
