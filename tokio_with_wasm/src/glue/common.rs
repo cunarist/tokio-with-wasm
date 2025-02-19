@@ -13,7 +13,7 @@ extern "C" {
     pub fn error(s: &str);
     #[wasm_bindgen(js_namespace = Date, js_name = now)]
     pub fn now() -> f64;
-    #[wasm_bindgen(js_name = setTimeout)]
+    #[wasm_bindgen(js_namespace = globalThis, js_name = setTimeout)]
     pub fn set_timeout(callback: &js_sys::Function, milliseconds: f64);
 }
 
