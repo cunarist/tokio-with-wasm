@@ -11,25 +11,24 @@ pub async fn async_main() {
         // This will run concurrently
         // in the same web worker(thread).
         print_fit!("Async task started.");
-        // Simulate a 3-second async task.
-        sleep(Duration::from_secs(3)).await;
+        // Simulate a 2-second async task.
+        sleep(Duration::from_secs(2)).await;
         print_fit!("Async task finished.");
     });
+    let _async_result = async_join_handle.await;
 
+    print_fit!("Blocking task spawned.");
     let blocking_join_handle = spawn_blocking(|| {
         // Blocking code here.
         // This will run parallelly
         // in the external pool of web workers.
-        print_fit!("Blocking task started.");
-        // Simulate a 3-second blocking task.
-        std::thread::sleep(Duration::from_secs(3));
-        print_fit!("Blocking task finished.");
+        // Simulate a 2-second blocking task.
+        std::thread::sleep(Duration::from_secs(2));
     });
-
-    let _async_result = async_join_handle.await;
     let _blocking_result = blocking_join_handle.await;
+    print_fit!("Blocking task joined.");
 
-    for i in 1..1000 {
+    for i in 1..=1000 {
         // Some repeating task here
         // that shouldn't block the JavaScript runtime.
         yield_now().await;

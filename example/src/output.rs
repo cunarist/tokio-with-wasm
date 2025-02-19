@@ -8,12 +8,13 @@ pub mod printing {
 
     #[wasm_bindgen]
     extern "C" {
-        #[wasm_bindgen(js_namespace = console)]
-        pub fn log(s: &str);
+        #[wasm_bindgen(js_namespace = globalThis, js_name = eval)]
+        fn eval(script: &str);
     }
 
     pub fn do_printing(s: &str) {
-        log(s);
+        let script = format!("document.body.innerHTML += '<p>{s}</p>';",);
+        eval(&script);
     }
 }
 
