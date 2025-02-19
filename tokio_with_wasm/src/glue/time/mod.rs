@@ -27,11 +27,6 @@ async fn time_future(duration: Duration) {
 }
 
 /// Waits until `duration` has elapsed.
-///
-/// Because this is a naive implemenation
-/// based on `setTimeout()` of JavaScript,
-/// web browsers might increase the interval arbitrarily
-/// to save system resources.
 pub fn sleep(duration: Duration) -> Sleep {
     let time_future = time_future(duration);
     Sleep {
