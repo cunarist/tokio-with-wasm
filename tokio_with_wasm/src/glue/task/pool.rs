@@ -6,8 +6,8 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::{wasm_bindgen, Closure, JsCast, JsError, JsValue};
 use wasm_bindgen::{memory, module};
 use web_sys::{
-    Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, ErrorEvent, Event, MessageEvent, Url,
-    Worker, WorkerOptions, WorkerType,
+    Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, ErrorEvent, Event,
+    MessageEvent, Url, Worker, WorkerOptions, WorkerType,
 };
 
 pub static MAX_WORKERS: usize = 512;
@@ -40,7 +40,8 @@ impl Default for WorkerPool {
                 idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
                 queued_tasks: RefCell::new(VecDeque::new()),
                 callback: Closure::new(|event: Event| {
-                    JsError::new(&format!("{:?}", event)).log_error("POOL_CALLBACK");
+                    JsError::new(&format!("{:?}", event))
+                        .log_error("POOL_CALLBACK");
                 }),
             }),
         }
@@ -111,7 +112,11 @@ impl WorkerPool {
         // instantiating the wasm module. Later it might receive further
         // messages about code to run on the wasm module.
         let worker_init = Object::new();
-        Reflect::set(&worker_init, &JsString::from("module_or_path"), &module())?;
+        Reflect::set(
+            &worker_init,
+            &JsString::from("module_or_path"),
+            &module(),
+        )?;
         Reflect::set(&worker_init, &JsString::from("memory"), &memory())?;
         worker.post_message(&worker_init)?;
 
@@ -129,7 +134,9 @@ impl WorkerPool {
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
     fn get_worker(&self) -> Result<Worker, JsValue> {
-        if let Some(managed_worker) = self.pool_state.idle_workers.borrow_mut().pop() {
+        if let Some(managed_worker) =
+            self.pool_state.idle_workers.borrow_mut().pop()
+        {
             Ok(managed_worker.worker)
         } else {
             self.create_worker()
@@ -196,7 +203,8 @@ impl WorkerPool {
             }
 
             // Unhandled worker event exists.
-            JsError::new(&format!("{:?}", event)).log_error("UNHANDLED_RECLAIM");
+            JsError::new(&format!("{:?}", event))
+                .log_error("UNHANDLED_RECLAIM");
         });
         worker.set_onmessage(Some(reclaim.as_ref().unchecked_ref()));
         *reclaim_slot.borrow_mut() = Some(reclaim);
@@ -228,7 +236,8 @@ impl WorkerPool {
         let mut idle_workers = self.pool_state.idle_workers.borrow_mut();
         let current_timestamp = now();
         idle_workers.retain(|managed_worker| {
-            let passed_time = current_timestamp - *managed_worker.deactivated_time.borrow();
+            let passed_time =
+                current_timestamp - *managed_worker.deactivated_time.borrow();
             let is_active = passed_time < 10000.0; // 10 seconds
             if !is_active {
                 managed_worker.worker.terminate();

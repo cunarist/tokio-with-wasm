@@ -42,7 +42,10 @@ pub struct Sleep {
 
 impl Future for Sleep {
     type Output = ();
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Self::Output> {
         self.time_future.as_mut().poll(cx)
     }
 }
@@ -69,7 +72,10 @@ pub struct Timeout<F: Future> {
 
 impl<F: Future> Future for Timeout<F> {
     type Output = std::result::Result<F::Output, Elapsed>;
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Self::Output> {
         // Poll the future first.
         // If it's ready, return the output.
         // If it's pending, poll the sleep future.

@@ -16,10 +16,16 @@ pub mod task;
 #[cfg(feature = "rt")]
 pub use task::spawn;
 
-#[cfg(all(any(feature = "rt", feature = "rt-multi-thread"), feature = "macros"))]
+#[cfg(all(
+    any(feature = "rt", feature = "rt-multi-thread"),
+    feature = "macros"
+))]
 pub use tokio_with_wasm_proc::main;
 
 #[doc(hidden)]
-#[cfg(all(any(feature = "rt", feature = "rt-multi-thread"), feature = "macros"))]
+#[cfg(all(
+    any(feature = "rt", feature = "rt-multi-thread"),
+    feature = "macros"
+))]
 // This export is needed for the `main` macro.
 pub use wasm_bindgen_futures::spawn_local;

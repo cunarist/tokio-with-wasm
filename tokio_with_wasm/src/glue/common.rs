@@ -38,7 +38,10 @@ impl<T> SelectFuture<T> {
 
 impl<T> Future for SelectFuture<T> {
     type Output = T;
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Self::Output> {
         if let Poll::Ready(output) = self.future_a.as_mut().poll(cx) {
             return Poll::Ready(output);
         }

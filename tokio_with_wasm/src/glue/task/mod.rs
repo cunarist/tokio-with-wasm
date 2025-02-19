@@ -7,7 +7,8 @@
 mod pool;
 
 use crate::glue::common::{
-    error, once_channel, set_timeout, LogError, OnceReceiver, OnceSender, SelectFuture,
+    error, once_channel, set_timeout, LogError, OnceReceiver, OnceSender,
+    SelectFuture,
 };
 use js_sys::Promise;
 use pool::WorkerPool;
@@ -333,7 +334,10 @@ unsafe impl<T: Send> Sync for JoinHandle<T> {}
 
 impl<T> Future for JoinHandle<T> {
     type Output = std::result::Result<T, JoinError>;
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Self::Output> {
         let pinned_receiver = Pin::new(&mut self.join_receiver);
         pinned_receiver.poll(cx)
     }
