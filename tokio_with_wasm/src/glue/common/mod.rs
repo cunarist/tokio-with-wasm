@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-mod internal_channel;
+mod local_channel;
 mod once_channel;
 mod select_future;
 
-pub use internal_channel::*;
+pub use local_channel::*;
 pub use once_channel::*;
 pub use select_future::*;
 

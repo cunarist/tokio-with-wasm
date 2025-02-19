@@ -4,8 +4,8 @@
 //! of time.
 
 use crate::glue::common::{
-    clear_interval, internal_channel, set_interval, set_timeout,
-    InternalReceiver, LogError,
+    clear_interval, local_channel, set_interval, set_timeout, LocalReceiver,
+    LogError,
 };
 use js_sys::Promise;
 use std::error;
@@ -116,7 +116,7 @@ impl From<Elapsed> for io::Error {
 
 /// Creates a new interval that ticks every `period` duration.
 pub fn interval(period: Duration) -> Interval {
-    let (tx, rx) = internal_channel::<()>();
+    let (tx, rx) = local_channel::<()>();
     let period_ms = period.as_millis() as f64;
     // Create a closure that sends a tick via the channel.
     let closure = Closure::wrap(Box::new(move || {
@@ -138,7 +138,7 @@ pub fn interval(period: Duration) -> Interval {
 /// and ensure the interval is cleaned up when it is dropped.
 pub struct Interval {
     period: Duration,
-    rx: InternalReceiver<()>,
+    rx: LocalReceiver<()>,
     interval_id: i32,
 }
 
@@ -155,7 +155,7 @@ impl Interval {
         // Clear the existing interval.
         clear_interval(self.interval_id);
         // Create a new channel to receive ticks.
-        let (tx, rx) = internal_channel::<()>();
+        let (tx, rx) = local_channel::<()>();
         self.rx = rx;
         let period_ms = self.period.as_millis() as f64;
         // Set up a new interval.

@@ -1,21 +1,22 @@
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
 /// Creates an unbounded channel, returning the sender and receiver.
-/// The sender and receiver are not cloneable.
-pub fn internal_channel<T>() -> (InternalSender<T>, InternalReceiver<T>) {
-    let shared = Arc::new(Mutex::new(ChannelCore {
+/// This channel is not `Send`, which means it cannot be sent across threads.
+pub fn local_channel<T>() -> (LocalSender<T>, LocalReceiver<T>) {
+    let shared = Rc::new(RefCell::new(ChannelCore {
         queue: VecDeque::new(),
         waker: None,
         closed: false,
     }));
-    let sender = InternalSender {
+    let sender = LocalSender {
         shared: shared.clone(),
     };
-    let receiver = InternalReceiver { shared };
+    let receiver = LocalReceiver { shared };
     (sender, receiver)
 }
 
@@ -27,16 +28,14 @@ struct ChannelCore<T> {
     closed: bool,
 }
 
-/// The sender side of an unbounded channel.
-pub struct InternalSender<T> {
-    shared: Arc<Mutex<ChannelCore<T>>>,
+pub struct LocalSender<T> {
+    shared: Rc<RefCell<ChannelCore<T>>>,
 }
 
-impl<T> InternalSender<T> {
+impl<T> LocalSender<T> {
     /// Attempts to send an item into the channel.
-    /// Returns an error if the receiver has been dropped.
     pub fn send(&self, item: T) {
-        let mut shared = self.shared.lock().unwrap();
+        let mut shared = self.shared.borrow_mut();
         if shared.closed {
             return;
         }
@@ -47,9 +46,9 @@ impl<T> InternalSender<T> {
     }
 }
 
-impl<T> Drop for InternalSender<T> {
+impl<T> Drop for LocalSender<T> {
     fn drop(&mut self) {
-        let mut shared = self.shared.lock().unwrap();
+        let mut shared = self.shared.borrow_mut();
         // When the sender is dropped,
         // mark the channel as closed and wake the receiver.
         shared.closed = true;
@@ -59,15 +58,14 @@ impl<T> Drop for InternalSender<T> {
     }
 }
 
-/// The receiver side of an unbounded channel.
-pub struct InternalReceiver<T> {
-    shared: Arc<Mutex<ChannelCore<T>>>,
+pub struct LocalReceiver<T> {
+    shared: Rc<RefCell<ChannelCore<T>>>,
 }
 
-impl<T> InternalReceiver<T> {
+impl<T> LocalReceiver<T> {
     /// Polls the channel for the next available message.
     fn poll_next(&mut self, cx: &mut Context<'_>) -> Poll<Option<T>> {
-        let mut shared = self.shared.lock().unwrap();
+        let mut shared = self.shared.borrow_mut();
         if let Some(item) = shared.queue.pop_front() {
             Poll::Ready(Some(item))
         } else if shared.closed {
@@ -86,9 +84,8 @@ impl<T> InternalReceiver<T> {
     }
 }
 
-/// A future that resolves to the next item received.
 pub struct ChannelNext<'a, T> {
-    receiver: &'a mut InternalReceiver<T>,
+    receiver: &'a mut LocalReceiver<T>,
 }
 
 impl<T> Future for ChannelNext<'_, T> {
@@ -99,9 +96,9 @@ impl<T> Future for ChannelNext<'_, T> {
     }
 }
 
-impl<T> Drop for InternalReceiver<T> {
+impl<T> Drop for LocalReceiver<T> {
     fn drop(&mut self) {
-        let mut shared = self.shared.lock().unwrap();
+        let mut shared = self.shared.borrow_mut();
         // Mark the channel as closed when the receiver is dropped.
         shared.closed = true;
     }
