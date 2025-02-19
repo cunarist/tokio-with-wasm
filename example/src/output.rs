@@ -30,6 +30,8 @@ pub mod printing {
 }
 
 #[macro_export]
+/// Prints to the HTML document when compiled to WASM.
+/// Otherwise, it prints to `stdout`.
 macro_rules! print_fit {
     ($($t:tt)*) => {
         $crate::output::printing::do_printing(&format!($($t)*));
