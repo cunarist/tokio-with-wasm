@@ -326,9 +326,6 @@ pub struct JoinHandle<T> {
     cancel_sender: OnceSender<()>,
 }
 
-unsafe impl<T: Send> Send for JoinHandle<T> {}
-unsafe impl<T: Send> Sync for JoinHandle<T> {}
-
 impl<T> Future for JoinHandle<T> {
     type Output = std::result::Result<T, JoinError>;
     fn poll(
