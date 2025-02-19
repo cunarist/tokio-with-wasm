@@ -4,7 +4,7 @@
 //! of time.
 
 use crate::glue::common::{
-    clear_interval, error, internal_channel, set_interval, set_timeout,
+    clear_interval, internal_channel, set_interval, set_timeout,
     InternalReceiver, LogError,
 };
 use js_sys::Promise;
@@ -15,7 +15,7 @@ use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use wasm_bindgen::prelude::{Closure, JsCast, JsValue};
+use wasm_bindgen::prelude::{Closure, JsCast};
 use wasm_bindgen_futures::JsFuture;
 
 async fn time_future(duration: Duration) {

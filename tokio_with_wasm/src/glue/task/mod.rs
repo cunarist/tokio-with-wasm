@@ -7,16 +7,13 @@
 mod pool;
 
 use crate::glue::common::{
-    error, once_channel, set_timeout, LogError, OnceReceiver, OnceSender,
-    SelectFuture,
+    once_channel, set_timeout, LogError, OnceReceiver, OnceSender, SelectFuture,
 };
 use js_sys::Promise;
 use pool::WorkerPool;
-use std::borrow::BorrowMut;
 use std::fmt;
-use std::future::{Future, IntoFuture};
+use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 

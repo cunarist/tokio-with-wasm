@@ -10,8 +10,6 @@
 //! and does not include its own runtime,
 //! some advanced features of `tokio` might not be fully supported.
 
-#![allow(unused_imports)]
-
 #[cfg(not(all(
     target_arch = "wasm32",
     target_vendor = "unknown",

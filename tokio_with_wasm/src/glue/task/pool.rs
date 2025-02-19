@@ -1,4 +1,4 @@
-use crate::glue::common::{error, now, LogError};
+use crate::glue::common::{now, LogError};
 use js_sys::{eval, global, Array, JsString, Object, Reflect};
 use std::cell::RefCell;
 use std::collections::VecDeque;
