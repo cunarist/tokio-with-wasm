@@ -19,7 +19,7 @@ async fn time_future(duration: Duration) {
     let promise = Promise::new(&mut |resolve, _reject| {
         set_timeout(&resolve, milliseconds);
     });
-    JsFuture::from(promise).await.log_error("time_future");
+    JsFuture::from(promise).await.log_error("TIME_FUTURE");
 }
 
 /// Waits until `duration` has elapsed.

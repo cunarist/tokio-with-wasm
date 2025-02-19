@@ -40,7 +40,7 @@ impl Default for WorkerPool {
                 idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
                 queued_tasks: RefCell::new(VecDeque::new()),
                 callback: Closure::new(|event: Event| {
-                    JsError::new(&format!("{:?}", event)).log_error("pool_callback");
+                    JsError::new(&format!("{:?}", event)).log_error("POOL_CALLBACK");
                 }),
             }),
         }
@@ -179,7 +179,7 @@ impl WorkerPool {
         let slot2 = reclaim_slot.clone();
         let reclaim = Closure::<dyn FnMut(_)>::new(move |event: Event| {
             if let Some(error) = event.dyn_ref::<ErrorEvent>() {
-                JsError::new(&error.message()).log_error("reclaim_event");
+                JsError::new(&error.message()).log_error("RECLAIM_EVENT");
                 // TODO: this probably leaks memory somehow? It's sort of
                 // unclear what to do about errors in workers right now.
                 return;
@@ -196,7 +196,7 @@ impl WorkerPool {
             }
 
             // Unhandled worker event exists.
-            JsError::new(&format!("{:?}", event)).log_error("unhandled_reclaim");
+            JsError::new(&format!("{:?}", event)).log_error("UNHANDLED_RECLAIM");
         });
         worker.set_onmessage(Some(reclaim.as_ref().unchecked_ref()));
         *reclaim_slot.borrow_mut() = Some(reclaim);
@@ -242,7 +242,7 @@ impl WorkerPool {
         while *self.pool_state.total_workers_count.borrow() < MAX_WORKERS {
             let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
             if let Some(queued_task) = queued_tasks.pop_front() {
-                self.run(queued_task).log_error("flush_queued_tasks");
+                self.run(queued_task).log_error("FLUSH_QUEUED_TASKS");
             } else {
                 break;
             }

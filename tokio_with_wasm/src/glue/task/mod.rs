@@ -38,7 +38,7 @@ async fn manage_pool() {
         let promise = Promise::new(&mut |resolve, _reject| {
             set_timeout(&resolve, 100.0);
         });
-        JsFuture::from(promise).await.log_error("manage_pool");
+        JsFuture::from(promise).await.log_error("MANAGE_POOL");
     }
 }
 
@@ -265,7 +265,7 @@ pub async fn yield_now() {
     let promise = Promise::new(&mut |resolve, _reject| {
         set_timeout(&resolve, 0.0);
     });
-    JsFuture::from(promise).await.log_error("yield_now");
+    JsFuture::from(promise).await.log_error("YIELD_NOW");
 }
 
 /// An owned permission to join on a task (awaiting its termination).

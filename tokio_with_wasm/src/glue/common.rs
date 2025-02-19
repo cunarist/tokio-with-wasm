@@ -118,24 +118,24 @@ impl<T> Future for OnceReceiver<T> {
 }
 
 pub trait LogError {
-    fn log_error(&self, context: &str);
+    fn log_error(&self, code: &str);
 }
 
 impl LogError for JsError {
-    fn log_error(&self, context: &str) {
+    fn log_error(&self, code: &str) {
         error(&format!(
-            "From `{}` in `tokio_with_wasm`:\n{:?}",
-            context, self
+            "Error `{}` in `tokio_with_wasm`:\n{:?}",
+            code, self
         ));
     }
 }
 
 impl<T> LogError for Result<T, JsValue> {
-    fn log_error(&self, context: &str) {
+    fn log_error(&self, code: &str) {
         if let Err(js_error) = self {
             error(&format!(
-                "From `{}` in `tokio_with_wasm`:\n{:?}",
-                context, js_error
+                "Error `{}` in `tokio_with_wasm`:\n{:?}",
+                code, js_error
             ));
         }
     }
