@@ -7,7 +7,7 @@
 mod pool;
 
 use crate::glue::common::{
-    console_error, error, once_channel, set_timeout, OnceReceiver, OnceSender, SelectFuture,
+    error, once_channel, set_timeout, LogError, OnceReceiver, OnceSender, SelectFuture,
 };
 use js_sys::Promise;
 use pool::WorkerPool;
@@ -38,10 +38,7 @@ async fn manage_pool() {
         let promise = Promise::new(&mut |resolve, _reject| {
             set_timeout(&resolve, 100.0);
         });
-        let result = JsFuture::from(promise).await;
-        if let Err(error) = result {
-            console_error!("Error from `manage_pool` in `tokio-with-wasm`: {error:?}");
-        }
+        JsFuture::from(promise).await.log_error("manage_pool");
     }
 }
 
@@ -268,10 +265,7 @@ pub async fn yield_now() {
     let promise = Promise::new(&mut |resolve, _reject| {
         set_timeout(&resolve, 0.0);
     });
-    let result = JsFuture::from(promise).await;
-    if let Err(error) = result {
-        console_error!("Error from `yield_now` in `tokio-with-wasm`: {error:?}");
-    }
+    JsFuture::from(promise).await.log_error("yield_now");
 }
 
 /// An owned permission to join on a task (awaiting its termination).

@@ -1,9 +1,9 @@
-use crate::glue::common::{console_error, error, now, Result};
+use crate::glue::common::{error, now, LogError};
 use js_sys::{eval, global, Array, JsString, Object, Reflect};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
-use wasm_bindgen::prelude::{wasm_bindgen, Closure, JsCast, JsValue};
+use wasm_bindgen::prelude::{wasm_bindgen, Closure, JsCast, JsError, JsValue};
 use wasm_bindgen::{memory, module};
 use web_sys::{
     Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, ErrorEvent, Event, MessageEvent, Url,
@@ -40,7 +40,7 @@ impl Default for WorkerPool {
                 idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
                 queued_tasks: RefCell::new(VecDeque::new()),
                 callback: Closure::new(|event: Event| {
-                    console_error!("unhandled event: {:?}", event);
+                    JsError::new(&format!("{:?}", event)).log_error("pool_callback");
                 }),
             }),
         }
@@ -71,7 +71,7 @@ impl WorkerPool {
     ///
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
-    fn create_worker(&self) -> Result<Worker> {
+    fn create_worker(&self) -> Result<Worker, JsValue> {
         *self.pool_state.total_workers_count.borrow_mut() += 1;
         let script = format!(
             "
@@ -128,7 +128,7 @@ impl WorkerPool {
     ///
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
-    fn get_worker(&self) -> Result<Worker> {
+    fn get_worker(&self) -> Result<Worker, JsValue> {
         if let Some(managed_worker) = self.pool_state.idle_workers.borrow_mut().pop() {
             Ok(managed_worker.worker)
         } else {
@@ -148,7 +148,7 @@ impl WorkerPool {
     ///
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
-    fn execute(&self, task: Task) -> Result<Worker> {
+    fn execute(&self, task: Task) -> Result<Worker, JsValue> {
         let worker = self.get_worker()?;
         let work = Box::new(task);
         let ptr = Box::into_raw(work);
@@ -179,7 +179,7 @@ impl WorkerPool {
         let slot2 = reclaim_slot.clone();
         let reclaim = Closure::<dyn FnMut(_)>::new(move |event: Event| {
             if let Some(error) = event.dyn_ref::<ErrorEvent>() {
-                console_error!("Error in worker: {}", error.message());
+                JsError::new(&error.message()).log_error("reclaim_event");
                 // TODO: this probably leaks memory somehow? It's sort of
                 // unclear what to do about errors in workers right now.
                 return;
@@ -195,7 +195,8 @@ impl WorkerPool {
                 return;
             }
 
-            console_error!("Unhandled event: {:?}", event);
+            // Unhandled worker event exists.
+            JsError::new(&format!("{:?}", event)).log_error("unhandled_reclaim");
         });
         worker.set_onmessage(Some(reclaim.as_ref().unchecked_ref()));
         *reclaim_slot.borrow_mut() = Some(reclaim);
@@ -217,7 +218,7 @@ impl WorkerPool {
     ///
     /// If an error happens while spawning a web worker or sending a message to
     /// a web worker, that error is returned.
-    fn run(&self, task: Task) -> Result<()> {
+    fn run(&self, task: Task) -> Result<(), JsValue> {
         let worker = self.execute(task)?;
         self.reclaim_on_message(worker);
         Ok(())
@@ -241,12 +242,7 @@ impl WorkerPool {
         while *self.pool_state.total_workers_count.borrow() < MAX_WORKERS {
             let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
             if let Some(queued_task) = queued_tasks.pop_front() {
-                let result = self.run(queued_task);
-                if let Err(error) = result {
-                    console_error!(
-                        "Error from `flush_queued_tasks` in `tokio-with-wasm`: {error:?}"
-                    );
-                }
+                self.run(queued_task).log_error("flush_queued_tasks");
             } else {
                 break;
             }
@@ -282,7 +278,7 @@ impl PoolState {
 
 /// Entry point invoked by JavaScript in a worker.
 #[wasm_bindgen]
-pub fn task_worker_entry_point(ptr: u32) -> Result<()> {
+pub fn task_worker_entry_point(ptr: u32) -> Result<(), JsValue> {
     let ptr = unsafe { Box::from_raw(ptr as *mut Task) };
     let global = global().unchecked_into::<DedicatedWorkerGlobalScope>();
     (ptr.callable)();
@@ -290,7 +286,7 @@ pub fn task_worker_entry_point(ptr: u32) -> Result<()> {
     Ok(())
 }
 
-pub fn get_script_path() -> Result<String> {
+pub fn get_script_path() -> Result<String, JsValue> {
     let string = eval(
         r"
         (() => {

@@ -6,7 +6,8 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
-use wasm_bindgen::prelude::{wasm_bindgen, JsValue};
+use wasm_bindgen::prelude::{wasm_bindgen, JsError};
+use wasm_bindgen::JsValue;
 
 #[wasm_bindgen]
 extern "C" {
@@ -17,13 +18,6 @@ extern "C" {
     #[wasm_bindgen(js_namespace = globalThis, js_name = setTimeout)]
     pub fn set_timeout(callback: &Function, milliseconds: f64);
 }
-
-macro_rules! console_error {
-    ($($t:tt)*) => (error(&format_args!($($t)*).to_string()))
-}
-pub(crate) use console_error;
-
-pub type Result<T> = std::result::Result<T, JsValue>;
 
 pub struct SelectFuture<T> {
     future_a: Pin<Box<dyn Future<Output = T>>>,
@@ -120,5 +114,29 @@ impl<T> Future for OnceReceiver<T> {
             guard.replace(cx.waker().clone());
         }
         Poll::Pending
+    }
+}
+
+pub trait LogError {
+    fn log_error(&self, context: &str);
+}
+
+impl LogError for JsError {
+    fn log_error(&self, context: &str) {
+        error(&format!(
+            "From `{}` in `tokio_with_wasm`:\n{:?}",
+            context, self
+        ));
+    }
+}
+
+impl<T> LogError for Result<T, JsValue> {
+    fn log_error(&self, context: &str) {
+        if let Err(js_error) = self {
+            error(&format!(
+                "From `{}` in `tokio_with_wasm`:\n{:?}",
+                context, js_error
+            ));
+        }
     }
 }

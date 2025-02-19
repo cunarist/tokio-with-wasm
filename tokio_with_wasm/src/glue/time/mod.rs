@@ -3,7 +3,7 @@
 //! This module provides a number of types for executing code after a set period
 //! of time.
 
-use crate::glue::common::{console_error, error, set_timeout};
+use crate::glue::common::{error, set_timeout, LogError};
 use js_sys::Promise;
 use std::error;
 use std::fmt;
@@ -19,10 +19,7 @@ async fn time_future(duration: Duration) {
     let promise = Promise::new(&mut |resolve, _reject| {
         set_timeout(&resolve, milliseconds);
     });
-    let result = JsFuture::from(promise).await;
-    if let Err(error) = result {
-        console_error!("Error from `time_future` in `tokio-with-wasm`: {:?}", error);
-    }
+    JsFuture::from(promise).await.log_error("time_future");
 }
 
 /// Waits until `duration` has elapsed.
