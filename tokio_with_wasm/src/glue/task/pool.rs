@@ -241,8 +241,10 @@ impl WorkerPool {
     pub fn flush_queued_tasks(&self) {
         while *self.pool_state.total_workers_count.borrow() < MAX_WORKERS {
             let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
-            while let Some(queued_task) = queued_tasks.pop_front() {
+            if let Some(queued_task) = queued_tasks.pop_front() {
                 self.run(queued_task).log_error("flush_queued_tasks");
+            } else {
+                break;
             }
         }
     }
