@@ -40,7 +40,7 @@ Here's a simple example of using `tokio_with_wasm` that works on both native pla
 
 ```rust
 use tokio::task::{spawn, spawn_blocking, yield_now};
-use tokio::time::sleep;
+use tokio::time::{interval, sleep};
 use tokio_with_wasm::alias as tokio;
 
 #[tokio::main(flavor = "current_thread")]

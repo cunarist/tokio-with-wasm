@@ -40,18 +40,18 @@ Here's a simple example of using `tokio_with_wasm` that works on both native pla
 
 ```rust
 use tokio::task::{spawn, spawn_blocking, yield_now};
-use tokio::time::sleep;
+use tokio::time::{interval, sleep};
 use tokio_with_wasm::alias as tokio;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let async_join_handle = spawn(async {
-        // Your asynchronous code here.
+        // Asynchronous code here.
         // This will run concurrently
         // in the same web worker(thread).
     });
     let blocking_join_handle = spawn_blocking(|| {
-        // Your blocking code here.
+        // Blocking code here.
         // This will run parallelly
         // in the external pool of web workers.
     });
