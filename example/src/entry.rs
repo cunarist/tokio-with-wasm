@@ -68,7 +68,7 @@ async fn test_join_set() {
             let _dropper = Dropper {
                 name: format!("FROM_JOIN_SET_{}", i),
             };
-            tokio::time::sleep(Duration::from_secs(i)).await;
+            sleep(Duration::from_secs(i)).await;
         });
     }
     // Await only some of the tasks in the JoinSet.
