@@ -68,16 +68,17 @@ async fn test_join_set() {
             let _dropper = Dropper {
                 name: format!("FROM_JOIN_SET_{}", i),
             };
-            tokio::time::sleep(Duration::from_secs(i as u64)).await;
+            tokio::time::sleep(Duration::from_secs(i)).await;
         });
     }
     // Await only some of the tasks in the JoinSet.
-    // Unfinished tasks should be aborted when the join set is dropped.
+    // Unfinished tasks should be aborted when the JoinSet is dropped.
     for _ in 1..=2 {
         if let Some(result) = join_set.join_next().await {
-            match result {
-                Ok(_) => print_fit!("A JoinSet task finished successfully"),
-                Err(_) => print_fit!("A JoinSet task encountered an error"),
+            if result.is_ok() {
+                print_fit!("A task in the JoinSet finished successfully");
+            } else {
+                print_fit!("A task in the JoinSet encountered an error")
             }
         }
     }
