@@ -45,7 +45,6 @@ async fn test_interval() {
     let mut ticker = interval(Duration::from_secs(1));
     for i in 1..=5 {
         ticker.tick().await;
-        yield_now().await;
         print_fit!("Interval task, iteration: {}", i);
     }
 }
