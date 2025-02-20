@@ -39,7 +39,7 @@ tokio_with_wasm = { version = "0.0.0", features = ["rt"] }
 Here's a simple example of using `tokio_with_wasm` that works on both native platforms and web browsers:
 
 ```rust
-use tokio::task::{spawn, spawn_blocking, yield_now};
+use tokio::task::{spawn, spawn_blocking, yield_now, JoinSet};
 use tokio::time::{interval, sleep};
 use tokio_with_wasm::alias as tokio;
 
