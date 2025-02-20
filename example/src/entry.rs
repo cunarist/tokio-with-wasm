@@ -7,18 +7,18 @@ use tokio_with_wasm::alias as tokio;
 
 #[tokio::main(flavor = "current_thread")]
 pub async fn async_main() {
+    test_join_handles().await;
+    test_yield().await;
+    test_interval().await;
+}
+
+async fn test_join_handles() {
     print_fit!("Tasks spawned.");
     let async_join_handle = spawn(async {
-        // Asynchronous code here.
-        // This will run concurrently
-        // in the same web worker(thread).
         // Simulate a 2-second async task.
         sleep(Duration::from_secs(2)).await;
     });
     let blocking_join_handle = spawn_blocking(|| {
-        // Blocking code here.
-        // This will run parallelly
-        // in the external pool of web workers.
         // Simulate a 3-second blocking task.
         std::thread::sleep(Duration::from_secs(3));
     });
@@ -27,18 +27,17 @@ pub async fn async_main() {
     print_fit!("Async task joined.");
     let _blocking_result = blocking_join_handle.await;
     print_fit!("Blocking task joined.");
+}
 
+async fn test_yield() {
     for i in 1..=1000 {
-        // Some repeating task here
-        // that shouldn't block the JavaScript runtime.
         yield_now().await;
+        // Run some code that blocks for a few milliseconds.
         calculate_cpu_bound();
         if i % 100 == 0 {
             print_fit!("Repeating task, iteration: {}", i);
         }
     }
-
-    test_interval().await;
 }
 
 async fn test_interval() {
