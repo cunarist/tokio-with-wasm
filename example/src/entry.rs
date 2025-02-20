@@ -53,7 +53,6 @@ async fn test_interval() {
 fn calculate_cpu_bound() {
     let start = Utc::now().timestamp_millis();
     let mut _sum = 0.0;
-
     while Utc::now().timestamp_millis() - start < 5 {
         for i in 0..10_000 {
             _sum += (i as f64).sqrt().sin().cos();
