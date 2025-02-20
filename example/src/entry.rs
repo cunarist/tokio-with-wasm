@@ -1,4 +1,5 @@
 use crate::print_fit;
+use chrono::Utc;
 use std::time::Duration;
 use tokio::task::{spawn, spawn_blocking, yield_now};
 use tokio::time::{interval, sleep};
@@ -32,21 +33,31 @@ pub async fn async_main() {
         // Some repeating task here
         // that shouldn't block the JavaScript runtime.
         yield_now().await;
+        calculate_cpu_bound();
         if i % 100 == 0 {
             print_fit!("Repeating task, iteration: {}", i);
-            // Ensure it doesn't hog CPU by taking some breaks.
-            sleep(Duration::from_millis(500)).await;
         }
     }
 
     test_interval().await;
 }
 
-pub async fn test_interval() {
+async fn test_interval() {
     let mut ticker = interval(Duration::from_secs(1));
     for i in 1..=5 {
         ticker.tick().await;
         yield_now().await;
         print_fit!("Interval task, iteration: {}", i);
+    }
+}
+
+fn calculate_cpu_bound() {
+    let start = Utc::now().timestamp_millis();
+    let mut _sum = 0.0;
+
+    while Utc::now().timestamp_millis() - start < 5 {
+        for i in 0..10_000 {
+            _sum += (i as f64).sqrt().sin().cos();
+        }
     }
 }
