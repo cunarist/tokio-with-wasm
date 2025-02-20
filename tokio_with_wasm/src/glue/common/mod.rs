@@ -5,9 +5,13 @@ mod once_channel;
 mod polling;
 mod select_future;
 
+#[allow(unused_imports)]
 pub use local_channel::*;
+#[allow(unused_imports)]
 pub use once_channel::*;
+#[allow(unused_imports)]
 pub use polling::*;
+#[allow(unused_imports)]
 pub use select_future::*;
 
 use js_sys::Function;

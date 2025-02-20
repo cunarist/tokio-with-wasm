@@ -15,6 +15,8 @@ pub mod time;
 pub mod task;
 #[cfg(feature = "rt")]
 pub use task::spawn;
+#[cfg(feature = "rt")]
+pub(crate) use task::*;
 
 #[cfg(all(
     any(feature = "rt", feature = "rt-multi-thread"),
@@ -30,5 +32,5 @@ pub use tokio_with_wasm_proc::main;
 // This export is needed for the `main` macro.
 pub use wasm_bindgen_futures::spawn_local;
 
+#[allow(unused_imports)]
 pub(crate) use common::*;
-pub(crate) use task::*;
