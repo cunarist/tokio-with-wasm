@@ -202,12 +202,6 @@ where
 /// asynchronously.  When you run CPU-bound code using `spawn_blocking`, you
 /// should keep this large upper limit in mind.
 ///
-/// This function is intended for non-async operations that eventually finish on
-/// their own. Because web workers do not share memory like threads do,
-/// synchronization primitives such as mutex, channels, and global static variables
-/// might not work as expected. Each web worker is completely isolated
-/// because that's how the web works.
-///
 /// # Examples
 ///
 /// Pass an input value and receive result of computation:
