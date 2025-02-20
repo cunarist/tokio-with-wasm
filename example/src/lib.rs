@@ -1,7 +1,10 @@
 mod entry;
+mod measure;
 mod output;
 
-use entry::async_main;
+pub(crate) use entry::*;
+pub(crate) use measure::*;
+
 use wasm_bindgen::prelude::wasm_bindgen;
 
 // On the web, this macro tells `wasm_bindgen`

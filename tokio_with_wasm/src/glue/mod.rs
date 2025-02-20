@@ -1,7 +1,6 @@
 //! JavaScript glue module that mimics `tokio`.
 
 mod common;
-pub(crate) use common::*;
 
 #[cfg(feature = "macros")]
 pub use tokio::{join, pin, select, try_join};
@@ -30,3 +29,6 @@ pub use tokio_with_wasm_proc::main;
 ))]
 // This export is needed for the `main` macro.
 pub use wasm_bindgen_futures::spawn_local;
+
+pub(crate) use common::*;
+pub(crate) use task::*;

@@ -4,7 +4,10 @@
 //! this module leverages web workers to execute tasks in parallel,
 //! making it ideal for high-performance web applications.
 
+mod join_set;
 mod pool;
+
+pub use join_set::*;
 
 use crate::{
     once_channel, set_timeout, LogError, OnceReceiver, OnceSender, SelectFuture,
@@ -393,6 +396,13 @@ impl<T> JoinHandle<T> {
     pub fn is_finished(&self) -> bool {
         self.join_receiver.is_done()
     }
+
+    /// Returns a new `AbortHandle` that can be used to remotely abort this task.
+    pub fn abort_handle(&self) -> AbortHandle {
+        AbortHandle {
+            cancel_sender: self.cancel_sender.clone(),
+        }
+    }
 }
 
 /// Returned when a task failed to execute to completion.
@@ -412,5 +422,53 @@ impl std::error::Error for JoinError {}
 impl JoinError {
     pub fn is_cancelled(&self) -> bool {
         self.cancelled
+    }
+}
+
+/// An owned permission to abort a spawned task, without awaiting its completion.
+///
+/// Unlike a [`JoinHandle`], an `AbortHandle` does *not* represent the
+/// permission to await the task's completion, only to terminate it.
+///
+/// The task may be aborted by calling the [`AbortHandle::abort`] method.
+/// Dropping an `AbortHandle` releases the permission to terminate the task
+/// --- it does *not* abort the task.
+///
+/// Be aware that tasks spawned using [`spawn_blocking`] cannot be aborted
+/// because they are not async. If you call `abort` on a `spawn_blocking` task,
+/// then this *will not have any effect*, and the task will continue running
+/// normally. The exception is if the task has not started running yet; in that
+/// case, calling `abort` may prevent the task from starting.
+///
+/// [`JoinHandle`]: crate::task::JoinHandle
+/// [`spawn_blocking`]: crate::task::spawn_blocking
+#[derive(Clone)]
+pub struct AbortHandle {
+    cancel_sender: OnceSender<()>,
+}
+
+impl AbortHandle {
+    /// Abort the task associated with the handle.
+    ///
+    /// Awaiting a cancelled task might complete as usual if the task was
+    /// already completed at the time it was cancelled, but most likely it
+    /// will fail with a [cancelled] `JoinError`.
+    ///
+    /// If the task was already cancelled, such as by [`JoinHandle::abort`],
+    /// this method will do nothing.
+    ///
+    /// Be aware that tasks spawned using [`spawn_blocking`] cannot be aborted
+    /// because they are not async. If you call `abort` on a `spawn_blocking`
+    /// task, then this *will not have any effect*, and the task will continue
+    /// running normally. The exception is if the task has not started running
+    /// yet; in that case, calling `abort` may prevent the task from starting.
+    pub fn abort(&self) {
+        self.cancel_sender.send(());
+    }
+}
+
+impl fmt::Debug for AbortHandle {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("AbortHandle").finish()
     }
 }
