@@ -3,7 +3,7 @@
 //! This module provides a number of types for executing code after a set period
 //! of time.
 
-use crate::glue::common::{
+use crate::{
     clear_interval, local_channel, set_interval, set_timeout, LocalReceiver,
     LogError,
 };

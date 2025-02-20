@@ -6,7 +6,7 @@
 
 mod pool;
 
-use crate::glue::common::{
+use crate::{
     once_channel, set_timeout, LogError, OnceReceiver, OnceSender, SelectFuture,
 };
 use js_sys::Promise;
