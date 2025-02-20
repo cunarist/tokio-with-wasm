@@ -1,7 +1,9 @@
 mod entry;
+mod measure;
 mod output;
 
-use entry::async_main;
+use entry::*;
+use measure::*;
 
 // On native platforms, the `main` function
 // is called by the executable automatically.

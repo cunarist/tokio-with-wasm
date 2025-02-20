@@ -34,6 +34,6 @@ pub mod printing {
 /// Otherwise, it prints to `stdout`.
 macro_rules! print_fit {
     ($($t:tt)*) => {
-        $crate::output::printing::do_printing(&format!($($t)*));
+        $crate::output::printing::do_printing(&format!($($t)*))
     };
 }

@@ -23,6 +23,7 @@ pub fn once_channel<T>() -> (OnceSender<T>, OnceReceiver<T>) {
     (sender, receiver)
 }
 
+#[derive(Clone)]
 pub struct OnceSender<T> {
     notified: Arc<AtomicBool>,
     value: Arc<Mutex<Option<T>>>,
