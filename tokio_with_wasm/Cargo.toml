@@ -3,7 +3,7 @@ name = "tokio_with_wasm"
 version = "0.8.1"
 edition = "2021"
 license = "MIT"
-description = "Mimicking tokio functionalies on web browsers"
+description = "Mimicking tokio functionalities on web browsers"
 repository = "https://github.com/cunarist/tokio-with-wasm"
 
 [package.metadata.docs.rs]
