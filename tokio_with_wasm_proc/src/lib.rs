@@ -3,7 +3,7 @@ use quote::quote;
 use syn::{parse_macro_input, ItemFn};
 
 /// Attribute macro that mimics `tokio::main`.
-/// This macro returns a function that simply spawns the given future
+/// This macro writes a function that simply spawns the given future
 /// inside the JavaScript environment.
 /// To execute the function, you might need to use
 /// `#[wasm_bindgen(start)]` in addition to this macro.
