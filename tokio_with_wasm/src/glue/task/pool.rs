@@ -134,12 +134,9 @@ impl WorkerPool {
     /// Returns any error that may happen while a JS web worker is created and a
     /// message is sent to it.
     fn get_worker(&self) -> Result<Worker, JsValue> {
-        if let Some(managed_worker) =
-            self.pool_state.idle_workers.borrow_mut().pop()
-        {
-            Ok(managed_worker.worker)
-        } else {
-            self.create_worker()
+        match self.pool_state.idle_workers.borrow_mut().pop() {
+            Some(managed_worker) => Ok(managed_worker.worker),
+            None => self.create_worker(),
         }
     }
 
@@ -250,11 +247,11 @@ impl WorkerPool {
     pub fn flush_queued_tasks(&self) {
         while *self.pool_state.total_workers_count.borrow() < MAX_WORKERS {
             let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
-            if let Some(queued_task) = queued_tasks.pop_front() {
-                self.run(queued_task).log_error("FLUSH_QUEUED_TASKS");
-            } else {
-                break;
-            }
+            let queued_task = match queued_tasks.pop_front() {
+                Some(inner) => inner,
+                None => break,
+            };
+            self.run(queued_task).log_error("FLUSH_QUEUED_TASKS");
         }
     }
 

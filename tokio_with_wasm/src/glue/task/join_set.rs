@@ -167,9 +167,9 @@ impl<T: 'static> JoinSet<T> {
 
         // Loop over all `JoinHandle`s to find one that's ready.
         for _ in 0..handle_count {
-            let Some(mut handle) = self.inner.pop_front() else {
-                // Handle is logically never none.
-                continue;
+            let mut handle = match self.inner.pop_front() {
+                Some(inner) => inner,
+                None => continue, // Logically never none
             };
             let polled = Pin::new(&mut handle).poll(&mut cx);
             if let Poll::Ready(result) = polled {
@@ -319,9 +319,9 @@ impl<T: 'static> JoinSet<T> {
 
         // Loop over all `JoinHandle`s to find one that's ready.
         for _ in 0..handle_count {
-            let Some(mut handle) = self.inner.pop_front() else {
-                // Handle is logically never none.
-                continue;
+            let mut handle = match self.inner.pop_front() {
+                Some(inner) => inner,
+                None => continue, // Logically never none
             };
             let polled = Pin::new(&mut handle).poll(cx);
             if let Poll::Ready(result) = polled {
