@@ -33,7 +33,6 @@ thread_local! {
 async fn manage_pool() {
     loop {
         WORKER_POOL.with(|worker_pool| {
-            worker_pool.remove_inactive_workers();
             worker_pool.flush_queued_tasks();
         });
         let promise = Promise::new(&mut |resolve, _reject| {

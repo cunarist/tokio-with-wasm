@@ -229,21 +229,6 @@ impl WorkerPool {
         Ok(())
     }
 
-    pub fn remove_inactive_workers(&self) {
-        let mut idle_workers = self.pool_state.idle_workers.borrow_mut();
-        let current_timestamp = now();
-        idle_workers.retain(|managed_worker| {
-            let passed_time =
-                current_timestamp - *managed_worker.deactivated_time.borrow();
-            let is_active = passed_time < 10000.0; // 10 seconds
-            if !is_active {
-                managed_worker.worker.terminate();
-                *self.pool_state.total_workers_count.borrow_mut() -= 1;
-            }
-            is_active
-        });
-    }
-
     pub fn flush_queued_tasks(&self) {
         while *self.pool_state.total_workers_count.borrow() < MAX_WORKERS {
             let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
