@@ -8,6 +8,7 @@ mod join_set;
 mod pool;
 
 pub use join_set::*;
+use wasm_bindgen::prelude::JsValue;
 
 use crate::{
   LogError, OnceReceiver, OnceSender, SelectFuture, is_main_thread,
@@ -19,7 +20,6 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use wasm_bindgen::prelude::JsError;
 use wasm_bindgen_futures::{JsFuture, spawn_local};
 
 thread_local! {
@@ -168,7 +168,7 @@ where
   T: 'static,
 {
   if !is_main_thread() {
-    JsError::new(concat!(
+    JsValue::from_str(concat!(
       "Calling `spawn` in a blocking thread is not supported yet.",
       " Though it is possible in real `tokio`,",
       " the web has more restrictions than the native platforms.",
@@ -243,7 +243,7 @@ where
   T: Send + 'static,
 {
   if !is_main_thread() {
-    JsError::new(concat!(
+    JsValue::from_str(concat!(
       "Calling `spawn_blocking` in a blocking thread is not supported yet.",
       " Though it is possible in real `tokio`,",
       " the web has more restrictions than the native platforms.",

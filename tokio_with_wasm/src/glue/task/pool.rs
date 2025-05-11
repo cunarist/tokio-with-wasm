@@ -3,7 +3,7 @@ use js_sys::{Array, JsString, Object, Reflect, eval, global};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
-use wasm_bindgen::prelude::{Closure, JsCast, JsError, JsValue, wasm_bindgen};
+use wasm_bindgen::prelude::{Closure, JsCast, JsValue, wasm_bindgen};
 use wasm_bindgen::{memory, module};
 use web_sys::{
   Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, ErrorEvent, Event,
@@ -40,7 +40,7 @@ impl Default for WorkerPool {
         idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
         queued_tasks: RefCell::new(VecDeque::new()),
         callback: Closure::new(|event: Event| {
-          JsError::new(&format!("{:?}", event)).log_error("POOL_CALLBACK");
+          JsValue::from_str(&format!("{:?}", event)).log_error("POOL_CALLBACK");
         }),
       }),
     }
@@ -180,7 +180,7 @@ impl WorkerPool {
     let slot2 = reclaim_slot.clone();
     let reclaim = Closure::<dyn FnMut(_)>::new(move |event: Event| {
       if let Some(error) = event.dyn_ref::<ErrorEvent>() {
-        JsError::new(&error.message()).log_error("RECLAIM_EVENT");
+        JsValue::from_str(&error.message()).log_error("RECLAIM_EVENT");
         // TODO: this probably leaks memory somehow? It's sort of
         // unclear what to do about errors in workers right now.
         return;
@@ -197,7 +197,7 @@ impl WorkerPool {
       }
 
       // Unhandled worker event exists.
-      JsError::new(&format!("{:?}", event)).log_error("UNHANDLED_RECLAIM");
+      JsValue::from_str(&format!("{:?}", event)).log_error("UNHANDLED_RECLAIM");
     });
     worker.set_onmessage(Some(reclaim.as_ref().unchecked_ref()));
     *reclaim_slot.borrow_mut() = Some(reclaim);

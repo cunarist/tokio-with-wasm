@@ -17,8 +17,7 @@ pub use select_future::*;
 pub use thread_check::*;
 
 use js_sys::Function;
-use wasm_bindgen::JsValue;
-use wasm_bindgen::prelude::{JsError, wasm_bindgen};
+use wasm_bindgen::prelude::{JsValue, wasm_bindgen};
 
 #[wasm_bindgen]
 extern "C" {
@@ -38,7 +37,7 @@ pub trait LogError {
   fn log_error(&self, code: &str);
 }
 
-impl LogError for JsError {
+impl LogError for JsValue {
   fn log_error(&self, code: &str) {
     error(&format!(
       "Error `{}` in `tokio_with_wasm`:\n{:?}",
@@ -49,10 +48,10 @@ impl LogError for JsError {
 
 impl<T> LogError for Result<T, JsValue> {
   fn log_error(&self, code: &str) {
-    if let Err(js_error) = self {
+    if let Err(js_value) = self {
       error(&format!(
         "Error `{}` in `tokio_with_wasm`:\n{:?}",
-        code, js_error
+        code, js_value
       ));
     }
   }
