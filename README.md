@@ -45,23 +45,23 @@ use tokio_with_wasm::alias as tokio;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    let async_join_handle = spawn(async {
-        // Asynchronous code here.
-        // This will run concurrently
-        // in the same web worker(thread).
-    });
-    let blocking_join_handle = spawn_blocking(|| {
-        // Blocking code here.
-        // This will run parallelly
-        // in the external pool of web workers.
-    });
-    let async_result = async_join_handle.await;
-    let blocking_result = blocking_join_handle.await;
-    for i in 1..=1000 {
-        // Some repeating task here
-        // that shouldn't block the JavaScript runtime.
-        yield_now().await;
-    }
+  let async_join_handle = spawn(async {
+    // Asynchronous code here.
+    // This will run concurrently
+    // in the same web worker(thread).
+  });
+  let blocking_join_handle = spawn_blocking(|| {
+    // Blocking code here.
+    // This will run parallelly
+    // in the external pool of web workers.
+  });
+  let async_result = async_join_handle.await;
+  let blocking_result = blocking_join_handle.await;
+  for i in 1..=1000 {
+    // Some repeating task here
+    // that shouldn't block the JavaScript runtime.
+    yield_now().await;
+  }
 }
 ```
 
@@ -69,16 +69,16 @@ The `use tokio_with_wasm::alias as tokio;` statement is functionally equivalent 
 
 ```rust
 #[cfg(all(
-    target_arch = "wasm32",
-    target_vendor = "unknown",
-    target_os = "unknown"
+  target_arch = "wasm32",
+  target_vendor = "unknown",
+  target_os = "unknown"
 ))]
 use tokio_with_wasm as tokio;
 
 #[cfg(not(all(
-    target_arch = "wasm32",
-    target_vendor = "unknown",
-    target_os = "unknown"
+  target_arch = "wasm32",
+  target_vendor = "unknown",
+  target_os = "unknown"
 )))]
 use tokio;
 ```
