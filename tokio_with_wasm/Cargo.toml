@@ -36,4 +36,5 @@ web-sys = { version = "0.3.70", features = [
     'Blob',
     "BlobPropertyBag",
     'Url',
+    'Window',
 ] }

@@ -4,6 +4,7 @@ mod local_channel;
 mod once_channel;
 mod polling;
 mod select_future;
+mod thread_check;
 
 #[allow(unused_imports)]
 pub use local_channel::*;
@@ -13,6 +14,7 @@ pub use once_channel::*;
 pub use polling::*;
 #[allow(unused_imports)]
 pub use select_future::*;
+pub use thread_check::*;
 
 use js_sys::Function;
 use wasm_bindgen::JsValue;

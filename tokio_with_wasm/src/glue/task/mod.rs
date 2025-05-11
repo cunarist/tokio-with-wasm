@@ -10,7 +10,8 @@ mod pool;
 pub use join_set::*;
 
 use crate::{
-  LogError, OnceReceiver, OnceSender, SelectFuture, once_channel, set_timeout,
+  LogError, OnceReceiver, OnceSender, SelectFuture, is_main_thread,
+  once_channel, set_timeout,
 };
 use js_sys::Promise;
 use pool::WorkerPool;
@@ -18,6 +19,7 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use wasm_bindgen::prelude::JsError;
 use wasm_bindgen_futures::{JsFuture, spawn_local};
 
 thread_local! {
@@ -165,6 +167,15 @@ where
   F: std::future::Future<Output = T> + 'static,
   T: 'static,
 {
+  if !is_main_thread() {
+    JsError::new(concat!(
+      "Calling `spawn` in a blocking thread is not supported yet.",
+      " Though it is possible in real `tokio`,",
+      " the web has more restrictions than the native platforms."
+    ))
+    .log_error("SPAWN");
+    panic!();
+  }
   let (join_sender, join_receiver) = once_channel();
   let (cancel_sender, cancel_receiver) = once_channel::<()>();
   spawn_local(async move {
@@ -230,6 +241,15 @@ where
   C: FnOnce() -> T + Send + 'static,
   T: Send + 'static,
 {
+  if !is_main_thread() {
+    JsError::new(concat!(
+      "Calling `spawn_blocking` in a blocking thread is not supported yet.",
+      " Though it is possible in real `tokio`,",
+      " the web has more restrictions than the native platforms."
+    ))
+    .log_error("SPAWN_BLOCKING");
+    panic!();
+  }
   let (join_sender, join_receiver) = once_channel();
   let (cancel_sender, cancel_receiver) = once_channel::<()>();
   WORKER_POOL.with(move |worker_pool| {
