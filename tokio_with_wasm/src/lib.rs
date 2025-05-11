@@ -11,30 +11,30 @@
 //! some advanced features of `tokio` might not be fully supported.
 
 #[cfg(not(all(
-    target_arch = "wasm32",
-    target_vendor = "unknown",
-    target_os = "unknown"
+  target_arch = "wasm32",
+  target_vendor = "unknown",
+  target_os = "unknown"
 )))]
 pub use tokio as alias;
 
 #[cfg(all(
-    target_arch = "wasm32",
-    target_vendor = "unknown",
-    target_os = "unknown"
+  target_arch = "wasm32",
+  target_vendor = "unknown",
+  target_os = "unknown"
 ))]
 pub use crate as alias;
 
 #[cfg(all(
-    target_arch = "wasm32",
-    target_vendor = "unknown",
-    target_os = "unknown"
+  target_arch = "wasm32",
+  target_vendor = "unknown",
+  target_os = "unknown"
 ))]
 mod glue;
 
 #[allow(unused_imports)]
 #[cfg(all(
-    target_arch = "wasm32",
-    target_vendor = "unknown",
-    target_os = "unknown"
+  target_arch = "wasm32",
+  target_vendor = "unknown",
+  target_os = "unknown"
 ))]
 pub use glue::*;

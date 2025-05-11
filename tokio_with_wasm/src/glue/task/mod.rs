@@ -10,7 +10,7 @@ mod pool;
 pub use join_set::*;
 
 use crate::{
-    once_channel, set_timeout, LogError, OnceReceiver, OnceSender, SelectFuture,
+  LogError, OnceReceiver, OnceSender, SelectFuture, once_channel, set_timeout,
 };
 use js_sys::Promise;
 use pool::WorkerPool;
@@ -18,7 +18,7 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use wasm_bindgen_futures::{spawn_local, JsFuture};
+use wasm_bindgen_futures::{JsFuture, spawn_local};
 
 thread_local! {
     static WORKER_POOL: WorkerPool = {
@@ -31,16 +31,16 @@ thread_local! {
 /// Manages the worker pool by periodically checking for
 /// inactive web workers and queued tasks.
 async fn manage_pool() {
-    loop {
-        WORKER_POOL.with(|worker_pool| {
-            worker_pool.remove_inactive_workers();
-            worker_pool.flush_queued_tasks();
-        });
-        let promise = Promise::new(&mut |resolve, _reject| {
-            set_timeout(&resolve, 100.0);
-        });
-        JsFuture::from(promise).await.log_error("MANAGE_POOL");
-    }
+  loop {
+    WORKER_POOL.with(|worker_pool| {
+      worker_pool.remove_inactive_workers();
+      worker_pool.flush_queued_tasks();
+    });
+    let promise = Promise::new(&mut |resolve, _reject| {
+      set_timeout(&resolve, 100.0);
+    });
+    JsFuture::from(promise).await.log_error("MANAGE_POOL");
+  }
 }
 
 /// Spawns a new asynchronous task, returning a
@@ -162,29 +162,29 @@ async fn manage_pool() {
 /// ```
 pub fn spawn<F, T>(future: F) -> JoinHandle<T>
 where
-    F: std::future::Future<Output = T> + 'static,
-    T: 'static,
+  F: std::future::Future<Output = T> + 'static,
+  T: 'static,
 {
-    let (join_sender, join_receiver) = once_channel();
-    let (cancel_sender, cancel_receiver) = once_channel::<()>();
-    spawn_local(async move {
-        let result = SelectFuture::new(
-            async move {
-                let output = future.await;
-                Ok(output)
-            },
-            async move {
-                cancel_receiver.await;
-                Err(JoinError { cancelled: true })
-            },
-        )
-        .await;
-        join_sender.send(result);
-    });
-    JoinHandle {
-        join_receiver,
-        cancel_sender,
-    }
+  let (join_sender, join_receiver) = once_channel();
+  let (cancel_sender, cancel_receiver) = once_channel::<()>();
+  spawn_local(async move {
+    let result = SelectFuture::new(
+      async move {
+        let output = future.await;
+        Ok(output)
+      },
+      async move {
+        cancel_receiver.await;
+        Err(JoinError { cancelled: true })
+      },
+    )
+    .await;
+    join_sender.send(result);
+  });
+  JoinHandle {
+    join_receiver,
+    cancel_sender,
+  }
 }
 
 /// Runs the provided closure on a web worker(thread) where blocking is acceptable.
@@ -227,25 +227,25 @@ where
 /// ```
 pub fn spawn_blocking<C, T>(callable: C) -> JoinHandle<T>
 where
-    C: FnOnce() -> T + Send + 'static,
-    T: Send + 'static,
+  C: FnOnce() -> T + Send + 'static,
+  T: Send + 'static,
 {
-    let (join_sender, join_receiver) = once_channel();
-    let (cancel_sender, cancel_receiver) = once_channel::<()>();
-    WORKER_POOL.with(move |worker_pool| {
-        worker_pool.queue_task(move || {
-            if cancel_receiver.is_done() {
-                join_sender.send(Err(JoinError { cancelled: true }));
-                return;
-            }
-            let returned = callable();
-            join_sender.send(Ok(returned));
-        })
-    });
-    JoinHandle {
-        join_receiver,
-        cancel_sender,
-    }
+  let (join_sender, join_receiver) = once_channel();
+  let (cancel_sender, cancel_receiver) = once_channel::<()>();
+  WORKER_POOL.with(move |worker_pool| {
+    worker_pool.queue_task(move || {
+      if cancel_receiver.is_done() {
+        join_sender.send(Err(JoinError { cancelled: true }));
+        return;
+      }
+      let returned = callable();
+      join_sender.send(Ok(returned));
+    })
+  });
+  JoinHandle {
+    join_receiver,
+    cancel_sender,
+  }
 }
 
 /// Yields execution back to the JavaScript event loop.
@@ -257,10 +257,10 @@ where
 /// Meanwhile, any other pending tasks will be scheduled
 /// by the JavaScript runtime.
 pub async fn yield_now() {
-    let promise = Promise::new(&mut |resolve, _reject| {
-        set_timeout(&resolve, 0.0);
-    });
-    JsFuture::from(promise).await.log_error("YIELD_NOW");
+  let promise = Promise::new(&mut |resolve, _reject| {
+    set_timeout(&resolve, 0.0);
+  });
+  JsFuture::from(promise).await.log_error("YIELD_NOW");
 }
 
 /// An owned permission to join on a task (awaiting its termination).
@@ -319,110 +319,110 @@ pub async fn yield_now() {
 /// println!("Original task is joined.");
 /// ```
 pub struct JoinHandle<T> {
-    join_receiver: OnceReceiver<std::result::Result<T, JoinError>>,
-    cancel_sender: OnceSender<()>,
+  join_receiver: OnceReceiver<std::result::Result<T, JoinError>>,
+  cancel_sender: OnceSender<()>,
 }
 
 impl<T> Future for JoinHandle<T> {
-    type Output = std::result::Result<T, JoinError>;
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Self::Output> {
-        let pinned_receiver = Pin::new(&mut self.join_receiver);
-        pinned_receiver.poll(cx)
-    }
+  type Output = std::result::Result<T, JoinError>;
+  fn poll(
+    mut self: Pin<&mut Self>,
+    cx: &mut Context<'_>,
+  ) -> Poll<Self::Output> {
+    let pinned_receiver = Pin::new(&mut self.join_receiver);
+    pinned_receiver.poll(cx)
+  }
 }
 
 impl<T> fmt::Debug for JoinHandle<T>
 where
-    T: fmt::Debug,
+  T: fmt::Debug,
 {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("JoinHandle").finish()
-    }
+  fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fmt.debug_struct("JoinHandle").finish()
+  }
 }
 
 impl<T> JoinHandle<T> {
-    /// Abort the task associated with the handle.
-    ///
-    /// Awaiting a cancelled task might complete as usual if the task was
-    /// already completed at the time it was cancelled, but most likely it
-    /// will fail with a cancelled `JoinError`.
-    ///
-    /// Be aware that tasks spawned using [`spawn_blocking`] cannot be aborted
-    /// because they are not async. If you call `abort` on a `spawn_blocking`
-    /// task, then this *will not have any effect*, and the task will continue
-    /// running normally. The exception is if the task has not started running
-    /// yet; in that case, calling `abort` may prevent the task from starting.
-    ///
-    /// ```rust
-    /// use tokio_with_wasm as tokio;
-    /// use tokio::time;
-    ///
-    /// # #[tokio::main(flavor = "current_thread", start_paused = true)]
-    /// # async fn main() {
-    /// let mut handles = Vec::new();
-    ///
-    /// handles.push(tokio::spawn(async {
-    ///    time::sleep(time::Duration::from_secs(10)).await;
-    ///    true
-    /// }));
-    ///
-    /// handles.push(tokio::spawn(async {
-    ///    time::sleep(time::Duration::from_secs(10)).await;
-    ///    false
-    /// }));
-    ///
-    /// for handle in &handles {
-    ///     handle.abort();
-    /// }
-    ///
-    /// for handle in handles {
-    ///     assert!(handle.await.unwrap_err().is_cancelled());
-    /// }
-    /// # }
-    /// ```
-    pub fn abort(&self) {
-        self.cancel_sender.send(());
-    }
+  /// Abort the task associated with the handle.
+  ///
+  /// Awaiting a cancelled task might complete as usual if the task was
+  /// already completed at the time it was cancelled, but most likely it
+  /// will fail with a cancelled `JoinError`.
+  ///
+  /// Be aware that tasks spawned using [`spawn_blocking`] cannot be aborted
+  /// because they are not async. If you call `abort` on a `spawn_blocking`
+  /// task, then this *will not have any effect*, and the task will continue
+  /// running normally. The exception is if the task has not started running
+  /// yet; in that case, calling `abort` may prevent the task from starting.
+  ///
+  /// ```rust
+  /// use tokio_with_wasm as tokio;
+  /// use tokio::time;
+  ///
+  /// # #[tokio::main(flavor = "current_thread", start_paused = true)]
+  /// # async fn main() {
+  /// let mut handles = Vec::new();
+  ///
+  /// handles.push(tokio::spawn(async {
+  ///    time::sleep(time::Duration::from_secs(10)).await;
+  ///    true
+  /// }));
+  ///
+  /// handles.push(tokio::spawn(async {
+  ///    time::sleep(time::Duration::from_secs(10)).await;
+  ///    false
+  /// }));
+  ///
+  /// for handle in &handles {
+  ///     handle.abort();
+  /// }
+  ///
+  /// for handle in handles {
+  ///     assert!(handle.await.unwrap_err().is_cancelled());
+  /// }
+  /// # }
+  /// ```
+  pub fn abort(&self) {
+    self.cancel_sender.send(());
+  }
 
-    /// Checks if the task associated with this `JoinHandle` has finished.
-    ///
-    /// Please note that this method can return `false` even if [`abort`] has been
-    /// called on the task. This is because the cancellation process may take
-    /// some time, and this method does not return `true` until it has
-    /// completed.
-    pub fn is_finished(&self) -> bool {
-        self.join_receiver.is_done()
-    }
+  /// Checks if the task associated with this `JoinHandle` has finished.
+  ///
+  /// Please note that this method can return `false` even if [`abort`] has been
+  /// called on the task. This is because the cancellation process may take
+  /// some time, and this method does not return `true` until it has
+  /// completed.
+  pub fn is_finished(&self) -> bool {
+    self.join_receiver.is_done()
+  }
 
-    /// Returns a new `AbortHandle` that can be used to remotely abort this task.
-    pub fn abort_handle(&self) -> AbortHandle {
-        AbortHandle {
-            cancel_sender: self.cancel_sender.clone(),
-        }
+  /// Returns a new `AbortHandle` that can be used to remotely abort this task.
+  pub fn abort_handle(&self) -> AbortHandle {
+    AbortHandle {
+      cancel_sender: self.cancel_sender.clone(),
     }
+  }
 }
 
 /// Returned when a task failed to execute to completion.
 #[derive(Debug)]
 pub struct JoinError {
-    cancelled: bool,
+  cancelled: bool,
 }
 
 impl fmt::Display for JoinError {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.write_str("task failed to execute to completion")
-    }
+  fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fmt.write_str("task failed to execute to completion")
+  }
 }
 
 impl std::error::Error for JoinError {}
 
 impl JoinError {
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled
-    }
+  pub fn is_cancelled(&self) -> bool {
+    self.cancelled
+  }
 }
 
 /// An owned permission to abort a spawned task, without awaiting its completion.
@@ -444,31 +444,31 @@ impl JoinError {
 /// [`spawn_blocking`]: crate::task::spawn_blocking
 #[derive(Clone)]
 pub struct AbortHandle {
-    cancel_sender: OnceSender<()>,
+  cancel_sender: OnceSender<()>,
 }
 
 impl AbortHandle {
-    /// Abort the task associated with the handle.
-    ///
-    /// Awaiting a cancelled task might complete as usual if the task was
-    /// already completed at the time it was cancelled, but most likely it
-    /// will fail with a [cancelled] `JoinError`.
-    ///
-    /// If the task was already cancelled, such as by [`JoinHandle::abort`],
-    /// this method will do nothing.
-    ///
-    /// Be aware that tasks spawned using [`spawn_blocking`] cannot be aborted
-    /// because they are not async. If you call `abort` on a `spawn_blocking`
-    /// task, then this *will not have any effect*, and the task will continue
-    /// running normally. The exception is if the task has not started running
-    /// yet; in that case, calling `abort` may prevent the task from starting.
-    pub fn abort(&self) {
-        self.cancel_sender.send(());
-    }
+  /// Abort the task associated with the handle.
+  ///
+  /// Awaiting a cancelled task might complete as usual if the task was
+  /// already completed at the time it was cancelled, but most likely it
+  /// will fail with a [cancelled] `JoinError`.
+  ///
+  /// If the task was already cancelled, such as by [`JoinHandle::abort`],
+  /// this method will do nothing.
+  ///
+  /// Be aware that tasks spawned using [`spawn_blocking`] cannot be aborted
+  /// because they are not async. If you call `abort` on a `spawn_blocking`
+  /// task, then this *will not have any effect*, and the task will continue
+  /// running normally. The exception is if the task has not started running
+  /// yet; in that case, calling `abort` may prevent the task from starting.
+  pub fn abort(&self) {
+    self.cancel_sender.send(());
+  }
 }
 
 impl fmt::Debug for AbortHandle {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("AbortHandle").finish()
-    }
+  fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fmt.debug_struct("AbortHandle").finish()
+  }
 }

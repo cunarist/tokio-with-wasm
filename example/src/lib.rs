@@ -11,5 +11,5 @@ use wasm_bindgen::prelude::wasm_bindgen;
 // to run the function on JavaScript module initialization.
 #[wasm_bindgen(start)]
 fn main() {
-    async_main();
+  async_main();
 }
