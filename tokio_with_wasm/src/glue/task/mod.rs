@@ -171,7 +171,8 @@ where
     JsError::new(concat!(
       "Calling `spawn` in a blocking thread is not supported yet.",
       " Though it is possible in real `tokio`,",
-      " the web has more restrictions than the native platforms."
+      " the web has more restrictions than the native platforms.",
+      " Also, mixing async and sync contexts is not recommended."
     ))
     .log_error("SPAWN");
     panic!();
@@ -245,7 +246,8 @@ where
     JsError::new(concat!(
       "Calling `spawn_blocking` in a blocking thread is not supported yet.",
       " Though it is possible in real `tokio`,",
-      " the web has more restrictions than the native platforms."
+      " the web has more restrictions than the native platforms.",
+      " Also, mixing async and sync contexts is not recommended."
     ))
     .log_error("SPAWN_BLOCKING");
     panic!();
