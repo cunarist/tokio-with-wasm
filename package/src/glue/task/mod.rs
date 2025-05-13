@@ -341,12 +341,12 @@ pub async fn yield_now() {
 /// println!("Original task is joined.");
 /// ```
 pub struct JoinHandle<T> {
-  join_receiver: OnceReceiver<std::result::Result<T, JoinError>>,
+  join_receiver: OnceReceiver<Result<T, JoinError>>,
   cancel_sender: OnceSender<()>,
 }
 
 impl<T> Future for JoinHandle<T> {
-  type Output = std::result::Result<T, JoinError>;
+  type Output = Result<T, JoinError>;
   fn poll(
     mut self: Pin<&mut Self>,
     cx: &mut Context<'_>,

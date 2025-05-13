@@ -70,7 +70,7 @@ pub struct Timeout<F: Future> {
 }
 
 impl<F: Future> Future for Timeout<F> {
-  type Output = std::result::Result<F::Output, Elapsed>;
+  type Output = Result<F::Output, Elapsed>;
   fn poll(
     mut self: Pin<&mut Self>,
     cx: &mut Context<'_>,
