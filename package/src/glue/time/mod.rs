@@ -8,8 +8,8 @@ use crate::{
   set_timeout,
 };
 use js_sys::Promise;
-use std::error;
-use std::fmt;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
@@ -95,13 +95,13 @@ impl<F: Future> Future for Timeout<F> {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Elapsed(());
 
-impl fmt::Display for Elapsed {
-  fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for Elapsed {
+  fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
     "deadline has elapsed".fmt(fmt)
   }
 }
 
-impl error::Error for Elapsed {}
+impl Error for Elapsed {}
 
 impl From<Elapsed> for io::Error {
   fn from(_err: Elapsed) -> io::Error {

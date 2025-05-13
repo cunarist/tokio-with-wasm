@@ -8,7 +8,7 @@ use crate::{
   AbortHandle, JoinError, JoinHandle, noop_waker, spawn, spawn_blocking,
 };
 use std::collections::VecDeque;
-use std::fmt;
+use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -343,8 +343,8 @@ impl<T> Drop for JoinSet<T> {
   }
 }
 
-impl<T> fmt::Debug for JoinSet<T> {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl<T> Debug for JoinSet<T> {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("JoinSet").field("len", &self.len()).finish()
   }
 }

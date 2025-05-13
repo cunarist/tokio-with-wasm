@@ -16,7 +16,8 @@ use crate::{
 };
 use js_sys::Promise;
 use pool::WorkerPool;
-use std::fmt;
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -356,11 +357,11 @@ impl<T> Future for JoinHandle<T> {
   }
 }
 
-impl<T> fmt::Debug for JoinHandle<T>
+impl<T> Debug for JoinHandle<T>
 where
-  T: fmt::Debug,
+  T: Debug,
 {
-  fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+  fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
     fmt.debug_struct("JoinHandle").finish()
   }
 }
@@ -433,13 +434,13 @@ pub struct JoinError {
   cancelled: bool,
 }
 
-impl fmt::Display for JoinError {
-  fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for JoinError {
+  fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
     fmt.write_str("task failed to execute to completion")
   }
 }
 
-impl std::error::Error for JoinError {}
+impl Error for JoinError {}
 
 impl JoinError {
   pub fn is_cancelled(&self) -> bool {
@@ -489,8 +490,8 @@ impl AbortHandle {
   }
 }
 
-impl fmt::Debug for AbortHandle {
-  fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Debug for AbortHandle {
+  fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
     fmt.debug_struct("AbortHandle").finish()
   }
 }
