@@ -229,8 +229,8 @@ impl WorkerPool {
     let mut idle_workers = self.pool_state.idle_workers.borrow_mut();
     let current_timestamp = now();
     idle_workers.retain(|managed_worker| {
-      let passed_time =
-        current_timestamp - *managed_worker.deactivated_time.borrow();
+      let deactivated_time = *managed_worker.deactivated_time.borrow();
+      let passed_time = current_timestamp - deactivated_time;
       let is_active = passed_time < 10000.0; // 10 seconds
       if !is_active {
         managed_worker.worker.terminate();
