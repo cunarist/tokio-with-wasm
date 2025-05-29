@@ -1,9 +1,15 @@
 use std::cell::LazyCell;
-use web_sys::window;
 
 thread_local! {
   pub static IS_MAIN_THREAD: LazyCell<bool> =
-    LazyCell::new(|| window().is_some());
+    LazyCell::new(|| {
+      #[cfg(not(feature = "non_browser"))] {
+        web_sys::window().is_some()
+      }
+      #[cfg(feature = "non_browser")] {
+        true
+      }
+    });
 }
 
 pub fn is_main_thread() -> bool {
