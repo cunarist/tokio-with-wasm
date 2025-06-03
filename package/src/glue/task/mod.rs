@@ -170,10 +170,12 @@ where
 {
   if !is_main_thread() {
     JsValue::from_str(concat!(
-      "Calling `spawn` in a blocking thread is not supported yet.",
-      " Though it is possible in real `tokio`,",
-      " the web has more restrictions than the native platforms.",
-      " Also, mixing async and sync contexts is not recommended."
+      "Calling `spawn` in a blocking thread is not allowed. ",
+      "While this is possible in real `tokio`, ",
+      "it may cause undefined behavior in the JavaScript environment. ",
+      "Instead, use `tokio::sync::mpsc::channel` ",
+      "to listen for messages from the main thread ",
+      "and spawn a task there."
     ))
     .log_error("SPAWN");
     panic!();
@@ -245,10 +247,12 @@ where
 {
   if !is_main_thread() {
     JsValue::from_str(concat!(
-      "Calling `spawn_blocking` in a blocking thread is not supported yet.",
-      " Though it is possible in real `tokio`,",
-      " the web has more restrictions than the native platforms.",
-      " Also, mixing async and sync contexts is not recommended."
+      "Calling `spawn_blocking` in a blocking thread is not allowed. ",
+      "While this is possible in real `tokio`, ",
+      "it may cause undefined behavior in the JavaScript environment. ",
+      "Instead, use `tokio::sync::mpsc::channel` ",
+      "to listen for messages from the main thread ",
+      "and spawn a task there."
     ))
     .log_error("SPAWN_BLOCKING");
     panic!();
