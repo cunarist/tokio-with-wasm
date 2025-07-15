@@ -40,7 +40,7 @@ impl Default for WorkerPool {
         idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
         queued_tasks: RefCell::new(VecDeque::new()),
         callback: Closure::new(|event: Event| {
-          JsValue::from_str(&format!("{:?}", event)).log_error("POOL_CALLBACK");
+          JsValue::from_str(&format!("{event:?}")).log_error("POOL_CALLBACK");
         }),
       }),
     }
@@ -197,7 +197,7 @@ impl WorkerPool {
       }
 
       // Unhandled worker event exists.
-      JsValue::from_str(&format!("{:?}", event)).log_error("UNHANDLED_RECLAIM");
+      JsValue::from_str(&format!("{event:?}")).log_error("UNHANDLED_RECLAIM");
     });
     worker.set_onmessage(Some(reclaim.as_ref().unchecked_ref()));
     *reclaim_slot.borrow_mut() = Some(reclaim);

@@ -39,10 +39,7 @@ pub trait LogError {
 
 impl LogError for JsValue {
   fn log_error(&self, code: &str) {
-    error(&format!(
-      "Error `{}` in `tokio_with_wasm`:\n{:?}",
-      code, self
-    ));
+    error(&format!("Error `{code}` in `tokio_with_wasm`:\n{self:?}"));
   }
 }
 
@@ -50,8 +47,7 @@ impl<T> LogError for Result<T, JsValue> {
   fn log_error(&self, code: &str) {
     if let Err(js_value) = self {
       error(&format!(
-        "Error `{}` in `tokio_with_wasm`:\n{:?}",
-        code, js_value
+        "Error `{code}` in `tokio_with_wasm`:\n{js_value:?}"
       ));
     }
   }

@@ -66,7 +66,7 @@ async fn test_join_set() {
   for i in 1..=4 {
     join_set.spawn(async move {
       let _dropper = Dropper {
-        name: format!("FROM_JOIN_SET_{}", i),
+        name: format!("FROM_JOIN_SET_{i}"),
       };
       sleep(Duration::from_secs(i)).await;
     });
