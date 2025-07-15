@@ -1,4 +1,4 @@
-use crate::{LogError, now};
+use crate::{BLOCKING_KEY, LogError, now};
 use js_sys::{Array, JsString, Object, Reflect, eval, global};
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -77,6 +77,7 @@ impl WorkerPool {
       "
       import init, * as wasmBindings from '{}';
       globalThis.wasmBindings = wasmBindings;
+      globalThis.{BLOCKING_KEY} = true;
       self.onmessage = event => {{
         let initialised = init(event.data).catch(err => {{
           // Propagate to main `onerror`:
