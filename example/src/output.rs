@@ -25,7 +25,7 @@ pub mod printing {
 )))]
 pub mod printing {
   pub fn do_printing(s: &str) {
-    println!("{}", s);
+    println!("{s}");
   }
 }
 
