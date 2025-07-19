@@ -1,5 +1,5 @@
 use crate::{BLOCKING_KEY, LogError, now};
-use js_sys::{Array, JsString, Object, Reflect, eval, global};
+use js_sys::{Array, JsString, Object, Reflect, global};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -97,7 +97,7 @@ impl WorkerPool {
         }};
       }};
       ",
-      get_script_path()?
+      get_js_module_url()
     );
     let blob_property_bag = BlobPropertyBag::new();
     blob_property_bag.set_type("text/javascript");
@@ -289,22 +289,12 @@ pub fn task_worker_entry_point(ptr: u32) -> Result<(), JsValue> {
   Ok(())
 }
 
-pub fn get_script_path() -> Result<String, JsValue> {
-  let string = eval(
-    r"
-        (() => {
-            try {
-                throw new Error();
-            } catch (e) {
-                let parts = e.stack.match(/(?:\(|@)(\S+):\d+:\d+/);
-                return parts[1];
-            }
-        })()
-        ",
-  )?
-  .as_string()
-  .ok_or(JsValue::from(
-    "Could not convert JS string path to native string",
-  ))?;
-  Ok(string)
+#[wasm_bindgen(inline_js = "
+  export function get_js_module_url() {
+    console.log('get_js_module_url called', import.meta.url);
+    return import.meta.url;
+  }
+")]
+extern "C" {
+  fn get_js_module_url() -> String;
 }
