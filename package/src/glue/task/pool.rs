@@ -14,6 +14,7 @@ pub static MAX_WORKERS: usize = 512;
 
 pub struct WorkerPool {
   pool_state: Rc<PoolState>,
+  path_provider: fn() -> Result<String, JsValue>,
 }
 
 struct PoolState {
@@ -35,6 +36,7 @@ struct Task {
 impl Default for WorkerPool {
   fn default() -> Self {
     WorkerPool {
+      path_provider: get_script_path,
       pool_state: Rc::new(PoolState {
         total_workers_count: RefCell::new(0),
         idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
@@ -60,6 +62,19 @@ impl WorkerPool {
   /// message is sent to it.
   pub fn new() -> WorkerPool {
     WorkerPool::default()
+  }
+
+  /// Sets the path provider function for this worker pool.
+  ///
+  /// The path provider function is used to determine the path to the
+  /// JavaScript glue code that bootstraps the wasm module in each worker.
+  /// By default the path provider uses a stack trace to determine the path
+  /// to the current script.
+  pub fn set_path_provider(
+    &mut self,
+    provider: fn() -> Result<String, JsValue>,
+  ) {
+    self.path_provider = provider;
   }
 
   /// Unconditionally spawns a new worker
@@ -97,7 +112,7 @@ impl WorkerPool {
         }};
       }};
       ",
-      get_script_path()?
+      (self.path_provider)()?
     );
     let blob_property_bag = BlobPropertyBag::new();
     blob_property_bag.set_type("text/javascript");
@@ -289,6 +304,8 @@ pub fn task_worker_entry_point(ptr: u32) -> Result<(), JsValue> {
   Ok(())
 }
 
+/// Determines the path to the currently executing script by throwing an
+/// error and parsing the stack trace.
 pub fn get_script_path() -> Result<String, JsValue> {
   let string = eval(
     r"
