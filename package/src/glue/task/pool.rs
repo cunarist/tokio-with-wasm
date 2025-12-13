@@ -14,7 +14,6 @@ pub static MAX_WORKERS: usize = 512;
 
 pub struct WorkerPool {
   pool_state: Rc<PoolState>,
-  path_provider: fn() -> Result<String, JsValue>,
 }
 
 struct PoolState {
@@ -22,6 +21,7 @@ struct PoolState {
   idle_workers: RefCell<Vec<ManagedWorker>>,
   queued_tasks: RefCell<VecDeque<Task>>,
   callback: Closure<dyn FnMut(Event)>,
+  path_provider: RefCell<fn() -> Result<String, JsValue>>,
 }
 
 struct ManagedWorker {
@@ -36,7 +36,6 @@ struct Task {
 impl Default for WorkerPool {
   fn default() -> Self {
     WorkerPool {
-      path_provider: get_script_path,
       pool_state: Rc::new(PoolState {
         total_workers_count: RefCell::new(0),
         idle_workers: RefCell::new(Vec::with_capacity(MAX_WORKERS)),
@@ -44,6 +43,7 @@ impl Default for WorkerPool {
         callback: Closure::new(|event: Event| {
           JsValue::from_str(&format!("{event:?}")).log_error("POOL_CALLBACK");
         }),
+        path_provider: RefCell::new(get_script_path),
       }),
     }
   }
@@ -71,10 +71,10 @@ impl WorkerPool {
   /// By default the path provider uses a stack trace to determine the path
   /// to the current script.
   pub fn set_path_provider(
-    &mut self,
+    &self,
     provider: fn() -> Result<String, JsValue>,
   ) {
-    self.path_provider = provider;
+    *self.pool_state.path_provider.borrow_mut() = provider;
   }
 
   /// Unconditionally spawns a new worker
@@ -112,7 +112,7 @@ impl WorkerPool {
         }};
       }};
       ",
-      (self.path_provider)()?
+      (self.pool_state.path_provider.borrow())()?
     );
     let blob_property_bag = BlobPropertyBag::new();
     blob_property_bag.set_type("text/javascript");
