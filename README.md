@@ -103,6 +103,14 @@ If you're using Web Workers (threads) by calling `spawn_blocking`, you need to s
   - `+atomics`
   - `+bulk-memory`
   - `+mutable-globals`
+- `link-arg` flags
+  - `--shared-memory`
+  - `--max-memory=1073741824`
+  - `--import-memory`
+  - `--export=__wasm_init_tls`
+  - `--export=__tls_size`
+  - `--export=__tls_align`
+  - `--export=__tls_base`
 - `build-std` components
   - `std`
   - `panic_abort`
@@ -110,7 +118,7 @@ If you're using Web Workers (threads) by calling `spawn_blocking`, you need to s
 Here's a full example command:
 
 ```shell
-export RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
+export RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--shared-memory -C link-arg=--max-memory=1073741824 -C link-arg=--import-memory -C link-arg=--export=__wasm_init_tls -C link-arg=--export=__tls_size -C link-arg=--export=__tls_align -C link-arg=--export=__tls_base"
 export RUSTUP_TOOLCHAIN="nightly"
 wasm-pack build <path> --target web -- -Z build-std=std,panic_abort
 ```
