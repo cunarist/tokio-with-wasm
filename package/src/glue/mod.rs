@@ -36,5 +36,9 @@ pub use wasm_bindgen_futures::spawn_local;
 pub(crate) use common::*;
 
 // Module only available when compiling to WebAssembly.
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(
+  target_arch = "wasm32",
+  target_vendor = "unknown",
+  target_os = "unknown"
+))]
 pub mod only_web;
