@@ -1,5 +1,6 @@
+use crate::only_web::PATH_PROVIDER;
 use crate::{BLOCKING_KEY, LogError, now};
-use js_sys::{Array, JsString, Object, Reflect, eval, global};
+use js_sys::{Array, JsString, Object, Reflect, global};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -21,7 +22,6 @@ struct PoolState {
   idle_workers: RefCell<Vec<ManagedWorker>>,
   queued_tasks: RefCell<VecDeque<Task>>,
   callback: Closure<dyn FnMut(Event)>,
-  path_provider: RefCell<fn() -> Result<String, JsValue>>,
 }
 
 struct ManagedWorker {
@@ -43,7 +43,6 @@ impl Default for WorkerPool {
         callback: Closure::new(|event: Event| {
           JsValue::from_str(&format!("{event:?}")).log_error("POOL_CALLBACK");
         }),
-        path_provider: RefCell::new(get_script_path),
       }),
     }
   }
@@ -62,19 +61,6 @@ impl WorkerPool {
   /// message is sent to it.
   pub fn new() -> WorkerPool {
     WorkerPool::default()
-  }
-
-  /// Sets the path provider function for this worker pool.
-  ///
-  /// The path provider function is used to determine the path to the
-  /// JavaScript glue code that bootstraps the wasm module in each worker.
-  /// By default the path provider uses a stack trace to determine the path
-  /// to the current script.
-  pub fn set_path_provider(
-    &self,
-    provider: fn() -> Result<String, JsValue>,
-  ) {
-    *self.pool_state.path_provider.borrow_mut() = provider;
   }
 
   /// Unconditionally spawns a new worker
@@ -112,7 +98,7 @@ impl WorkerPool {
         }};
       }};
       ",
-      (self.pool_state.path_provider.borrow())()?
+      PATH_PROVIDER.with(|provider| provider.borrow()())?
     );
     let blob_property_bag = BlobPropertyBag::new();
     blob_property_bag.set_type("text/javascript");
@@ -302,26 +288,4 @@ pub fn task_worker_entry_point(ptr: u32) -> Result<(), JsValue> {
   (ptr.callable)();
   global.post_message(&JsValue::undefined())?;
   Ok(())
-}
-
-/// Determines the path to the currently executing script by throwing an
-/// error and parsing the stack trace.
-pub fn get_script_path() -> Result<String, JsValue> {
-  let string = eval(
-    r"
-        (() => {
-            try {
-                throw new Error();
-            } catch (e) {
-                let parts = e.stack.match(/(?:\(|@)(\S+):\d+:\d+/);
-                return parts[1];
-            }
-        })()
-        ",
-  )?
-  .as_string()
-  .ok_or(JsValue::from(
-    "Could not convert JS string path to native string",
-  ))?;
-  Ok(string)
 }

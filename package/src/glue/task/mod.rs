@@ -24,7 +24,7 @@ use std::task::{Context, Poll};
 use wasm_bindgen_futures::{JsFuture, spawn_local};
 
 thread_local! {
-    pub(crate) static WORKER_POOL: WorkerPool = {
+    static WORKER_POOL: WorkerPool = {
         let worker_pool = WorkerPool::new();
         spawn_local(manage_pool());
         worker_pool
