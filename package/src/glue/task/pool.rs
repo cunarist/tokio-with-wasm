@@ -1,5 +1,6 @@
+use crate::only_web::PATH_PROVIDER;
 use crate::{BLOCKING_KEY, LogError, now};
-use js_sys::{Array, JsString, Object, Reflect, eval, global};
+use js_sys::{Array, JsString, Object, Reflect, global};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -97,7 +98,7 @@ impl WorkerPool {
         }};
       }};
       ",
-      get_script_path()?
+      PATH_PROVIDER.with(|provider| provider.borrow()())?
     );
     let blob_property_bag = BlobPropertyBag::new();
     blob_property_bag.set_type("text/javascript");
@@ -287,24 +288,4 @@ pub fn task_worker_entry_point(ptr: u32) -> Result<(), JsValue> {
   (ptr.callable)();
   global.post_message(&JsValue::undefined())?;
   Ok(())
-}
-
-pub fn get_script_path() -> Result<String, JsValue> {
-  let string = eval(
-    r"
-        (() => {
-            try {
-                throw new Error();
-            } catch (e) {
-                let parts = e.stack.match(/(?:\(|@)(\S+):\d+:\d+/);
-                return parts[1];
-            }
-        })()
-        ",
-  )?
-  .as_string()
-  .ok_or(JsValue::from(
-    "Could not convert JS string path to native string",
-  ))?;
-  Ok(string)
 }
