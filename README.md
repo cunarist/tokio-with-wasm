@@ -73,14 +73,14 @@ The `use tokio_with_wasm::alias as tokio;` statement is functionally equivalent 
 
 ```rust
 #[cfg(all(
-  target_arch = "wasm32",
+  target_family = "wasm",
   target_vendor = "unknown",
   target_os = "unknown"
 ))]
 use tokio_with_wasm as tokio;
 
 #[cfg(not(all(
-  target_arch = "wasm32",
+  target_family = "wasm",
   target_vendor = "unknown",
   target_os = "unknown"
 )))]
