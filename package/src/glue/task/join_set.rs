@@ -162,6 +162,9 @@ impl<T: 'static> JoinSet<T> {
     }
 
     // Create an async context with a waker that does nothing.
+    // It is only ever handed to a task that is already finished,
+    // because polling a pending task would make it register this waker
+    // and lose the real one from the last `poll_join_next` call.
     let waker = noop_waker();
     let mut cx = Context::from_waker(&waker);
 
@@ -171,9 +174,11 @@ impl<T: 'static> JoinSet<T> {
         Some(inner) => inner,
         None => continue, // Logically never none
       };
-      let polled = Pin::new(&mut handle).poll(&mut cx);
-      if let Poll::Ready(result) = polled {
-        return Some(result);
+      if handle.is_finished() {
+        let polled = Pin::new(&mut handle).poll(&mut cx);
+        if let Poll::Ready(result) = polled {
+          return Some(result);
+        }
       }
       self.inner.push_back(handle);
     }
