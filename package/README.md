@@ -32,9 +32,13 @@ Add this library to your `Cargo.toml` alongside `tokio`:
 
 ```toml
 [dependencies]
-tokio = { version = "0.0.0", features = ["rt"] }
-tokio_with_wasm = { version = "0.0.0", features = ["rt"] }
+tokio = { version = "0.0.0", features = ["macros", "sync", "time", "rt"] }
+tokio_with_wasm = { version = "0.0.0", features = ["macros", "sync", "time", "rt"] }
 ```
+
+The features of `tokio_with_wasm` match those of `tokio`, except for
+`rt-multi-thread`. `tokio` refuses to build for `wasm32-unknown-unknown` with
+that feature on, so enable it on your `tokio` dependency only.
 
 Here's a simple example of using `tokio_with_wasm` that works on both native platforms and web browsers:
 
@@ -94,6 +98,16 @@ Keep in mind that you should NEVER write panicking code.
 On `wasm32-unknown-unknown`, there's currently [no way](https://rustwasm.github.io/wasm-bindgen/api/wasm_bindgen_futures/fn.future_to_promise.html#panics) to catch and unwind panics like on native platforms. Panics will eventually lead to leaked JavaScript `Promise`s.
 
 Stick to the `Result` enum whenever possible.
+
+A panic inside `spawn_blocking` takes down the web worker that runs it. The
+`JoinHandle` resolves to a `JoinError` whose `is_panic` is `true`, but the panic
+payload is lost and the worker's share of the shared memory is never reclaimed.
+
+`spawn_blocking` also needs to load the JavaScript glue code into each worker,
+which it does with a `blob:` worker and `eval`. Under a content security policy
+that forbids either, worker creation fails and every blocking task returns a
+`JoinError`. Pass the path of the glue code in with
+`tokio_with_wasm::only_web::set_path_provider` to avoid the `eval`.
 
 ## Building and Deploying
 
