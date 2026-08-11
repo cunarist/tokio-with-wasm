@@ -27,7 +27,8 @@ use std::task::{Context, Poll};
 ///
 /// Spawn multiple tasks and wait for them.
 ///
-/// ```
+/// ```no_run
+/// use tokio_with_wasm::alias as tokio;
 /// use tokio::task::JoinSet;
 ///
 /// #[tokio::main]
@@ -101,7 +102,8 @@ impl<T: 'static> JoinSet<T> {
   ///
   /// Spawn multiple blocking tasks and wait for them.
   ///
-  /// ```
+  /// ```no_run
+  /// use tokio_with_wasm::alias as tokio;
   /// use tokio::task::JoinSet;
   ///
   /// #[tokio::main]
@@ -205,16 +207,16 @@ impl<T: 'static> JoinSet<T> {
   ///
   /// The results will be stored in the order they completed not the order they were spawned.
   /// This is a convenience method that is equivalent to calling [`join_next`] in
-  /// a loop. If any tasks on the `JoinSet` fail with an [`JoinError`], then this call
-  /// to `join_all` will panic and all remaining tasks on the `JoinSet` are
-  /// cancelled. To handle errors in any other way, manually call [`join_next`]
-  /// in a loop.
+  /// a loop. Tasks that fail with a [`JoinError`] are left out of the returned
+  /// vector, unlike in `tokio`, where `join_all` panics instead. To see those
+  /// errors, call [`join_next`] in a loop.
   ///
   /// # Examples
   ///
   /// Spawn multiple tasks and `join_all` them.
   ///
-  /// ```
+  /// ```no_run
+  /// use tokio_with_wasm::alias as tokio;
   /// use tokio::task::JoinSet;
   /// use std::time::Duration;
   ///
@@ -236,9 +238,9 @@ impl<T: 'static> JoinSet<T> {
   ///
   /// Equivalent implementation of `join_all`, using [`join_next`] and loop.
   ///
-  /// ```
+  /// ```no_run
+  /// use tokio_with_wasm::alias as tokio;
   /// use tokio::task::JoinSet;
-  /// use std::panic;
   ///
   /// #[tokio::main]
   /// async fn main() {
@@ -259,7 +261,6 @@ impl<T: 'static> JoinSet<T> {
   /// }
   /// ```
   /// [`join_next`]: fn@Self::join_next
-  /// [`JoinError::id`]: fn@crate::task::JoinError::id
   pub async fn join_all(mut self) -> Vec<T> {
     let mut output = Vec::with_capacity(self.len());
 

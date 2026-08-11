@@ -1,6 +1,6 @@
 //! Asynchronous green-threads.
 //!
-//! Resembling the familiar `tokio::task` patterns.
+//! Resembling the familiar `tokio::task` patterns,
 //! this module leverages web workers to execute tasks in parallel,
 //! making it ideal for high-performance web applications.
 
@@ -59,55 +59,58 @@ async fn manage_pool() {
 ///
 /// # Examples
 ///
-/// In this example, a server is started and `spawn` is used to start a new task
-/// that processes each received connection.
+/// In this example, a job is handed to a new task
+/// that processes it concurrently.
 ///
 /// ```no_run
 /// use std::io;
-/// use tokio_with_wasm as tokio;
+/// use tokio_with_wasm::alias as tokio;
 ///
-/// async fn process() -> io::Result<()> {
+/// async fn process(job: u32) -> io::Result<u32> {
 ///     // Some process...
+///     Ok(job)
 /// }
 ///
-/// async fn work() -> io::Result<()> {
-///     let result = tokio::spawn(async move {
+/// async fn work(job: u32) -> io::Result<u32> {
+///     tokio::spawn(async move {
 ///         // Process this job concurrently.
-///         process(socket).await
-///     }).await?;;
+///         process(job).await
+///     })
+///     .await
+///     .expect("the task was cancelled")
 /// }
 /// ```
 ///
 /// To run multiple tasks in parallel and receive their results, join
 /// handles can be stored in a vector.
-/// ```
-/// use tokio_with_wasm as tokio;
+///
+/// ```no_run
+/// use tokio_with_wasm::alias as tokio;
 ///
 /// async fn my_background_op(id: i32) -> String {
-///     let s = format!("Starting background task {}.", id);
-///     println!("{}", s);
-///     s
-///
-/// let ops = vec![1, 2, 3];
-/// let mut tasks = Vec::with_capacity(ops.len());
-/// for op in ops {
-///     // This call will make them start running in the background
-///     // immediately.
-///     tasks.push(tokio::spawn(my_background_op(op)));
+///     format!("Finished background task {id}.")
 /// }
 ///
-/// let mut outputs = Vec::with_capacity(tasks.len());
-/// for task in tasks {
-///     match task.await {
-///         Ok(output) => outputs.push(output),
-///         Err(err) => {
-///             println!("An error occurred: {}", err);
+/// async fn work() {
+///     let ops = vec![1, 2, 3];
+///     let mut tasks = Vec::with_capacity(ops.len());
+///     for op in ops {
+///         // This call will make them start running in the background
+///         // immediately.
+///         tasks.push(tokio::spawn(my_background_op(op)));
+///     }
+///
+///     let mut outputs = Vec::with_capacity(tasks.len());
+///     for task in tasks {
+///         match task.await {
+///             Ok(output) => outputs.push(output),
+///             Err(error) => println!("An error occurred: {error}"),
 ///         }
 ///     }
+///     println!("{outputs:?}");
 /// }
-/// println!("{:?}", outputs);
-/// # }
 /// ```
+///
 /// This example pushes the tasks to `outputs` in the order they were
 /// started in.
 ///
@@ -119,17 +122,17 @@ async fn manage_pool() {
 ///
 /// For example, this will work:
 ///
-/// ```
+/// ```no_run
 /// use std::rc::Rc;
-/// use tokio_with_wasm as tokio;
+/// use tokio_with_wasm::alias as tokio;
 ///
 /// fn use_rc(rc: Rc<()>) {
 ///     // Do stuff w/ rc
-/// # drop(rc);
+///     drop(rc);
 /// }
 ///
 /// async fn work() {
-///     tokio::spawn(async {
+///     let _ = tokio::spawn(async {
 ///         // Force the `Rc` to stay in a scope with no `.await`
 ///         {
 ///             let rc = Rc::new(());
@@ -144,17 +147,17 @@ async fn manage_pool() {
 /// This will work too, unlike multi-threaded native runtimes
 /// where `!Send` values cannot live across `.await`:
 ///
-/// ```
+/// ```no_run
 /// use std::rc::Rc;
-/// use tokio_with_wasm as tokio;
+/// use tokio_with_wasm::alias as tokio;
 ///
 /// fn use_rc(rc: Rc<()>) {
 ///     // Do stuff w/ rc
-/// # drop(rc);
+///     drop(rc);
 /// }
 ///
 /// async fn work() {
-///     tokio::spawn(async {
+///     let _ = tokio::spawn(async {
 ///         let rc = Rc::new(());
 ///
 ///         tokio::task::yield_now().await;
@@ -220,25 +223,33 @@ where
 /// asynchronously.  When you run CPU-bound code using `spawn_blocking`, you
 /// should keep this large upper limit in mind.
 ///
+/// A panic inside the closure takes down the web worker that runs it,
+/// because a panic cannot be unwound on `wasm32-unknown-unknown`. The
+/// returned handle then resolves to a [`JoinError`] whose
+/// [`is_panic`](JoinError::is_panic) is `true`.
+///
 /// # Examples
 ///
 /// Pass an input value and receive result of computation:
 ///
-/// ```
-/// use tokio_with_wasm as tokio;
+/// ```no_run
+/// use tokio_with_wasm::alias as tokio;
 ///
-/// // Initial input
-/// let mut data = "Hello, ".to_string();
-/// let output = tokio::task::spawn_blocking(move || {
-///     // Stand-in for compute-heavy work or using synchronous APIs
-///     data.push_str("world");
-///     // Pass ownership of the value back to the asynchronous context
-///     data
-/// }).await?;
+/// async fn work() {
+///     // Initial input
+///     let mut data = "Hello, ".to_string();
+///     let output = tokio::task::spawn_blocking(move || {
+///         // Stand-in for compute-heavy work or using synchronous APIs
+///         data.push_str("world");
+///         // Pass ownership of the value back to the asynchronous context
+///         data
+///     })
+///     .await
+///     .expect("the blocking task did not finish");
 ///
-/// // `output` is the value returned from the thread
-/// assert_eq!(output.as_str(), "Hello, world");
-/// Ok(())
+///     // `output` is the value returned from the thread
+///     assert_eq!(output.as_str(), "Hello, world");
+/// }
 /// ```
 pub fn spawn_blocking<C, T>(callable: C) -> JoinHandle<T>
 where
@@ -315,8 +326,8 @@ pub async fn yield_now() {
 ///
 /// Creation from [`spawn`]:
 ///
-/// ```
-/// use tokio_with_wasm as tokio;
+/// ```no_run
+/// use tokio_with_wasm::alias as tokio;
 /// use tokio::spawn;
 ///
 /// let join_handle: tokio::task::JoinHandle<_> = spawn(async {
@@ -326,8 +337,8 @@ pub async fn yield_now() {
 ///
 /// Creation from [`spawn_blocking`]:
 ///
-/// ```
-/// use tokio_with_wasm as tokio;
+/// ```no_run
+/// use tokio_with_wasm::alias as tokio;
 /// use tokio::task::spawn_blocking;
 ///
 /// let join_handle: tokio::task::JoinHandle<_> = spawn_blocking(|| {
@@ -338,20 +349,23 @@ pub async fn yield_now() {
 /// Child being detached and outliving its parent:
 ///
 /// ```no_run
-/// use tokio_with_wasm as tokio;
+/// use tokio_with_wasm::alias as tokio;
 /// use tokio::spawn;
 ///
-/// let original_task = spawn(async {
-///     let _detached_task = spawn(async {
-///         // Here we sleep to make sure that the first task returns before.
-///         // Assume that code takes a few seconds to execute here.
-///         // This will be called, even though the JoinHandle is dropped.
-///         println!("♫ Still alive ♫");
+/// async fn work() {
+///     let original_task = spawn(async {
+///         let _detached_task = spawn(async {
+///             // Here we sleep to make sure that the first task returns
+///             // before. Assume that code takes a few seconds to execute
+///             // here. This will be called, even though the `JoinHandle`
+///             // is dropped.
+///             println!("♫ Still alive ♫");
+///         });
 ///     });
-/// });
 ///
-/// original_task.await;
-/// println!("Original task is joined.");
+///     let _ = original_task.await;
+///     println!("Original task is joined.");
+/// }
 /// ```
 pub struct JoinHandle<T> {
   join_receiver: OnceReceiver<Result<T, JoinError>>,
@@ -391,32 +405,31 @@ impl<T> JoinHandle<T> {
   /// running normally. The exception is if the task has not started running
   /// yet; in that case, calling `abort` may prevent the task from starting.
   ///
-  /// ```rust
-  /// use tokio_with_wasm as tokio;
+  /// ```no_run
+  /// use tokio_with_wasm::alias as tokio;
   /// use tokio::time;
   ///
-  /// # #[tokio::main(flavor = "current_thread", start_paused = true)]
-  /// # async fn main() {
-  /// let mut handles = Vec::new();
+  /// async fn work() {
+  ///     let mut handles = Vec::new();
   ///
-  /// handles.push(tokio::spawn(async {
-  ///    time::sleep(time::Duration::from_secs(10)).await;
-  ///    true
-  /// }));
+  ///     handles.push(tokio::spawn(async {
+  ///         time::sleep(time::Duration::from_secs(10)).await;
+  ///         true
+  ///     }));
   ///
-  /// handles.push(tokio::spawn(async {
-  ///    time::sleep(time::Duration::from_secs(10)).await;
-  ///    false
-  /// }));
+  ///     handles.push(tokio::spawn(async {
+  ///         time::sleep(time::Duration::from_secs(10)).await;
+  ///         false
+  ///     }));
   ///
-  /// for handle in &handles {
-  ///     handle.abort();
+  ///     for handle in &handles {
+  ///         handle.abort();
+  ///     }
+  ///
+  ///     for handle in handles {
+  ///         assert!(handle.await.unwrap_err().is_cancelled());
+  ///     }
   /// }
-  ///
-  /// for handle in handles {
-  ///     assert!(handle.await.unwrap_err().is_cancelled());
-  /// }
-  /// # }
   /// ```
   pub fn abort(&self) {
     self.cancel_sender.send(());
@@ -428,6 +441,8 @@ impl<T> JoinHandle<T> {
   /// called on the task. This is because the cancellation process may take
   /// some time, and this method does not return `true` until it has
   /// completed.
+  ///
+  /// [`abort`]: JoinHandle::abort
   pub fn is_finished(&self) -> bool {
     self.join_receiver.is_done()
   }
@@ -526,7 +541,7 @@ impl AbortHandle {
   ///
   /// Awaiting a cancelled task might complete as usual if the task was
   /// already completed at the time it was cancelled, but most likely it
-  /// will fail with a [cancelled] `JoinError`.
+  /// will fail with a [`JoinError`] that reports itself as cancelled.
   ///
   /// If the task was already cancelled, such as by [`JoinHandle::abort`],
   /// this method will do nothing.
