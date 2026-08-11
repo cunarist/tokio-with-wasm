@@ -8,13 +8,14 @@ pub mod printing {
 
   #[wasm_bindgen]
   extern "C" {
-    #[wasm_bindgen(js_namespace = globalThis, js_name = eval)]
-    fn eval(script: &str);
+    /// Defined in `index.html`; appends a paragraph to the page.
+    /// The DOM stays JavaScript's job.
+    #[wasm_bindgen(js_namespace = globalThis, js_name = appendLog)]
+    fn append_log(message: &str);
   }
 
   pub fn do_printing(s: &str) {
-    let script = format!("document.body.innerHTML += '<p>{s}</p>';",);
-    eval(&script);
+    append_log(s);
   }
 }
 
