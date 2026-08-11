@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Browser tests under the shared memory build
+  # that `.cargo/config.toml` sets up.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --features full -- -D warnings
+      - run: curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+      - run: wasm-pack test --headless --chrome package
+
+  # The same code paths compile to plain `tokio` on native platforms.
+  native:
+    runs-on: ubuntu-latest
+    env:
+      TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --features full --target $TARGET -- -D warnings
+      - run: cargo run -p example --target $TARGET

@@ -107,3 +107,80 @@ impl<T> Drop for LocalReceiver<T> {
     shared.closed = true;
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::super::test_util::CountingWaker;
+  use super::*;
+  use wasm_bindgen_test::wasm_bindgen_test;
+
+  /// Polls the receiver once without a real runtime.
+  fn poll_once<T>(
+    receiver: &mut LocalReceiver<T>,
+    waker: &Waker,
+  ) -> Poll<Option<T>> {
+    let mut cx = Context::from_waker(waker);
+    Pin::new(&mut receiver.next()).poll(&mut cx)
+  }
+
+  #[wasm_bindgen_test]
+  fn items_arrive_in_sending_order() {
+    let (sender, mut receiver) = local_channel();
+    sender.send(1);
+    sender.send(2);
+    sender.send(3);
+    let counter = CountingWaker::new();
+    let waker = counter.waker();
+    assert_eq!(poll_once(&mut receiver, &waker), Poll::Ready(Some(1)));
+    assert_eq!(poll_once(&mut receiver, &waker), Poll::Ready(Some(2)));
+    assert_eq!(poll_once(&mut receiver, &waker), Poll::Ready(Some(3)));
+    assert_eq!(poll_once(&mut receiver, &waker), Poll::Pending);
+  }
+
+  #[wasm_bindgen_test]
+  fn send_wakes_the_waiting_receiver() {
+    let (sender, mut receiver) = local_channel();
+    let counter = CountingWaker::new();
+    let waker = counter.waker();
+
+    assert_eq!(poll_once(&mut receiver, &waker), Poll::Pending);
+    assert_eq!(counter.count(), 0);
+
+    sender.send(9);
+    assert_eq!(counter.count(), 1);
+    assert_eq!(poll_once(&mut receiver, &waker), Poll::Ready(Some(9)));
+  }
+
+  #[wasm_bindgen_test]
+  fn queued_items_survive_the_sender() {
+    let (sender, mut receiver) = local_channel();
+    sender.send(1);
+    sender.send(2);
+    drop(sender);
+    let counter = CountingWaker::new();
+    let waker = counter.waker();
+    // The queue drains first; only then does the channel report closure.
+    assert_eq!(poll_once(&mut receiver, &waker), Poll::Ready(Some(1)));
+    assert_eq!(poll_once(&mut receiver, &waker), Poll::Ready(Some(2)));
+    assert_eq!(poll_once(&mut receiver, &waker), Poll::Ready(None));
+  }
+
+  #[wasm_bindgen_test]
+  fn dropping_the_sender_wakes_the_receiver() {
+    let (sender, mut receiver) = local_channel::<i32>();
+    let counter = CountingWaker::new();
+    let waker = counter.waker();
+
+    assert_eq!(poll_once(&mut receiver, &waker), Poll::Pending);
+    drop(sender);
+    assert_eq!(counter.count(), 1);
+    assert_eq!(poll_once(&mut receiver, &waker), Poll::Ready(None));
+  }
+
+  #[wasm_bindgen_test]
+  fn sending_into_a_dropped_receiver_is_harmless() {
+    let (sender, receiver) = local_channel();
+    drop(receiver);
+    sender.send(1);
+  }
+}

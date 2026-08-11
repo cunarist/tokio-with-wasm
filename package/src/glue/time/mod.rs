@@ -2,6 +2,9 @@
 //!
 //! This module provides a number of types for executing code after a set period
 //! of time.
+//!
+//! `Instant` has no counterpart here, because the standard library cannot
+//! read a clock on `wasm32-unknown-unknown`.
 
 use crate::{
   LocalReceiver, LogError, clear_interval, local_channel, set_interval,
@@ -14,9 +17,11 @@ use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::time::Duration;
 use wasm_bindgen::prelude::{Closure, JsCast};
 use wasm_bindgen_futures::JsFuture;
+
+// Re-exported to match `tokio::time`, where `Duration` is available too.
+pub use std::time::Duration;
 
 async fn time_future(duration: Duration) {
   let milliseconds = duration.as_millis() as f64;
@@ -110,21 +115,49 @@ impl From<Elapsed> for io::Error {
 }
 
 /// Creates a new interval that ticks every `period` duration.
+///
+/// The first tick completes immediately, as it does in `tokio`.
 pub fn interval(period: Duration) -> Interval {
-  let (tx, rx) = local_channel::<()>();
-  let period_ms = period.as_millis() as f64;
-  // Create a closure that sends a tick via the channel.
-  let closure = Closure::wrap(Box::new(move || {
-    tx.send(());
-  }) as Box<dyn Fn()>);
-  // Register an interval with the closure.
-  let interval_id = set_interval(closure.as_ref().unchecked_ref(), period_ms);
-  // Release memory management of this closure from Rust to the JS GC.
-  closure.forget();
   Interval {
+    ticker: start_ticking(period, true),
     period,
-    rx,
+  }
+}
+
+/// Registers a JavaScript interval that feeds a channel.
+/// The first tick is queued right away when `immediate` is set.
+fn start_ticking(period: Duration, immediate: bool) -> Ticker {
+  let (sender, receiver) = local_channel::<()>();
+  if immediate {
+    sender.send(());
+  }
+  let closure = Closure::wrap(Box::new(move || {
+    sender.send(());
+  }) as Box<dyn Fn()>);
+  let interval_id =
+    set_interval(closure.as_ref().unchecked_ref(), period.as_millis() as f64);
+  Ticker {
+    receiver,
+    closure,
     interval_id,
+  }
+}
+
+/// A registered JavaScript interval and the channel it feeds.
+struct Ticker {
+  receiver: LocalReceiver<()>,
+  /// Held so that JavaScript can keep calling it.
+  /// Handing it to the JavaScript garbage collector instead would leak it,
+  /// because a `Closure` created by Rust is never collected.
+  #[allow(dead_code)]
+  closure: Closure<dyn Fn()>,
+  interval_id: i32,
+}
+
+impl Drop for Ticker {
+  fn drop(&mut self) {
+    // The interval is cleared before the closure it calls is freed.
+    clear_interval(self.interval_id);
   }
 }
 
@@ -133,39 +166,20 @@ pub fn interval(period: Duration) -> Interval {
 /// and ensure the interval is cleaned up when it is dropped.
 pub struct Interval {
   period: Duration,
-  rx: LocalReceiver<()>,
-  interval_id: i32,
+  ticker: Ticker,
 }
 
 impl Interval {
   /// Waits until the next tick.
   pub async fn tick(&mut self) {
-    self.rx.next().await;
+    self.ticker.receiver.next().await;
   }
 
   /// Resets the interval, making the next tick occur
   /// after the original period.
-  /// This clears the existing interval and establishes a new one.
+  /// This clears the existing interval and establishes a new one,
+  /// dropping any tick that has already been missed.
   pub fn reset(&mut self) {
-    // Clear the existing interval.
-    clear_interval(self.interval_id);
-    // Create a new channel to receive ticks.
-    let (tx, rx) = local_channel::<()>();
-    self.rx = rx;
-    let period_ms = self.period.as_millis() as f64;
-    // Set up a new interval.
-    let closure = Closure::wrap(Box::new(move || {
-      tx.send(());
-    }) as Box<dyn Fn()>);
-    self.interval_id =
-      set_interval(closure.as_ref().unchecked_ref(), period_ms);
-    // Release memory management of this closure from Rust to the JS GC.
-    closure.forget();
-  }
-}
-
-impl Drop for Interval {
-  fn drop(&mut self) {
-    clear_interval(self.interval_id);
+    self.ticker = start_ticking(self.period, false);
   }
 }

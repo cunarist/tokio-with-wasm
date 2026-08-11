@@ -1,0 +1,7 @@
+# The web worker build recompiles `std` with shared memory,
+# which needs a nightly compiler and the `rust-src` component.
+# See `.cargo/config.toml` for the compiler flags.
+[toolchain]
+channel = "nightly"
+components = ["rust-src", "clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]

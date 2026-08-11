@@ -4,3 +4,25 @@
 # If you make any changes to this field,
 # you might have to restart Rust-analyzer for the change to take effect.
 target = "wasm32-unknown-unknown"
+
+# The flags for the web worker (multithreading) build, applied to every
+# wasm build in this repository: `cargo`, `wasm-pack`, and Rust-analyzer
+# all read this file, so no environment variables are needed.
+# Native builds are not affected.
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",
+  "-C", "link-arg=--shared-memory",
+  "-C", "link-arg=--max-memory=1073741824",
+  "-C", "link-arg=--import-memory",
+  "-C", "link-arg=--export=__wasm_init_tls",
+  "-C", "link-arg=--export=__tls_size",
+  "-C", "link-arg=--export=__tls_align",
+  "-C", "link-arg=--export=__tls_base",
+]
+
+# `std` is not distributed with `+atomics`, so it is rebuilt from source.
+# This is why the repository pins the nightly toolchain
+# in `rust-toolchain.toml`.
+[unstable]
+build-std = ["std", "panic_abort"]

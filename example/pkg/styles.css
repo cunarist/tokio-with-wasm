@@ -1,0 +1,27 @@
+body {
+  background: hsl(0, 0%, 10%);
+  color: hsl(0, 0%, 100%);
+  font-family: monospace;
+  padding: 2em;
+}
+
+#stage {
+  position: relative;
+  width: fit-content;
+  margin: 1rem 0;
+}
+
+#fractal {
+  display: block;
+  border-radius: 0.5rem;
+}
+
+#stats {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  margin: 0;
+  padding: 0.1rem 0.4rem;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 0.25rem;
+}
