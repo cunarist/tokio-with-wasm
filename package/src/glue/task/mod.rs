@@ -4,9 +4,11 @@
 //! this module leverages web workers to execute tasks in parallel,
 //! making it ideal for high-performance web applications.
 
+mod join_map;
 mod join_set;
 mod pool;
 
+pub use join_map::*;
 pub use join_set::*;
 use wasm_bindgen::prelude::JsValue;
 
