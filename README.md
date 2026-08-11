@@ -36,9 +36,11 @@ tokio = { version = "0.0.0", features = ["macros", "sync", "time", "rt"] }
 tokio_with_wasm = { version = "0.0.0", features = ["macros", "sync", "time", "rt"] }
 ```
 
-The features of `tokio_with_wasm` match those of `tokio`, except for
-`rt-multi-thread`. `tokio` refuses to build for `wasm32-unknown-unknown` with
-that feature on, so enable it on your `tokio` dependency only.
+Keep the feature lists of the two dependencies in sync: `tokio`'s features
+serve native platforms, and `tokio_with_wasm`'s features gate the web glue.
+The one exception is `rt-multi-thread`, which `tokio` refuses to build for
+`wasm32-unknown-unknown` — enable it on `tokio` behind a target gate if you
+need it natively.
 
 Here's a simple example of using `tokio_with_wasm` that works on both native platforms and web browsers:
 
