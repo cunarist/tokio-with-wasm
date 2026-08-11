@@ -93,6 +93,27 @@ async fn interval_reset_delays_the_next_tick() {
 }
 
 #[wasm_bindgen_test]
+async fn timeout_zero_still_delivers_a_ready_output() {
+  // The future is polled before the clock, like in `tokio`.
+  let output = timeout(Duration::ZERO, std::future::ready(42)).await;
+  assert_eq!(output.unwrap(), 42);
+}
+
+/// Ticks that pile up while nobody is awaiting are delivered in a
+/// burst, which matches `tokio`'s default missed-tick behavior.
+#[wasm_bindgen_test]
+async fn missed_interval_ticks_are_delivered_in_a_burst() {
+  let mut ticker = interval(Duration::from_millis(100));
+  sleep(Duration::from_millis(350)).await;
+  let start = now();
+  ticker.tick().await;
+  ticker.tick().await;
+  ticker.tick().await;
+  let elapsed = now() - start;
+  assert!(elapsed < 100.0, "queued ticks were not ready: {elapsed}ms");
+}
+
+#[wasm_bindgen_test]
 async fn sleeps_run_concurrently_in_tasks() {
   let start = now();
   let first = tokio::spawn(sleep(Duration::from_millis(200)));

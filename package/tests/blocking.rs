@@ -82,6 +82,26 @@ async fn a_worker_is_reused_between_tasks() {
   }
 }
 
+/// `spawn` is forbidden inside a blocking thread and panics there.
+/// The panic must come back to the caller as a `JoinError`.
+#[wasm_bindgen_test]
+async fn spawning_inside_a_worker_is_reported_as_a_panic() {
+  let handle = spawn_blocking(|| {
+    drop(tokio_with_wasm::task::spawn(async {}));
+  });
+  assert!(handle.await.unwrap_err().is_panic());
+}
+
+/// A worker is culled after ten idle seconds. The pool's management
+/// timer stops with it, so this also proves that the timer starts
+/// again for the task spawned afterwards.
+#[wasm_bindgen_test]
+async fn an_idle_worker_is_culled_and_the_pool_recovers() {
+  spawn_blocking(|| 1).await.unwrap();
+  sleep(Duration::from_millis(10_500)).await;
+  assert_eq!(spawn_blocking(|| 2).await.unwrap(), 2);
+}
+
 #[wasm_bindgen_test]
 async fn join_set_collects_blocking_tasks() {
   let mut set = JoinSet::new();
