@@ -15,7 +15,8 @@
 use std::io;
 // `Duration` must be reachable through `time`, like in `tokio`.
 use tokio_with_wasm::alias as tokio;
-use tokio_with_wasm::time::{Duration, interval, sleep, timeout};
+use tokio_with_wasm::task::JoinError;
+use tokio_with_wasm::time::{Duration, Elapsed, interval, sleep, timeout};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -40,16 +41,19 @@ async fn sleep_zero_completes() {
 }
 
 #[wasm_bindgen_test]
-async fn timeout_returns_the_output_in_time() {
+async fn timeout_returns_the_output_in_time() -> Result<(), Elapsed> {
   let output = timeout(Duration::from_secs(5), async { 42 }).await;
-  assert_eq!(output.unwrap(), 42);
+  assert_eq!(output?, 42);
+  Ok(())
 }
 
 #[wasm_bindgen_test]
 async fn timeout_elapses_on_a_slow_future() {
   let output =
     timeout(Duration::from_millis(50), sleep(Duration::from_secs(10))).await;
-  let elapsed = output.unwrap_err();
+  let Err(elapsed) = output else {
+    panic!("the slow future was not cut off");
+  };
   // The error converts into a timed-out IO error.
   let io_error: io::Error = elapsed.into();
   assert_eq!(io_error.kind(), io::ErrorKind::TimedOut);
@@ -93,10 +97,11 @@ async fn interval_reset_delays_the_next_tick() {
 }
 
 #[wasm_bindgen_test]
-async fn timeout_zero_still_delivers_a_ready_output() {
+async fn timeout_zero_still_delivers_a_ready_output() -> Result<(), Elapsed> {
   // The future is polled before the clock, like in `tokio`.
   let output = timeout(Duration::ZERO, std::future::ready(42)).await;
-  assert_eq!(output.unwrap(), 42);
+  assert_eq!(output?, 42);
+  Ok(())
 }
 
 /// Ticks that pile up while nobody is awaiting are delivered in a
@@ -114,13 +119,14 @@ async fn missed_interval_ticks_are_delivered_in_a_burst() {
 }
 
 #[wasm_bindgen_test]
-async fn sleeps_run_concurrently_in_tasks() {
+async fn sleeps_run_concurrently_in_tasks() -> Result<(), JoinError> {
   let start = now();
   let first = tokio::spawn(sleep(Duration::from_millis(200)));
   let second = tokio::spawn(sleep(Duration::from_millis(200)));
-  first.await.unwrap();
-  second.await.unwrap();
+  first.await?;
+  second.await?;
   let elapsed = now() - start;
   // Sequential sleeps would take 400ms or more.
   assert!(elapsed < 390.0, "sleeps did not overlap: {elapsed}ms");
+  Ok(())
 }

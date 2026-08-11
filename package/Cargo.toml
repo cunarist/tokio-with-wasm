@@ -25,6 +25,11 @@ time = []
 rt = []
 rt-multi-thread = ["rt"]
 
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+wildcard_imports = "deny"
+
 [dependencies]
 tokio_with_wasm_proc = "0.9.0"
 tokio = "1.x.x"

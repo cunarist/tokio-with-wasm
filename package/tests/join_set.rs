@@ -12,14 +12,14 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use tokio_with_wasm::alias as tokio;
-use tokio_with_wasm::task::JoinSet;
+use tokio_with_wasm::task::{JoinError, JoinSet};
 use tokio_with_wasm::time::{Duration, sleep, timeout};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test]
-async fn join_next_returns_every_output() {
+async fn join_next_returns_every_output() -> Result<(), JoinError> {
   let mut set = JoinSet::new();
   for i in 0..10 {
     set.spawn(async move { i });
@@ -28,14 +28,15 @@ async fn join_next_returns_every_output() {
 
   let mut seen = [false; 10];
   while let Some(result) = set.join_next().await {
-    seen[result.unwrap()] = true;
+    seen[result?] = true;
   }
   assert!(seen.iter().all(|b| *b));
   assert!(set.is_empty());
+  Ok(())
 }
 
 #[wasm_bindgen_test]
-async fn join_next_yields_in_completion_order() {
+async fn join_next_yields_in_completion_order() -> Result<(), JoinError> {
   let mut set = JoinSet::new();
   set.spawn(async {
     sleep(Duration::from_millis(350)).await;
@@ -52,9 +53,10 @@ async fn join_next_yields_in_completion_order() {
 
   let mut order = Vec::new();
   while let Some(result) = set.join_next().await {
-    order.push(result.unwrap());
+    order.push(result?);
   }
   assert_eq!(order, vec![2, 3, 1]);
+  Ok(())
 }
 
 #[wasm_bindgen_test]
@@ -75,7 +77,7 @@ async fn join_next_on_an_empty_set_is_none() {
 }
 
 #[wasm_bindgen_test]
-async fn try_join_next_sees_only_finished_tasks() {
+async fn try_join_next_sees_only_finished_tasks() -> Result<(), JoinError> {
   let mut set = JoinSet::new();
   set.spawn(async {
     sleep(Duration::from_millis(100)).await;
@@ -84,15 +86,16 @@ async fn try_join_next_sees_only_finished_tasks() {
   // Nothing has finished yet.
   assert!(set.try_join_next().is_none());
   sleep(Duration::from_millis(200)).await;
-  assert_eq!(set.try_join_next().unwrap().unwrap(), 5);
+  assert_eq!(set.try_join_next().transpose()?, Some(5));
   assert!(set.try_join_next().is_none());
+  Ok(())
 }
 
 /// Regression test: `try_join_next` used to poll pending tasks with a
 /// no-op waker, which replaced the real waker registered by a concurrent
 /// `join_next`. The completion then woke nobody and `join_next` hung.
 #[wasm_bindgen_test]
-async fn try_join_next_does_not_silence_join_next() {
+async fn try_join_next_does_not_silence_join_next() -> Result<(), JoinError> {
   let set = Rc::new(RefCell::new(JoinSet::new()));
   set.borrow_mut().spawn(async {
     sleep(Duration::from_millis(150)).await;
@@ -113,8 +116,10 @@ async fn try_join_next_does_not_silence_join_next() {
     std::future::poll_fn(|cx| set.borrow_mut().poll_join_next(cx)),
   )
   .await;
-  let result = waited.expect("`join_next` missed the completion");
-  assert_eq!(result.unwrap().unwrap(), 5);
+  let Ok(result) = waited else {
+    panic!("`join_next` missed the completion");
+  };
+  assert_eq!(result.transpose()?, Some(5));
   // With the clobbered waker, nothing re-polls `join_next` until the
   // timeout above fires at five seconds, so completion must come from
   // the task's own wake at 150ms to prove the waker survived.
@@ -123,6 +128,7 @@ async fn try_join_next_does_not_silence_join_next() {
     elapsed < 2500.0,
     "the completion was not delivered: {elapsed}ms"
   );
+  Ok(())
 }
 
 #[wasm_bindgen_test]
@@ -148,7 +154,7 @@ async fn abort_all_cancels_pending_tasks() {
   set.abort_all();
   let mut cancelled = 0;
   while let Some(result) = set.join_next().await {
-    assert!(result.unwrap_err().is_cancelled());
+    assert!(result.is_err_and(|error| error.is_cancelled()));
     cancelled += 1;
   }
   assert_eq!(cancelled, 3);

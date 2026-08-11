@@ -13,15 +13,16 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 use tokio_with_wasm::alias as tokio;
-use tokio_with_wasm::task::{JoinHandle, spawn, yield_now};
+use tokio_with_wasm::task::{JoinError, JoinHandle, spawn, yield_now};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test]
-async fn spawn_returns_the_output() {
+async fn spawn_returns_the_output() -> Result<(), JoinError> {
   let handle = spawn(async { 6 * 7 });
-  assert_eq!(handle.await.unwrap(), 42);
+  assert_eq!(handle.await?, 42);
+  Ok(())
 }
 
 #[wasm_bindgen_test]
@@ -37,14 +38,15 @@ async fn spawn_runs_without_being_awaited() {
 }
 
 #[wasm_bindgen_test]
-async fn spawn_accepts_non_send_futures() {
+async fn spawn_accepts_non_send_futures() -> Result<(), JoinError> {
   let handle = spawn(async {
     let rc = Rc::new(5);
     // The `Rc` lives across an await point.
     yield_now().await;
     *rc
   });
-  assert_eq!(handle.await.unwrap(), 5);
+  assert_eq!(handle.await?, 5);
+  Ok(())
 }
 
 #[wasm_bindgen_test]
@@ -53,7 +55,9 @@ async fn abort_cancels_a_pending_task() {
     tokio::time::sleep(Duration::from_secs(10)).await;
   });
   handle.abort();
-  let error = handle.await.unwrap_err();
+  let Err(error) = handle.await else {
+    panic!("the aborted task returned an output");
+  };
   assert!(error.is_cancelled());
   assert!(!error.is_panic());
 }
@@ -65,17 +69,18 @@ async fn abort_handle_cancels_remotely() {
   });
   let abort_handle = handle.abort_handle();
   abort_handle.abort();
-  assert!(handle.await.unwrap_err().is_cancelled());
+  assert!(handle.await.is_err_and(|error| error.is_cancelled()));
 }
 
 #[wasm_bindgen_test]
-async fn abort_after_completion_keeps_the_output() {
+async fn abort_after_completion_keeps_the_output() -> Result<(), JoinError> {
   let handle = spawn(async { 7 });
   // Give the task time to finish before aborting.
   tokio::time::sleep(Duration::from_millis(50)).await;
   handle.abort();
   handle.abort(); // A second abort must be harmless too.
-  assert_eq!(handle.await.unwrap(), 7);
+  assert_eq!(handle.await?, 7);
+  Ok(())
 }
 
 #[wasm_bindgen_test]
@@ -94,7 +99,7 @@ async fn yield_now_completes_many_times() {
 }
 
 #[wasm_bindgen_test]
-async fn tasks_interleave_on_the_event_loop() {
+async fn tasks_interleave_on_the_event_loop() -> Result<(), JoinError> {
   let log = Rc::new(std::cell::RefCell::new(Vec::new()));
   let mut handles = Vec::new();
   for id in 0..3 {
@@ -107,11 +112,12 @@ async fn tasks_interleave_on_the_event_loop() {
     }));
   }
   for handle in handles {
-    handle.await.unwrap();
+    handle.await?;
   }
   // Every task yielded, so no task finished both
   // rounds before the others started.
   let log = log.borrow();
   assert_eq!(log.len(), 6);
   assert_eq!(&log[..3], &[0, 1, 2]);
+  Ok(())
 }
