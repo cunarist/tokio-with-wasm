@@ -95,3 +95,74 @@ impl<T> Future for OnceReceiver<T> {
     Poll::Pending
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::super::test_util::CountingWaker;
+  use super::*;
+  use std::task::Context;
+  use wasm_bindgen_test::wasm_bindgen_test;
+
+  #[wasm_bindgen_test]
+  fn value_sent_before_polling_is_ready() {
+    let (sender, mut receiver) = once_channel();
+    sender.send(5);
+    let counter = CountingWaker::new();
+    let waker = counter.waker();
+    let mut cx = Context::from_waker(&waker);
+    let polled = Pin::new(&mut receiver).poll(&mut cx);
+    assert_eq!(polled, Poll::Ready(5));
+  }
+
+  #[wasm_bindgen_test]
+  fn send_wakes_the_registered_waker_once() {
+    let (sender, mut receiver) = once_channel();
+    let counter = CountingWaker::new();
+    let waker = counter.waker();
+    let mut cx = Context::from_waker(&waker);
+
+    assert_eq!(Pin::new(&mut receiver).poll(&mut cx), Poll::Pending);
+    assert_eq!(counter.count(), 0);
+
+    sender.send(7);
+    assert_eq!(counter.count(), 1);
+    assert_eq!(Pin::new(&mut receiver).poll(&mut cx), Poll::Ready(7));
+  }
+
+  #[wasm_bindgen_test]
+  fn is_done_stays_true_after_the_value_is_taken() {
+    let (sender, mut receiver) = once_channel();
+    assert!(!receiver.is_done());
+    sender.send(1);
+    assert!(receiver.is_done());
+
+    let counter = CountingWaker::new();
+    let waker = counter.waker();
+    let mut cx = Context::from_waker(&waker);
+    let _ = Pin::new(&mut receiver).poll(&mut cx);
+    assert!(receiver.is_done());
+  }
+
+  #[wasm_bindgen_test]
+  fn only_the_first_send_delivers() {
+    let (sender, mut receiver) = once_channel();
+    sender.send(1);
+    sender.send(2);
+    let counter = CountingWaker::new();
+    let waker = counter.waker();
+    let mut cx = Context::from_waker(&waker);
+    assert_eq!(Pin::new(&mut receiver).poll(&mut cx), Poll::Ready(1));
+  }
+
+  #[wasm_bindgen_test]
+  fn cloned_senders_share_the_single_slot() {
+    let (sender, mut receiver) = once_channel();
+    let cloned = sender.clone();
+    sender.send(1);
+    cloned.send(2);
+    let counter = CountingWaker::new();
+    let waker = counter.waker();
+    let mut cx = Context::from_waker(&waker);
+    assert_eq!(Pin::new(&mut receiver).poll(&mut cx), Poll::Ready(1));
+  }
+}

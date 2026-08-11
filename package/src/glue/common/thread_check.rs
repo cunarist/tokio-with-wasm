@@ -23,3 +23,16 @@ pub fn is_main_thread() -> bool {
   });
   is_main
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use wasm_bindgen_test::wasm_bindgen_test;
+
+  // The worker side of this check is covered by the integration test
+  // that calls `spawn` inside `spawn_blocking`.
+  #[wasm_bindgen_test]
+  fn the_test_harness_counts_as_the_main_thread() {
+    assert!(is_main_thread());
+  }
+}
