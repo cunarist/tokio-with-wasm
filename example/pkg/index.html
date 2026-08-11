@@ -6,19 +6,42 @@
     <link rel="icon" href="data:," />
     <title>WASM Example</title>
     <style>
-      body {
-        background: hsl(0, 0%, 10%);
-        color: hsl(0, 0%, 100%);
-        font-family: monospace;
-        padding: 2em;
-      }
+    body {
+      background: hsl(0, 0%, 10%);
+      color: hsl(0, 0%, 100%);
+      font-family: monospace;
+      padding: 2em;
+    }
     </style>
   </head>
   <body>
     <h1>WASM Example</h1>
+    <p id="spinner">⠋ 0 fps</p>
     <script type="module">
-      import init from "./example.js";
-      init();
+    const frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+    let count = 0;
+    let last = null;
+    let fps = 0;
+    function tick(now) {
+      if (last === null) last = now;
+      count += 1;
+      if (now - last >= 500) {
+        fps = Math.round((count * 1000) / (now - last));
+        count = 0;
+        last = now;
+      }
+      const step = 1000 / frames.length;
+      const spinnerIcon = frames[Math.floor(now / step) % frames.length];
+      const spinnerText = `${spinnerIcon} ${fps} fps`;
+      document.getElementById("spinner").textContent = spinnerText;
+      requestAnimationFrame(tick);
+    }
+    console.log("WOW");
+    requestAnimationFrame(tick);
+    </script>
+    <script type="module">
+    import init from "./example.js";
+    init();
     </script>
   </body>
 </html>
