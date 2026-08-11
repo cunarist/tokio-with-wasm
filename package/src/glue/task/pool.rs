@@ -152,7 +152,18 @@ impl WorkerPool {
           // This will queue further commands up
           // until the module is fully initialised:
           await initialised;
-          wasmBindings.task_worker_entry_point(event.data);
+          try {{
+            wasmBindings.task_worker_entry_point(event.data);
+          }} catch (err) {{
+            // A panicking task traps here. Throwing inside an async
+            // handler would only reject its promise, which the parent
+            // thread never sees, so the error is rethrown from a timeout
+            // to reach the `Worker`'s `onerror`:
+            setTimeout(() => {{
+              throw err;
+            }});
+            throw err;
+          }}
         }};
       }};
       ",
