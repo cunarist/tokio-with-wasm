@@ -243,24 +243,13 @@ impl WorkerPool {
     let slot2 = reclaim_slot.clone();
     let on_failure = RefCell::new(Some(on_failure));
     let reclaim = Closure::<dyn FnMut(_)>::new(move |event: Event| {
-      if let Some(error) = event.dyn_ref::<ErrorEvent>() {
-        JsValue::from_str(&error.message()).log_error("RECLAIM_EVENT");
-        // The worker's memory is left in an unknown state,
-        // so it is terminated instead of being reused.
-        worker2.terminate();
-        if let Some(pool_state) = pool_state.upgrade() {
-          pool_state.discard_worker();
-        }
-        if let Some(on_failure) = on_failure.borrow_mut().take() {
-          on_failure();
-        }
-        *slot2.borrow_mut() = None;
-        return;
-      }
-
-      // If this is a completion event then can deallocate our own
-      // callback by clearing out `slot2` which contains our own closure.
-      if let Some(_msg) = event.dyn_ref::<MessageEvent>() {
+      // A completion message reclaims the worker into the pool,
+      // and deallocates this callback by clearing out `slot2`,
+      // which contains this closure itself.
+      let is_completion = event
+        .dyn_ref::<MessageEvent>()
+        .is_some_and(|message| message.type_() == "message");
+      if is_completion {
         if let Some(pool_state) = pool_state.upgrade() {
           pool_state.push_worker(worker2.clone());
         }
@@ -268,8 +257,24 @@ impl WorkerPool {
         return;
       }
 
-      // Unhandled worker event exists.
-      JsValue::from_str(&format!("{event:?}")).log_error("UNHANDLED_RECLAIM");
+      // Anything else means the worker is unusable: an `ErrorEvent`
+      // from a panicking task, or the plain `Event` of type `error`
+      // that fires when the worker's script fails to load.
+      let reason = match event.dyn_ref::<ErrorEvent>() {
+        Some(error) => error.message(),
+        None => format!("worker event `{}`", event.type_()),
+      };
+      JsValue::from_str(&reason).log_error("RECLAIM_EVENT");
+      // The worker's memory is left in an unknown state,
+      // so it is terminated instead of being reused.
+      worker2.terminate();
+      if let Some(pool_state) = pool_state.upgrade() {
+        pool_state.discard_worker();
+      }
+      if let Some(on_failure) = on_failure.borrow_mut().take() {
+        on_failure();
+      }
+      *slot2.borrow_mut() = None;
     });
     worker.set_onmessage(Some(reclaim.as_ref().unchecked_ref()));
     worker.set_onerror(Some(reclaim.as_ref().unchecked_ref()));
