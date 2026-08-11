@@ -34,9 +34,18 @@ fn lock<T>(core: &Mutex<ChannelCore<T>>) -> MutexGuard<'_, ChannelCore<T>> {
   core.lock().unwrap_or_else(|error| error.into_inner())
 }
 
-#[derive(Clone)]
 pub struct OnceSender<T> {
   core: Arc<Mutex<ChannelCore<T>>>,
+}
+
+// Written by hand, because deriving `Clone`
+// would require the value type to be cloneable as well.
+impl<T> Clone for OnceSender<T> {
+  fn clone(&self) -> Self {
+    OnceSender {
+      core: self.core.clone(),
+    }
+  }
 }
 
 impl<T> OnceSender<T> {

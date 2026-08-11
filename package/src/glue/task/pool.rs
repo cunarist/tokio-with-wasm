@@ -18,10 +18,14 @@ pub struct WorkerPool {
 }
 
 struct PoolState {
+  /// Number of workers that count against `MAX_WORKERS`,
+  /// whether they are idle or busy.
   total_workers_count: RefCell<usize>,
   idle_workers: RefCell<Vec<ManagedWorker>>,
-  queued_tasks: RefCell<VecDeque<Task>>,
+  queued_tasks: RefCell<VecDeque<QueuedTask>>,
   callback: Closure<dyn FnMut(Event)>,
+  /// Script path and the object URL of the bootstrap script built from it.
+  script_url: RefCell<Option<(String, String)>>,
 }
 
 struct ManagedWorker {
@@ -29,8 +33,17 @@ struct ManagedWorker {
   worker: Worker,
 }
 
+/// A unit of work that is sent to a web worker.
 struct Task {
   callable: Box<dyn FnOnce() + Send>,
+}
+
+/// A task waiting for a web worker, together with the handler that reports
+/// the failure if the task never gets to run or dies halfway through.
+/// The handler stays on this thread, so it doesn't have to be `Send`.
+struct QueuedTask {
+  task: Task,
+  on_failure: Box<dyn FnOnce()>,
 }
 
 impl Default for WorkerPool {
@@ -43,27 +56,22 @@ impl Default for WorkerPool {
         callback: Closure::new(|event: Event| {
           JsValue::from_str(&format!("{event:?}")).log_error("POOL_CALLBACK");
         }),
+        script_url: RefCell::new(None),
       }),
     }
   }
 }
 
 impl WorkerPool {
-  /// Creates a new `WorkerPool` which immediately creates `initial` workers.
+  /// Creates a new empty `WorkerPool`.
   ///
-  /// The pool created here can be used over a long period of time, and it
-  /// will be initially primed with `initial` workers. Currently workers are
-  /// never released or gc'd until the whole pool is destroyed.
-  ///
-  /// # Errors
-  ///
-  /// Returns any error that may happen while a JS web worker is created and a
-  /// message is sent to it.
+  /// Workers are created on demand as tasks arrive, and are terminated
+  /// again once they have been idle for a while.
   pub fn new() -> WorkerPool {
     WorkerPool::default()
   }
 
-  /// Unconditionally spawns a new worker
+  /// Unconditionally spawns a new worker.
   ///
   /// The worker isn't registered with this `WorkerPool` but is capable of
   /// executing work for this wasm module.
@@ -71,9 +79,56 @@ impl WorkerPool {
   /// # Errors
   ///
   /// Returns any error that may happen while a JS web worker is created and a
-  /// message is sent to it.
+  /// message is sent to it. Creating a worker fails when the document's
+  /// content security policy forbids `blob:` workers or `eval`, in which case
+  /// a custom path provider is needed.
   fn create_worker(&self) -> Result<Worker, JsValue> {
     *self.pool_state.total_workers_count.borrow_mut() += 1;
+    let created = self.create_worker_inner();
+    if created.is_err() {
+      // The worker will never exist, so it must not take up a slot.
+      self.pool_state.discard_worker();
+    }
+    created
+  }
+
+  fn create_worker_inner(&self) -> Result<Worker, JsValue> {
+    let url = self.script_url()?;
+    let options = WorkerOptions::new();
+    options.set_type(WorkerType::Module);
+    let worker = Worker::new_with_options(&url, &options)?;
+
+    // With a worker spun up send it the module/memory so it can start
+    // instantiating the wasm module. Later it might receive further
+    // messages about code to run on the wasm module.
+    let worker_init = Object::new();
+    Reflect::set(&worker_init, &JsString::from("module_or_path"), &module())?;
+    Reflect::set(&worker_init, &JsString::from("memory"), &memory())?;
+    worker.post_message(&worker_init)?;
+
+    Ok(worker)
+  }
+
+  /// Returns the object URL of the bootstrap script for a worker.
+  ///
+  /// Every worker on this thread runs the same script, so the URL is built
+  /// once and reused. Creating one URL per worker would leak an object URL
+  /// for the whole lifetime of the page, and revoking it right away would
+  /// race with the worker's script fetch.
+  fn script_url(&self) -> Result<String, JsValue> {
+    let script_path = PATH_PROVIDER.with(|provider| provider.borrow()())?;
+    let mut cached = self.pool_state.script_url.borrow_mut();
+    if let Some((cached_path, cached_url)) = cached.as_ref() {
+      if *cached_path == script_path {
+        return Ok(cached_url.clone());
+      }
+    }
+    let url = Self::create_script_url(&script_path)?;
+    *cached = Some((script_path, url.clone()));
+    Ok(url)
+  }
+
+  fn create_script_url(script_path: &str) -> Result<String, JsValue> {
     let script = format!(
       "
       import init, * as wasmBindings from '{}';
@@ -98,7 +153,7 @@ impl WorkerPool {
         }};
       }};
       ",
-      PATH_PROVIDER.with(|provider| provider.borrow()())?
+      script_path
     );
     let blob_property_bag = BlobPropertyBag::new();
     blob_property_bag.set_type("text/javascript");
@@ -106,20 +161,7 @@ impl WorkerPool {
       &Array::from_iter([JsValue::from(script)]).into(),
       &blob_property_bag,
     )?;
-    let url = Url::create_object_url_with_blob(&blob)?;
-    let options = WorkerOptions::new();
-    options.set_type(WorkerType::Module);
-    let worker = Worker::new_with_options(&url, &options)?;
-
-    // With a worker spun up send it the module/memory so it can start
-    // instantiating the wasm module. Later it might receive further
-    // messages about code to run on the wasm module.
-    let worker_init = Object::new();
-    Reflect::set(&worker_init, &JsString::from("module_or_path"), &module())?;
-    Reflect::set(&worker_init, &JsString::from("memory"), &memory())?;
-    worker.post_message(&worker_init)?;
-
-    Ok(worker)
+    Url::create_object_url_with_blob(&blob)
   }
 
   /// Fetches a worker from this pool, creating one if necessary.
@@ -166,25 +208,39 @@ impl WorkerPool {
     }
   }
 
-  /// Configures an `onmessage` callback for the `worker` specified for the
+  /// Configures the callbacks for the `worker` specified for the
   /// web worker to be reclaimed and re-inserted into this pool when a message
   /// is received.
   ///
   /// Currently this `WorkerPool` abstraction is intended to execute one-off
   /// style work where the work itself doesn't send any notifications and
-  /// whatn it's done the worker is ready to execute more work. This method is
+  /// when it's done the worker is ready to execute more work. This method is
   /// used for all spawned workers to ensure that when the work is finished
   /// the worker is reclaimed back into this pool.
-  fn reclaim_on_message(&self, worker: Worker) {
+  ///
+  /// A worker that reports an error never sends its completion message,
+  /// which happens when the task inside it panics. It is dropped from the
+  /// pool and `on_failure` is called, so that the task's `JoinHandle` gets
+  /// an answer instead of waiting forever.
+  fn reclaim_on_message(&self, worker: Worker, on_failure: Box<dyn FnOnce()>) {
     let pool_state = Rc::downgrade(&self.pool_state);
     let worker2 = worker.clone();
     let reclaim_slot = Rc::new(RefCell::new(None));
     let slot2 = reclaim_slot.clone();
+    let on_failure = RefCell::new(Some(on_failure));
     let reclaim = Closure::<dyn FnMut(_)>::new(move |event: Event| {
       if let Some(error) = event.dyn_ref::<ErrorEvent>() {
         JsValue::from_str(&error.message()).log_error("RECLAIM_EVENT");
-        // TODO: this probably leaks memory somehow? It's sort of
-        // unclear what to do about errors in workers right now.
+        // The worker's memory is left in an unknown state,
+        // so it is terminated instead of being reused.
+        worker2.terminate();
+        if let Some(pool_state) = pool_state.upgrade() {
+          pool_state.discard_worker();
+        }
+        if let Some(on_failure) = on_failure.borrow_mut().take() {
+          on_failure();
+        }
+        *slot2.borrow_mut() = None;
         return;
       }
 
@@ -202,6 +258,7 @@ impl WorkerPool {
       JsValue::from_str(&format!("{event:?}")).log_error("UNHANDLED_RECLAIM");
     });
     worker.set_onmessage(Some(reclaim.as_ref().unchecked_ref()));
+    worker.set_onerror(Some(reclaim.as_ref().unchecked_ref()));
     *reclaim_slot.borrow_mut() = Some(reclaim);
   }
 }
@@ -213,18 +270,23 @@ impl WorkerPool {
   /// spawned quickly into one if the worker is idle. If no idle workers are
   /// available then a new web worker will be spawned.
   ///
-  /// Once `f` returns the worker assigned to `f` is automatically reclaimed
-  /// by this `WorkerPool`. This method provides no method of learning when
-  /// `f` completes, and for that you'll need to use `run_notify`.
+  /// Once the task returns, the worker assigned to it is automatically
+  /// reclaimed by this `WorkerPool`.
   ///
-  /// # Errors
-  ///
-  /// If an error happens while spawning a web worker or sending a message to
-  /// a web worker, that error is returned.
-  fn run(&self, task: Task) -> Result<(), JsValue> {
-    let worker = self.execute(task)?;
-    self.reclaim_on_message(worker);
-    Ok(())
+  /// If the task cannot be handed to a worker at all, its failure handler is
+  /// called right away. The handler is also kept for the case where the
+  /// worker dies while running the task.
+  fn run(&self, queued_task: QueuedTask) {
+    let QueuedTask { task, on_failure } = queued_task;
+    let worker = match self.execute(task) {
+      Ok(worker) => worker,
+      Err(error) => {
+        error.log_error("RUN_TASK");
+        on_failure();
+        return;
+      }
+    };
+    self.reclaim_on_message(worker, on_failure);
   }
 
   pub fn remove_inactive_workers(&self) {
@@ -236,27 +298,39 @@ impl WorkerPool {
       let is_active = passed_time < 10000.0; // 10 seconds
       if !is_active {
         managed_worker.worker.terminate();
-        *self.pool_state.total_workers_count.borrow_mut() -= 1;
+        self.pool_state.discard_worker();
       }
       is_active
     });
   }
 
   pub fn flush_queued_tasks(&self) {
-    while *self.pool_state.total_workers_count.borrow() < MAX_WORKERS {
-      let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
-      let queued_task = match queued_tasks.pop_front() {
-        Some(inner) => inner,
-        None => break,
-      };
-      self.run(queued_task).log_error("FLUSH_QUEUED_TASKS");
+    loop {
+      if *self.pool_state.total_workers_count.borrow() >= MAX_WORKERS {
+        break;
+      }
+      // The queue is not borrowed while the task runs,
+      // because a failing task can queue another one.
+      let queued_task =
+        match self.pool_state.queued_tasks.borrow_mut().pop_front() {
+          Some(inner) => inner,
+          None => break,
+        };
+      self.run(queued_task);
     }
   }
 
-  pub fn queue_task(&self, callable: impl FnOnce() + Send + 'static) {
+  pub fn queue_task(
+    &self,
+    callable: impl FnOnce() + Send + 'static,
+    on_failure: impl FnOnce() + 'static,
+  ) {
     let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
-    queued_tasks.push_back(Task {
-      callable: Box::new(callable),
+    queued_tasks.push_back(QueuedTask {
+      task: Task {
+        callable: Box::new(callable),
+      },
+      on_failure: Box::new(on_failure),
     });
     drop(queued_tasks);
     self.flush_queued_tasks();
@@ -268,15 +342,28 @@ impl PoolState {
     worker.set_onmessage(Some(self.callback.as_ref().unchecked_ref()));
     worker.set_onerror(Some(self.callback.as_ref().unchecked_ref()));
     let mut workers = self.idle_workers.borrow_mut();
-    for prev in workers.iter() {
-      let prev: &JsValue = &prev.worker;
-      let worker: &JsValue = &worker;
-      assert!(prev != worker);
+    let is_known = workers.iter().any(|managed_worker| {
+      let previous: &JsValue = &managed_worker.worker;
+      let current: &JsValue = &worker;
+      previous == current
+    });
+    if is_known {
+      // A worker sent two completion messages for a single task.
+      // Registering it twice would hand it to two tasks at once.
+      JsValue::from_str("A web worker was reclaimed twice")
+        .log_error("PUSH_WORKER");
+      return;
     }
     workers.push(ManagedWorker {
       deactivated_time: RefCell::new(now()),
       worker,
     });
+  }
+
+  /// Gives up a worker slot, letting a queued task take it.
+  fn discard_worker(&self) {
+    let mut count = self.total_workers_count.borrow_mut();
+    *count = count.saturating_sub(1);
   }
 }
 

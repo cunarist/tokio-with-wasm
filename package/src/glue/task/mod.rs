@@ -190,7 +190,7 @@ where
       },
       async move {
         cancel_receiver.await;
-        Err(JoinError { cancelled: true })
+        Err(JoinError::cancelled())
       },
     )
     .await;
@@ -259,15 +259,23 @@ where
   }
   let (join_sender, join_receiver) = once_channel();
   let (cancel_sender, cancel_receiver) = once_channel::<()>();
+  let failure_sender = join_sender.clone();
   WORKER_POOL.with(move |worker_pool| {
-    worker_pool.queue_task(move || {
-      if cancel_receiver.is_done() {
-        join_sender.send(Err(JoinError { cancelled: true }));
-        return;
-      }
-      let returned = callable();
-      join_sender.send(Ok(returned));
-    })
+    worker_pool.queue_task(
+      move || {
+        if cancel_receiver.is_done() {
+          join_sender.send(Err(JoinError::cancelled()));
+          return;
+        }
+        let returned = callable();
+        join_sender.send(Ok(returned));
+      },
+      // Called when the web worker cannot run the task or dies while
+      // running it. Without this, the `JoinHandle` would never resolve.
+      move || {
+        failure_sender.send(Err(JoinError::panicked()));
+      },
+    )
   });
   JoinHandle {
     join_receiver,
@@ -436,19 +444,58 @@ impl<T> JoinHandle<T> {
 #[derive(Debug)]
 pub struct JoinError {
   cancelled: bool,
+  panicked: bool,
+}
+
+impl JoinError {
+  /// The task was aborted before it could finish.
+  fn cancelled() -> Self {
+    JoinError {
+      cancelled: true,
+      panicked: false,
+    }
+  }
+
+  /// The web worker running the task died,
+  /// which is what a panic looks like on the web.
+  fn panicked() -> Self {
+    JoinError {
+      cancelled: false,
+      panicked: true,
+    }
+  }
 }
 
 impl Display for JoinError {
   fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
-    fmt.write_str("task failed to execute to completion")
+    if self.cancelled {
+      fmt.write_str("task was cancelled")
+    } else if self.panicked {
+      fmt.write_str("task panicked")
+    } else {
+      fmt.write_str("task failed to execute to completion")
+    }
   }
 }
 
 impl Error for JoinError {}
 
 impl JoinError {
+  /// Returns whether the error was caused by the task being cancelled.
   pub fn is_cancelled(&self) -> bool {
     self.cancelled
+  }
+
+  /// Returns whether the error was caused by the task panicking.
+  ///
+  /// A panic on `wasm32-unknown-unknown` cannot be caught and unwound,
+  /// so a panicking `spawn_blocking` task takes down the web worker that
+  /// runs it. That is reported here, but the panic payload is lost and
+  /// [`into_panic`] has no equivalent in this crate.
+  ///
+  /// [`into_panic`]: https://docs.rs/tokio/latest/tokio/task/struct.JoinError.html#method.into_panic
+  pub fn is_panic(&self) -> bool {
+    self.panicked
   }
 }
 
