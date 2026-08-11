@@ -443,8 +443,8 @@ mod tests {
   /// The excess tasks must be handed to workers that turn idle,
   /// not wait for the ten-second cull to make room for new ones.
   #[wasm_bindgen_test]
-  async fn queued_tasks_reuse_idle_workers_at_the_cap()
-  -> Result<(), JoinError> {
+  async fn queued_tasks_reuse_idle_workers_at_the_cap() -> Result<(), JoinError>
+  {
     let started = now();
     let handles: Vec<_> = (0..MAX_WORKERS * 2)
       .map(|task_index| {
