@@ -41,3 +41,9 @@ web-sys = { version = "0.3.70", features = [
     "BlobPropertyBag",
     'Url',
 ] }
+
+[dev-dependencies]
+# The crate itself, so that the integration tests get its features.
+tokio_with_wasm = { path = ".", features = ["full"] }
+wasm-bindgen-test = "0.3"
+js-sys = "0.3.70"
