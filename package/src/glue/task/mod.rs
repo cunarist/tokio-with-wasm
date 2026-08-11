@@ -24,21 +24,26 @@ use std::task::{Context, Poll};
 use wasm_bindgen_futures::{JsFuture, spawn_local};
 
 thread_local! {
-    static WORKER_POOL: WorkerPool = {
-        let worker_pool = WorkerPool::new();
-        spawn_local(manage_pool());
-        worker_pool
-    }
+    static WORKER_POOL: WorkerPool = WorkerPool::new();
 }
 
 /// Manages the worker pool by periodically checking for
 /// inactive web workers and queued tasks.
+///
+/// This returns as soon as the pool holds no workers and no queued tasks,
+/// so that an application that is done with blocking tasks doesn't keep a
+/// timer running for the rest of the page's lifetime.
+/// It is started again when the next blocking task arrives.
 async fn manage_pool() {
   loop {
-    WORKER_POOL.with(|worker_pool| {
+    let is_needed = WORKER_POOL.with(|worker_pool| {
       worker_pool.remove_inactive_workers();
       worker_pool.flush_queued_tasks();
+      worker_pool.keep_managing()
     });
+    if !is_needed {
+      break;
+    }
     let promise = Promise::new(&mut |resolve, _reject| {
       set_timeout(&resolve, 100.0);
     });
@@ -286,7 +291,10 @@ where
       move || {
         failure_sender.send(Err(JoinError::panicked()));
       },
-    )
+    );
+    if worker_pool.needs_managing() {
+      spawn_local(manage_pool());
+    }
   });
   JoinHandle {
     join_receiver,

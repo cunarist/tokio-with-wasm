@@ -1,7 +1,7 @@
 use crate::only_web::PATH_PROVIDER;
 use crate::{BLOCKING_KEY, LogError, now};
 use js_sys::{Array, JsString, Object, Reflect, global};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use wasm_bindgen::prelude::{Closure, JsCast, JsValue, wasm_bindgen};
@@ -26,6 +26,8 @@ struct PoolState {
   callback: Closure<dyn FnMut(Event)>,
   /// Script path and the object URL of the bootstrap script built from it.
   script_url: RefCell<Option<(String, String)>>,
+  /// Whether the periodic management task is currently running.
+  is_managed: Cell<bool>,
 }
 
 struct ManagedWorker {
@@ -57,6 +59,7 @@ impl Default for WorkerPool {
           JsValue::from_str(&format!("{event:?}")).log_error("POOL_CALLBACK");
         }),
         script_url: RefCell::new(None),
+        is_managed: Cell::new(false),
       }),
     }
   }
@@ -318,6 +321,24 @@ impl WorkerPool {
         };
       self.run(queued_task);
     }
+  }
+
+  /// Reports whether the periodic management task still has something to do.
+  /// Called by the management task itself, which stops when this is `false`.
+  pub fn keep_managing(&self) -> bool {
+    let is_needed = *self.pool_state.total_workers_count.borrow() > 0
+      || !self.pool_state.queued_tasks.borrow().is_empty();
+    if !is_needed {
+      // Nothing can arrive between this and the caller's return,
+      // because both run on the same thread without yielding.
+      self.pool_state.is_managed.set(false);
+    }
+    is_needed
+  }
+
+  /// Returns whether the periodic management task has to be started.
+  pub fn needs_managing(&self) -> bool {
+    !self.pool_state.is_managed.replace(true)
   }
 
   pub fn queue_task(
