@@ -11,7 +11,12 @@ use web_sys::{
   MessageEvent, Url, Worker, WorkerOptions, WorkerType,
 };
 
+#[cfg(not(test))]
 pub static MAX_WORKERS: usize = 512;
+/// Tests cap the pool at two workers,
+/// so that saturation can be exercised without creating hundreds of them.
+#[cfg(test)]
+pub static MAX_WORKERS: usize = 2;
 
 pub struct WorkerPool {
   pool_state: Rc<PoolState>,
@@ -217,6 +222,12 @@ impl WorkerPool {
         unsafe {
           drop(Box::from_raw(ptr));
         }
+        // The worker never received the task, so it cannot be trusted
+        // with another one. It is terminated and gives up its slot;
+        // keeping it would let repeated failures fill the pool
+        // with unusable workers and stall the queue.
+        worker.terminate();
+        self.pool_state.discard_worker();
         Err(error)
       }
     }
@@ -325,7 +336,14 @@ impl WorkerPool {
 
   pub fn flush_queued_tasks(&self) {
     loop {
-      if *self.pool_state.total_workers_count.borrow() >= MAX_WORKERS {
+      // A task can run when a worker is sitting idle, or when there is
+      // room to create a new one. Checking only the total count would
+      // strand queued tasks while the pool is at its limit: workers
+      // returning to the idle list don't lower the count, so the queue
+      // would wait for the ten-second cull instead of reusing them.
+      let has_capacity = !self.pool_state.idle_workers.borrow().is_empty()
+        || *self.pool_state.total_workers_count.borrow() < MAX_WORKERS;
+      if !has_capacity {
         break;
       }
       // The queue is not borrowed while the task runs,
@@ -412,4 +430,38 @@ pub fn task_worker_entry_point(ptr: u32) -> Result<(), JsValue> {
   (ptr.callable)();
   global.post_message(&JsValue::undefined())?;
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::MAX_WORKERS;
+  use crate::now;
+  use crate::task::{JoinError, spawn_blocking};
+  use wasm_bindgen_test::wasm_bindgen_test;
+
+  /// Twice as many tasks as the pool may hold workers.
+  /// The excess tasks must be handed to workers that turn idle,
+  /// not wait for the ten-second cull to make room for new ones.
+  #[wasm_bindgen_test]
+  async fn queued_tasks_reuse_idle_workers_at_the_cap()
+  -> Result<(), JoinError> {
+    let started = now();
+    let handles: Vec<_> = (0..MAX_WORKERS * 2)
+      .map(|task_index| {
+        spawn_blocking(move || {
+          std::thread::sleep(std::time::Duration::from_millis(200));
+          task_index
+        })
+      })
+      .collect();
+    for (task_index, handle) in handles.into_iter().enumerate() {
+      assert_eq!(handle.await?, task_index);
+    }
+    let elapsed = now() - started;
+    assert!(
+      elapsed < 8_000.0,
+      "the queued tasks waited for the idle-worker cull: {elapsed}ms"
+    );
+    Ok(())
+  }
 }
