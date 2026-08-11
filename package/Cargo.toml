@@ -16,9 +16,13 @@ default = []
 full = ["macros", "sync", "time", "rt", "rt-multi-thread"]
 macros = ["tokio/macros"]
 sync = ["tokio/sync"]
-time = []
-rt = []
-rt-multi-thread = []
+time = ["tokio/time"]
+rt = ["tokio/rt"]
+# `tokio` refuses to build for `wasm32-unknown-unknown` with its
+# `rt-multi-thread` feature on, and Cargo features cannot be made
+# target specific, so this one cannot be forwarded. Enable
+# `tokio/rt-multi-thread` in your own dependency on `tokio` instead.
+rt-multi-thread = ["rt"]
 
 [dependencies]
 tokio_with_wasm_proc = "0.9.0"
