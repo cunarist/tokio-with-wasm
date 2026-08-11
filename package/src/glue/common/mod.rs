@@ -3,13 +3,13 @@
 
 mod local_channel;
 mod once_channel;
-mod polling;
 mod select_future;
+#[cfg(test)]
+mod test_util;
 mod thread_check;
 
 pub use local_channel::*;
 pub use once_channel::*;
-pub use polling::*;
 pub use select_future::*;
 pub use thread_check::*;
 
