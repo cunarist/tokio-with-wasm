@@ -104,10 +104,13 @@ A panic inside `spawn_blocking` takes down the web worker that runs it. The
 payload is lost and the worker's share of the shared memory is never reclaimed.
 
 `spawn_blocking` also needs to load the JavaScript glue code into each worker,
-which it does with a `blob:` worker and `eval`. Under a content security policy
-that forbids either, worker creation fails and every blocking task returns a
-`JoinError`. Pass the path of the glue code in with
-`tokio_with_wasm::only_web::set_path_provider` to avoid the `eval`.
+which it does with a `blob:` worker by default. Under a content security policy
+that forbids `blob:` workers, such as a browser extension's
+`script-src 'self'`, worker creation fails and every blocking task returns a
+`JoinError`. Ship the worker script as a file of your own and point the pool at
+it with `tokio_with_wasm::only_web::set_worker_script_provider`; the source
+that file needs to contain comes from
+`tokio_with_wasm::only_web::worker_bootstrap_script`.
 
 ## Building and Deploying
 
