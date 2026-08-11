@@ -1,10 +1,10 @@
 # `tokio_with_wasm`
 
-https://github.com/user-attachments/assets/7056d040-97c1-4ee3-9426-55b7304c85da
-
 [![Crates.io](https://img.shields.io/crates/v/tokio_with_wasm.svg)](https://crates.io/crates/tokio_with_wasm)
 [![Documentation](https://docs.rs/tokio_with_wasm/badge.svg)](https://docs.rs/tokio_with_wasm)
 [![License](https://img.shields.io/crates/l/tokio_with_wasm.svg)](https://github.com/cunarist/tokio-with-wasm/blob/main/LICENSE)
+
+https://github.com/user-attachments/assets/7056d040-97c1-4ee3-9426-55b7304c85da
 
 `tokio_with_wasm` is a Rust library that provides `tokio` specifically designed for web browsers. It aims to provide the exact same `tokio` features for web applications, leveraging JavaScript web API.
 
