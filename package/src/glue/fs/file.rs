@@ -5,7 +5,7 @@ use super::error::{Wanted, await_call, await_js, cast};
 use super::handle::file_at;
 use crate::error;
 use js_sys::Uint8Array;
-use std::future::Future;
+use std::future::{Future, poll_fn};
 use std::io::{self, SeekFrom};
 use std::path::Path;
 use std::pin::Pin;
@@ -84,6 +84,8 @@ pub struct File {
   seek: Option<Seek>,
   readable: bool,
   writable: bool,
+  /// Whether every write goes to the end rather than to the cursor.
+  appending: bool,
 }
 
 impl File {
@@ -129,6 +131,7 @@ impl File {
       seek: None,
       readable: true,
       writable: true,
+      appending: false,
     }
   }
 
@@ -160,27 +163,14 @@ impl File {
     self.settle().await
   }
 
-  /// Pushes and closes outside of a `poll` function.
+  /// Pushes and closes, from outside a `poll` function.
   ///
-  /// Nothing is in flight when this runs: a `poll` function only leaves
-  /// work behind when it returns `Pending`, and the caller had to await it
-  /// to reach this point.
+  /// This goes through the same state machine the `poll` functions use
+  /// rather than repeating it. A write that was cancelled halfway leaves a
+  /// call in flight, and only that machine knows to pick it back up; doing
+  /// the work here again would strand it and report success.
   async fn settle(&mut self) -> io::Result<()> {
-    if !self.buffer.is_empty() {
-      let writer = match self.writer.take() {
-        Some(writer) => writer,
-        None => Writer {
-          stream: open_writer(self.handle.clone(), true).await?,
-          cursor: 0,
-        },
-      };
-      let bytes = std::mem::take(&mut self.buffer);
-      self.writer = Some(push(writer, self.buffer_start, bytes).await?);
-    }
-    match self.writer.take() {
-      Some(writer) => close_writer(writer.stream).await,
-      None => Ok(()),
-    }
+    poll_fn(|cx| self.poll_closed(cx)).await
   }
 
   /// Drives a call of a kind the caller did not ask for.
@@ -283,6 +273,36 @@ impl File {
     }
   }
 
+  /// Moves the cursor to the end of the file as it stands right now.
+  ///
+  /// The end can only have moved while no stream of ours was open, because
+  /// a stream carries its own copy of the file until it closes.
+  fn poll_at_end(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    loop {
+      match self.work.take() {
+        Some(Work::Sizing(mut future)) => match future.as_mut().poll(cx) {
+          Poll::Pending => {
+            self.work = Some(Work::Sizing(future));
+            return Poll::Pending;
+          }
+          Poll::Ready(Err(failure)) => return Poll::Ready(Err(failure)),
+          Poll::Ready(Ok(size)) => {
+            self.position = size;
+            return Poll::Ready(Ok(()));
+          }
+        },
+        Some(other) => {
+          self.work = Some(other);
+          ready!(self.poll_settled(cx))?;
+        }
+        None => {
+          let sizing = size_of(self.handle.clone());
+          self.work = Some(Work::Sizing(Box::pin(sizing)));
+        }
+      }
+    }
+  }
+
   /// Gets every held back byte all the way into the file.
   fn poll_closed(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
     loop {
@@ -378,6 +398,12 @@ impl AsyncWrite for File {
         io::ErrorKind::PermissionDenied,
         "the file was not opened for writing",
       )));
+    }
+    // An appending file writes to the end as it stands, the way `O_APPEND`
+    // does. Only the start of a run has to look it up: once bytes are held
+    // back, the end is wherever they finish.
+    if this.appending && this.buffer.is_empty() && this.writer.is_none() {
+      ready!(this.poll_at_end(cx))?;
     }
     // Bytes that do not carry on from the ones already held back cannot
     // join them, and a buffer that has grown far enough goes out on its own.
@@ -660,12 +686,12 @@ impl OpenOptions {
     self
   }
 
-  /// Puts the cursor at the end of the file when it is opened.
+  /// Sends every write to the end of the file rather than to the cursor.
   ///
-  /// `tokio` sends every write to the end of the file no matter where the
-  /// cursor sits. Here the cursor only starts there, so a write that
-  /// another handle makes in the meantime is written over rather than
-  /// followed.
+  /// The end is looked up again whenever a run of writes starts, so an
+  /// append that another handle flushed in the meantime is written past
+  /// rather than over. `O_APPEND` does that for each single write and does
+  /// it atomically; here the two are only as far apart as the last flush.
   pub fn append(&mut self, value: bool) -> &mut OpenOptions {
     self.append = value;
     self
@@ -732,6 +758,7 @@ impl OpenOptions {
     let mut file = File::from_handle(handle);
     file.readable = self.read;
     file.writable = self.write || self.append;
+    file.appending = self.append;
     if self.append {
       file.position = size_of(file.handle.clone()).await?;
     }

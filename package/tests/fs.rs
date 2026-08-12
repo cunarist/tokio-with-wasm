@@ -16,6 +16,7 @@ use std::io::{ErrorKind, SeekFrom};
 use std::path::PathBuf;
 use tokio_with_wasm::fs;
 use tokio_with_wasm::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio_with_wasm::time::{Duration, timeout};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -522,4 +523,70 @@ async fn a_flush_partway_through_keeps_the_rest_in_order() {
   let written = ok(fs::read(&path).await, "read");
   assert_eq!(written.len(), block.len() * 3);
   assert!(written.iter().all(|byte| *byte == 3));
+}
+
+#[wasm_bindgen_test]
+async fn appending_lands_past_what_arrived_in_between() {
+  let directory = scratch("append_follows").await;
+  let path = directory.join("log.txt");
+  ok(fs::write(&path, b"first\n").await, "write");
+
+  let mut file = ok(
+    fs::File::options().append(true).open(&path).await,
+    "open for appending",
+  );
+  ok(file.write_all(b"second\n").await, "write");
+  ok(file.flush().await, "flush");
+
+  // Something else adds to the file while nothing of ours is open.
+  let mut other = ok(
+    fs::File::options().append(true).open(&path).await,
+    "open for appending",
+  );
+  ok(other.write_all(b"third\n").await, "write");
+  ok(other.flush().await, "flush");
+  drop(other);
+
+  // The first file has to land past it rather than on top of it.
+  ok(file.write_all(b"fourth\n").await, "write");
+  ok(file.flush().await, "flush");
+
+  assert_eq!(
+    ok(fs::read_to_string(&path).await, "read"),
+    "first\nsecond\nthird\nfourth\n"
+  );
+}
+
+#[wasm_bindgen_test]
+async fn a_file_still_works_after_a_write_is_cancelled() {
+  let directory = scratch("cancelled_write").await;
+  let path = directory.join("cancelled.bin");
+  let block = vec![9u8; 2 * 1024 * 1024];
+
+  let mut file = ok(fs::File::create(&path).await, "create");
+  // The first write only fills the buffer. The second one pushes it, which
+  // is the call that a cancellation can leave in flight.
+  ok(file.write_all(&block).await, "write");
+  let _ = timeout(Duration::from_millis(1), file.write_all(&block)).await;
+  ok(file.sync_all().await, "sync");
+
+  // Whatever the cancellation left behind, the file has to be closed and
+  // the handle usable, so that what comes next lands where it belongs.
+  let settled = ok(fs::metadata(&path).await, "read metadata").len();
+  ok(
+    file.write_all(b"tail").await,
+    "write after the cancellation",
+  );
+  ok(file.flush().await, "flush");
+
+  let written = ok(fs::read(&path).await, "read");
+  assert!(
+    written.len() >= settled as usize,
+    "the file shrank: {settled} then {}",
+    written.len()
+  );
+  assert!(
+    written.ends_with(b"tail"),
+    "the write after the cancellation did not land"
+  );
 }
