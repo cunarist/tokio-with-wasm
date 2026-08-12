@@ -4,6 +4,7 @@
 //! of spawned tasks and allows asynchronously awaiting the output of those
 //! tasks as they complete. See the documentation for the [`JoinSet`] type for
 //! details.
+use crate::task::Id;
 use crate::{
   AbortHandle, CompletionQueue, JoinError, JoinHandle, spawn, spawn_blocking,
 };
@@ -202,22 +203,62 @@ impl<T: 'static> JoinSet<T> {
     std::future::poll_fn(|cx| self.poll_join_next(cx)).await
   }
 
+  /// Waits until one of the tasks in the set completes and returns its
+  /// output, along with the [task ID] of the completed task.
+  ///
+  /// Returns `None` if the set is empty.
+  ///
+  /// When this method returns an error, then the ID of the task that failed can be accessed
+  /// using the [`JoinError::id`] method.
+  ///
+  /// # Cancel Safety
+  ///
+  /// This method is cancel safe. If `join_next_with_id` is used as the event in a `tokio::select!`
+  /// statement and some other branch completes first, it is guaranteed that no tasks were
+  /// removed from this `JoinSet`.
+  ///
+  /// [task ID]: crate::task::Id
+  /// [`JoinError::id`]: fn@crate::task::JoinError::id
+  pub async fn join_next_with_id(
+    &mut self,
+  ) -> Option<Result<(Id, T), JoinError>> {
+    std::future::poll_fn(|cx| self.poll_join_next_with_id(cx)).await
+  }
+
   /// Tries to join one of the tasks in the set that has completed and return its output.
   ///
   /// Returns `None` if there are no completed tasks, or if the set is empty.
   pub fn try_join_next(&mut self) -> Option<Result<T, JoinError>> {
+    let joined = self.try_join_next_with_id()?;
+    Some(joined.map(|(_id, output)| output))
+  }
+
+  /// Tries to join one of the tasks in the set that has completed and return
+  /// its output, along with the [task ID] of the completed task.
+  ///
+  /// Returns `None` if there are no completed tasks, or if the set is empty.
+  ///
+  /// When this method returns an error, then the ID of the task that failed can be accessed
+  /// using the [`JoinError::id`] method.
+  ///
+  /// [task ID]: crate::task::Id
+  /// [`JoinError::id`]: fn@crate::task::JoinError::id
+  pub fn try_join_next_with_id(
+    &mut self,
+  ) -> Option<Result<(Id, T), JoinError>> {
     while let Some(tag) = self.queue.pop() {
       // A tag can be stale if its task was detached earlier.
       let Some(mut handle) = self.tasks.remove(&tag) else {
         continue;
       };
+      let task_id = handle.id();
       // The task queued its tag on completion, so its result is stored;
       // this poll with a no-op waker just takes the result out.
       let mut cx = Context::from_waker(std::task::Waker::noop());
       let Poll::Ready(result) = Pin::new(&mut handle).poll(&mut cx) else {
         unreachable!("a queued task's result was missing");
       };
-      return Some(result);
+      return Some(result.map(|output| (task_id, output)));
     }
     None
   }
@@ -330,6 +371,39 @@ impl<T: 'static> JoinSet<T> {
     &mut self,
     cx: &mut Context<'_>,
   ) -> Poll<Option<Result<T, JoinError>>> {
+    self
+      .poll_join_next_with_id(cx)
+      .map(|polled| polled.map(|result| result.map(|(_id, output)| output)))
+  }
+
+  /// Polls for one of the tasks in the set to complete,
+  /// returning the [task ID] of the completed task along with its output.
+  ///
+  /// If this returns `Poll::Ready(Some(_))`, then the task that completed is removed from the set.
+  ///
+  /// When the method returns `Poll::Pending`, the `Waker` in the provided `Context` is scheduled
+  /// to receive a wakeup when a task in the `JoinSet` completes. Note that on multiple calls to
+  /// `poll_join_next_with_id`, only the `Waker` from the `Context` passed to the most recent call
+  /// is scheduled to receive a wakeup.
+  ///
+  /// # Returns
+  ///
+  /// This function returns:
+  ///
+  ///  * `Poll::Pending` if the `JoinSet` is not empty but there is no task whose output is
+  ///    available right now.
+  ///  * `Poll::Ready(Some(Ok((id, value))))` if one of the tasks in this `JoinSet` has completed.
+  ///    The `value` is the return value of one of the tasks that completed, and
+  ///    `id` is the [task ID] of that task.
+  ///  * `Poll::Ready(Some(Err(err)))` if one of the tasks in this `JoinSet` has panicked or been
+  ///    aborted. The `err` is the `JoinError` from the panicked/aborted task.
+  ///  * `Poll::Ready(None)` if the `JoinSet` is empty.
+  ///
+  /// [task ID]: crate::task::Id
+  pub fn poll_join_next_with_id(
+    &mut self,
+    cx: &mut Context<'_>,
+  ) -> Poll<Option<Result<(Id, T), JoinError>>> {
     loop {
       let Some(tag) = self.queue.pop_or_register(cx.waker()) else {
         if self.tasks.is_empty() {
@@ -341,13 +415,14 @@ impl<T: 'static> JoinSet<T> {
       let Some(mut handle) = self.tasks.remove(&tag) else {
         continue;
       };
+      let task_id = handle.id();
       // The task queued its tag on completion, so its result is stored;
       // this poll with a no-op waker just takes the result out.
       let mut noop_cx = Context::from_waker(std::task::Waker::noop());
       let Poll::Ready(result) = Pin::new(&mut handle).poll(&mut noop_cx) else {
         unreachable!("a queued task's result was missing");
       };
-      return Poll::Ready(Some(result));
+      return Poll::Ready(Some(result.map(|output| (task_id, output))));
     }
   }
 }

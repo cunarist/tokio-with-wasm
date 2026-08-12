@@ -15,8 +15,9 @@ all-features = true
 # https://github.com/tokio-rs/tokio/blob/master/tokio/Cargo.toml
 default = []
 full = ["fs", "io-util", "macros", "sync", "time", "rt", "rt-multi-thread"]
-# `io-util`, `macros` and `sync` forward to `tokio`, because the glue code
-# re-exports those parts of `tokio` even on the web.
+# `io-util`, `macros`, `sync`, and `rt` forward to `tokio`, because the
+# glue code re-exports those parts of `tokio` even on the web
+# (`rt` only for the runtime-independent `task_local!` machinery).
 # The other features only gate glue modules implemented here;
 # their native counterparts come from your own dependency on `tokio`,
 # which needs the same features enabled (see the README).
@@ -25,7 +26,7 @@ macros = ["tokio/macros"]
 sync = ["tokio/sync"]
 fs = []
 time = []
-rt = []
+rt = ["tokio/rt"]
 rt-multi-thread = ["rt"]
 
 [lints.clippy]
@@ -52,6 +53,7 @@ web-sys = { version = "0.3.70", features = [
     'Blob',
     "BlobPropertyBag",
     'Url',
+    'Performance',
     'File',
     'StorageManager',
     'FileSystemHandle',

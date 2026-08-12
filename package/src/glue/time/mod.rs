@@ -3,28 +3,47 @@
 //! This module provides a number of types for executing code after a set period
 //! of time.
 //!
-//! `Instant` has no counterpart here, because the standard library cannot
-//! read a clock on `wasm32-unknown-unknown`.
+//! [`Instant`] is backed by JavaScript's `performance.now()`, because the
+//! standard library cannot read a clock on `wasm32-unknown-unknown`. It is a
+//! separate type from `std::time::Instant`, so `Instant::from_std` and
+//! `Instant::into_std` have no counterpart here.
 
-use crate::{
-  LocalReceiver, LogError, clear_interval, local_channel, set_interval,
-  set_timeout,
-};
+pub mod error;
+mod instant;
+mod interval;
+
+use crate::{LogError, set_timeout};
 use js_sys::Promise;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::future::Future;
-use std::io;
+use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use wasm_bindgen::prelude::{Closure, JsCast};
 use wasm_bindgen_futures::JsFuture;
 
 // Re-exported to match `tokio::time`, where `Duration` is available too.
 pub use std::time::Duration;
 
+pub use error::Elapsed;
+pub use instant::Instant;
+pub use interval::{Interval, MissedTickBehavior, interval, interval_at};
+
+/// Web timers cut off at this many milliseconds: JavaScript stores the
+/// delay of `setTimeout` in a 32-bit integer, and a longer delay fires
+/// immediately instead of far in the future. Longer waits chain timers.
+#[cfg(not(test))]
+const MAX_TIMER_MILLIS: f64 = 2_147_483_647.0;
+/// Tests shrink the timer cap to two ticks of a JavaScript clock,
+/// so that the timer-chaining branch runs in CI instead of needing
+/// a 25-day sleep.
+#[cfg(test)]
+const MAX_TIMER_MILLIS: f64 = 50.0;
+
+/// Resolves after `duration` through one JavaScript timer.
 async fn time_future(duration: Duration) {
-  let milliseconds = duration.as_millis() as f64;
+  // Rounded up, so that the timer never fires before the deadline
+  // and forces an extra timer round for well-known durations.
+  let milliseconds = (duration.as_secs_f64() * 1000.0)
+    .ceil()
+    .min(MAX_TIMER_MILLIS);
   let promise = Promise::new(&mut |resolve, _reject| {
     set_timeout(&resolve, milliseconds);
   });
@@ -32,154 +51,222 @@ async fn time_future(duration: Duration) {
 }
 
 /// Waits until `duration` has elapsed.
+///
+/// No work is performed while awaiting on the sleep future to complete.
+/// `Sleep` operates at millisecond granularity, which is what JavaScript
+/// timers offer, and should not be used for tasks that require
+/// higher-resolution timing.
 pub fn sleep(duration: Duration) -> Sleep {
-  let time_future = time_future(duration);
+  let deadline = match Instant::now().checked_add(duration) {
+    Some(deadline) => deadline,
+    None => Instant::far_future(),
+  };
+  sleep_until(deadline)
+}
+
+/// Waits until `deadline` is reached.
+///
+/// No work is performed while awaiting on the sleep future to complete.
+pub fn sleep_until(deadline: Instant) -> Sleep {
   Sleep {
-    time_future: Box::pin(time_future),
+    deadline,
+    timer: None,
   }
 }
 
-/// Future returned by `sleep`.
+/// Future returned by [`sleep`] and [`sleep_until`].
 pub struct Sleep {
-  time_future: Pin<Box<dyn Future<Output = ()>>>,
+  deadline: Instant,
+  /// The pending JavaScript timer, created lazily on the first poll.
+  /// [`None`] before the first poll and after a reset.
+  timer: Option<Pin<Box<dyn Future<Output = ()>>>>,
+}
+
+impl Sleep {
+  /// Returns the instant at which the future will complete.
+  pub fn deadline(&self) -> Instant {
+    self.deadline
+  }
+
+  /// Returns `true` if `Sleep` has elapsed.
+  ///
+  /// A `Sleep` instance is elapsed when the requested duration has elapsed.
+  pub fn is_elapsed(&self) -> bool {
+    Instant::now() >= self.deadline
+  }
+
+  /// Resets the `Sleep` instance to a new deadline.
+  ///
+  /// Calling this function allows changing the instant at which the `Sleep`
+  /// future completes without having to create new associated state.
+  ///
+  /// This function can be called both before and after the future has
+  /// completed.
+  ///
+  /// To call this method, you will usually combine the call with
+  /// [`Pin::as_mut`], which lets you call the method without consuming the
+  /// `Sleep` itself.
+  pub fn reset(self: Pin<&mut Self>, deadline: Instant) {
+    // `Sleep` is `Unpin`, so the pinned reference can be unwrapped.
+    let this = self.get_mut();
+    this.deadline = deadline;
+    // The running timer aims at the old deadline, so it is discarded.
+    // The next poll starts a new one.
+    this.timer = None;
+  }
 }
 
 impl Future for Sleep {
   type Output = ();
-  fn poll(
-    mut self: Pin<&mut Self>,
-    cx: &mut Context<'_>,
-  ) -> Poll<Self::Output> {
-    self.time_future.as_mut().poll(cx)
+  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    let this = self.get_mut();
+    loop {
+      let now = Instant::now();
+      if now >= this.deadline {
+        this.timer = None;
+        return Poll::Ready(());
+      }
+      if this.timer.is_none() {
+        let remaining = this.deadline.saturating_duration_since(now);
+        this.timer = Some(Box::pin(time_future(remaining)));
+      }
+      let Some(timer) = this.timer.as_mut() else {
+        // The timer was just stored above.
+        return Poll::Pending;
+      };
+      match timer.as_mut().poll(cx) {
+        // The timer fired, but web timers only count whole milliseconds
+        // and cap out at 32 bits, so the deadline check above decides
+        // whether to complete or to arm the next timer.
+        Poll::Ready(()) => this.timer = None,
+        Poll::Pending => return Poll::Pending,
+      }
+    }
   }
 }
 
-/// Poll a future with a timeout.
-/// If the future is ready, return the output.
-/// If the future is pending, poll the sleep future.
-pub fn timeout<F>(duration: Duration, future: F) -> Timeout<F>
+impl std::fmt::Debug for Sleep {
+  fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fmt
+      .debug_struct("Sleep")
+      .field("deadline", &self.deadline)
+      .finish()
+  }
+}
+
+/// Requires a `Future` to complete before the specified duration has elapsed.
+///
+/// If the future completes before the duration has elapsed, then the
+/// completed value is returned. Otherwise, an error is returned and the
+/// future is canceled.
+///
+/// Note that the timeout is checked before polling the future, so if the
+/// future does not yield during execution then it is possible for the
+/// future to complete and exceed the timeout _without_ returning an error.
+pub fn timeout<F>(duration: Duration, future: F) -> Timeout<F::IntoFuture>
 where
-  F: Future,
+  F: IntoFuture,
 {
-  let time_future = time_future(duration);
   Timeout {
-    future: Box::pin(future),
-    time_future: Box::pin(time_future),
+    value: future.into_future(),
+    delay: sleep(duration),
   }
 }
 
-/// Future returned by `timeout`.
-pub struct Timeout<F: Future> {
-  future: Pin<Box<F>>,
-  time_future: Pin<Box<dyn Future<Output = ()>>>,
+/// Requires a `Future` to complete before the specified instant in time.
+///
+/// If the future completes before the instant is reached, then the
+/// completed value is returned. Otherwise, an error is returned.
+pub fn timeout_at<F>(deadline: Instant, future: F) -> Timeout<F::IntoFuture>
+where
+  F: IntoFuture,
+{
+  Timeout {
+    value: future.into_future(),
+    delay: sleep_until(deadline),
+  }
+}
+
+/// Future returned by [`timeout`] and [`timeout_at`].
+#[derive(Debug)]
+pub struct Timeout<F> {
+  value: F,
+  delay: Sleep,
+}
+
+impl<F> Timeout<F> {
+  /// Gets a reference to the underlying value in this timeout.
+  pub fn get_ref(&self) -> &F {
+    &self.value
+  }
+
+  /// Gets a mutable reference to the underlying value in this timeout.
+  pub fn get_mut(&mut self) -> &mut F {
+    &mut self.value
+  }
+
+  /// Consumes this timeout, returning the underlying value.
+  pub fn into_inner(self) -> F {
+    self.value
+  }
 }
 
 impl<F: Future> Future for Timeout<F> {
   type Output = Result<F::Output, Elapsed>;
-  fn poll(
-    mut self: Pin<&mut Self>,
-    cx: &mut Context<'_>,
-  ) -> Poll<Self::Output> {
-    // Poll the future first.
-    // If it's ready, return the output.
-    // If it's pending, poll the sleep future.
-    match self.future.as_mut().poll(cx) {
+  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    // Safety: `value` is never moved out of the pinned struct,
+    // and `delay` is `Unpin`.
+    let (value, delay) = unsafe {
+      let this = self.get_unchecked_mut();
+      (
+        Pin::new_unchecked(&mut this.value),
+        Pin::new(&mut this.delay),
+      )
+    };
+    // Poll the future first. If it's ready, return the output
+    // even when the deadline has passed, like in `tokio`.
+    match value.poll(cx) {
       Poll::Ready(output) => Poll::Ready(Ok(output)),
-      Poll::Pending => match self.time_future.as_mut().poll(cx) {
-        Poll::Ready(()) => Poll::Ready(Err(Elapsed(()))),
+      Poll::Pending => match delay.poll(cx) {
+        Poll::Ready(()) => Poll::Ready(Err(Elapsed::new())),
         Poll::Pending => Poll::Pending,
       },
     }
   }
 }
 
-/// Errors returned by `Timeout`.
-///
-/// This error is returned when a timeout expires before the function was able
-/// to finish.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Elapsed(());
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use wasm_bindgen_test::wasm_bindgen_test;
 
-impl Display for Elapsed {
-  fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
-    "deadline has elapsed".fmt(fmt)
-  }
-}
-
-impl Error for Elapsed {}
-
-impl From<Elapsed> for io::Error {
-  fn from(_err: Elapsed) -> io::Error {
-    io::ErrorKind::TimedOut.into()
-  }
-}
-
-/// Creates a new interval that ticks every `period` duration.
-///
-/// The first tick completes immediately, as it does in `tokio`.
-pub fn interval(period: Duration) -> Interval {
-  Interval {
-    ticker: start_ticking(period, true),
-    period,
-  }
-}
-
-/// Registers a JavaScript interval that feeds a channel.
-/// The first tick is queued right away when `immediate` is set.
-fn start_ticking(period: Duration, immediate: bool) -> Ticker {
-  let (sender, receiver) = local_channel::<()>();
-  if immediate {
-    sender.send(());
-  }
-  let closure = Closure::wrap(Box::new(move || {
-    sender.send(());
-  }) as Box<dyn Fn()>);
-  let interval_id =
-    set_interval(closure.as_ref().unchecked_ref(), period.as_millis() as f64);
-  Ticker {
-    receiver,
-    closure,
-    interval_id,
-  }
-}
-
-/// A registered JavaScript interval and the channel it feeds.
-struct Ticker {
-  receiver: LocalReceiver<()>,
-  /// Held so that JavaScript can keep calling it.
-  /// Handing it to the JavaScript garbage collector instead would leak it,
-  /// because a `Closure` created by Rust is never collected.
-  #[allow(dead_code)]
-  closure: Closure<dyn Fn()>,
-  interval_id: i32,
-}
-
-impl Drop for Ticker {
-  fn drop(&mut self) {
-    // The interval is cleared before the closure it calls is freed.
-    clear_interval(self.interval_id);
-  }
-}
-
-/// A structure that represents an interval that ticks at a specified period.
-/// It provides methods to wait for the next tick, reset the interval,
-/// and ensure the interval is cleaned up when it is dropped.
-pub struct Interval {
-  period: Duration,
-  ticker: Ticker,
-}
-
-impl Interval {
-  /// Waits until the next tick.
-  pub async fn tick(&mut self) {
-    self.ticker.receiver.next().await;
+  /// The test build caps a single JavaScript timer at 50ms, so this
+  /// sleep can only complete on time by chaining six timers, the same
+  /// way a 25-day sleep must on the real 32-bit cap. Completing at the
+  /// first timer would wake up at 50ms and fail the assertion.
+  #[wasm_bindgen_test]
+  async fn sleeps_chain_timers_beyond_the_single_timer_cap() {
+    let start = Instant::now();
+    sleep(Duration::from_millis(300)).await;
+    let elapsed = start.elapsed();
+    assert!(
+      elapsed >= Duration::from_millis(250),
+      "the sleep ended at the timer cap: {elapsed:?}"
+    );
+    assert!(
+      elapsed < Duration::from_secs(5),
+      "the sleep chained too long: {elapsed:?}"
+    );
   }
 
-  /// Resets the interval, making the next tick occur
-  /// after the original period.
-  /// This clears the existing interval and establishes a new one,
-  /// dropping any tick that has already been missed.
-  pub fn reset(&mut self) {
-    self.ticker = start_ticking(self.period, false);
+  /// A timeout that outlives the timer cap must not elapse early.
+  #[wasm_bindgen_test]
+  async fn timeouts_survive_the_single_timer_cap() {
+    let output = timeout(Duration::from_millis(300), async {
+      sleep(Duration::from_millis(150)).await;
+      42
+    })
+    .await;
+    assert_eq!(output.ok(), Some(42));
   }
 }
