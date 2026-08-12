@@ -14,8 +14,8 @@ use std::task::{Context, Poll};
 /// A collection of tasks spawned in JavaScript.
 ///
 /// A `JoinSet` can be used to await the completion of some or all of the tasks
-/// in the set. The set is not guaranteed to be ordered,
-/// and the tasks will be returned in the order they complete.
+/// in the set. The set is not ordered: when several tasks have already
+/// completed, which of them is returned first is unspecified.
 ///
 /// All of the tasks must have the same return type `T`.
 ///
@@ -68,6 +68,22 @@ impl<T> JoinSet<T> {
   /// Returns whether the `JoinSet` is empty.
   pub fn is_empty(&self) -> bool {
     self.inner.is_empty()
+  }
+
+  /// Aborts all tasks on this `JoinSet`.
+  ///
+  /// This does not remove the tasks from the `JoinSet`. To wait for the tasks to complete
+  /// cancellation, you should call `join_next` in a loop until the `JoinSet` is empty.
+  pub fn abort_all(&mut self) {
+    self.inner.iter().for_each(|jh| jh.abort());
+  }
+
+  /// Removes all tasks from this `JoinSet` without aborting them.
+  ///
+  /// The tasks removed by this call will continue to run in the background even if the `JoinSet`
+  /// is dropped.
+  pub fn detach_all(&mut self) {
+    self.inner.clear();
   }
 }
 
@@ -169,9 +185,10 @@ impl<T: 'static> JoinSet<T> {
 
     // Loop over all `JoinHandle`s to find one that's ready.
     for _ in 0..handle_count {
-      let mut handle = match self.inner.pop_front() {
-        Some(inner) => inner,
-        None => continue, // Logically never none
+      // The length was checked above and each iteration
+      // pushes back what it popped, so there is always an element.
+      let Some(mut handle) = self.inner.pop_front() else {
+        break;
       };
       if handle.is_finished() {
         let polled = Pin::new(&mut handle).poll(&mut cx);
@@ -269,22 +286,6 @@ impl<T: 'static> JoinSet<T> {
     output
   }
 
-  /// Aborts all tasks on this `JoinSet`.
-  ///
-  /// This does not remove the tasks from the `JoinSet`. To wait for the tasks to complete
-  /// cancellation, you should call `join_next` in a loop until the `JoinSet` is empty.
-  pub fn abort_all(&mut self) {
-    self.inner.iter().for_each(|jh| jh.abort());
-  }
-
-  /// Removes all tasks from this `JoinSet` without aborting them.
-  ///
-  /// The tasks removed by this call will continue to run in the background even if the `JoinSet`
-  /// is dropped.
-  pub fn detach_all(&mut self) {
-    self.inner.clear();
-  }
-
   /// Polls for one of the tasks in the set to complete.
   ///
   /// If this returns `Poll::Ready(Some(_))`, then the task that completed is removed from the set.
@@ -322,9 +323,10 @@ impl<T: 'static> JoinSet<T> {
 
     // Loop over all `JoinHandle`s to find one that's ready.
     for _ in 0..handle_count {
-      let mut handle = match self.inner.pop_front() {
-        Some(inner) => inner,
-        None => continue, // Logically never none
+      // The length was checked above and each iteration
+      // pushes back what it popped, so there is always an element.
+      let Some(mut handle) = self.inner.pop_front() else {
+        break;
       };
       let polled = Pin::new(&mut handle).poll(cx);
       if let Poll::Ready(result) = polled {
@@ -339,10 +341,7 @@ impl<T: 'static> JoinSet<T> {
 
 impl<T> Drop for JoinSet<T> {
   fn drop(&mut self) {
-    self
-      .inner
-      .iter()
-      .for_each(|join_handle| join_handle.abort());
+    self.abort_all();
   }
 }
 

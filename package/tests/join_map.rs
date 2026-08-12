@@ -4,15 +4,17 @@
 // The glue code only exists on the web target,
 // so this file is empty everywhere else.
 #![cfg(all(
-  target_arch = "wasm32",
+  target_family = "wasm",
   target_vendor = "unknown",
   target_os = "unknown"
 ))]
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::future::Future;
 use std::rc::Rc;
+use tokio_with_wasm::alias as tokio;
 use tokio_with_wasm::task::{JoinError, JoinMap};
-use tokio_with_wasm::time::{Duration, sleep};
+use tokio_with_wasm::time::{Duration, sleep, timeout};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -201,6 +203,104 @@ async fn dropping_the_map_aborts_its_tasks() {
   drop(map);
   sleep(Duration::from_millis(300)).await;
   assert!(!flag.get(), "the task outlived the dropped `JoinMap`");
+}
+
+#[wasm_bindgen_test]
+async fn abort_after_finish_yields_the_output() -> Result<(), JoinError> {
+  let mut map = JoinMap::new();
+  map.spawn("done", async { 9 });
+  sleep(Duration::from_millis(50)).await;
+
+  // Aborting a task that already finished does not erase its output.
+  assert!(map.abort("done"));
+  let Some((key, result)) = map.join_next().await else {
+    panic!("the finished task disappeared");
+  };
+  assert_eq!(key, "done");
+  assert_eq!(result?, 9);
+  Ok(())
+}
+
+#[wasm_bindgen_test]
+async fn abort_matching_cancels_only_matching_keys() -> Result<(), JoinError> {
+  let mut map = JoinMap::new();
+  for i in 1..=2 {
+    map.spawn(format!("sess-{i}"), async {
+      sleep(Duration::from_secs(10)).await;
+      0
+    });
+  }
+  map.spawn("other".to_string(), async { 7 });
+  map.abort_matching(|key| key.starts_with("sess-"));
+
+  let mut cancelled = 0;
+  let mut outputs = Vec::new();
+  while let Some((key, result)) = map.join_next().await {
+    match result {
+      Ok(output) => outputs.push((key, output)),
+      Err(error) => {
+        assert!(error.is_cancelled() && key.starts_with("sess-"));
+        cancelled += 1;
+      }
+    }
+  }
+  assert_eq!(cancelled, 2);
+  assert_eq!(outputs, vec![("other".to_string(), 7)]);
+  Ok(())
+}
+
+#[wasm_bindgen_test]
+async fn capacity_and_exact_size_keys_are_exposed() {
+  let mut map = JoinMap::with_capacity(16);
+  assert!(map.capacity() >= 16);
+  map.spawn_local("a", async {});
+  map.spawn_local("b", async {});
+  assert_eq!(map.keys().len(), 2);
+  map.shutdown().await;
+}
+
+#[wasm_bindgen_test]
+async fn try_join_next_does_not_silence_join_next() -> Result<(), JoinError> {
+  let map = Rc::new(RefCell::new(JoinMap::new()));
+  map.borrow_mut().spawn("timed", async {
+    sleep(Duration::from_millis(150)).await;
+    5
+  });
+
+  // While the test below is awaiting `join_next`,
+  // this task pokes the map with `try_join_next`.
+  let poker = map.clone();
+  tokio::spawn(async move {
+    sleep(Duration::from_millis(50)).await;
+    assert!(poker.borrow_mut().try_join_next().is_none());
+  });
+
+  let start = js_sys::Date::now();
+  let waited = timeout(
+    Duration::from_secs(5),
+    std::future::poll_fn(|cx| {
+      let mut map = map.borrow_mut();
+      let join_next = std::pin::pin!(map.join_next());
+      join_next.poll(cx)
+    }),
+  )
+  .await;
+  let Ok(joined) = waited else {
+    panic!("`join_next` missed the completion");
+  };
+  let Some((key, result)) = joined else {
+    panic!("the map reported itself empty");
+  };
+  assert_eq!((key, result?), ("timed", 5));
+  // With a clobbered waker, nothing re-polls `join_next` until the
+  // timeout above fires at five seconds, so completion must come from
+  // the task's own wake at 150ms to prove the waker survived.
+  let elapsed = js_sys::Date::now() - start;
+  assert!(
+    elapsed < 2500.0,
+    "`join_next` only completed after {elapsed}ms",
+  );
+  Ok(())
 }
 
 #[wasm_bindgen_test]
