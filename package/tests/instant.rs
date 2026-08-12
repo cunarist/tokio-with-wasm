@@ -12,6 +12,7 @@
   target_os = "unknown"
 ))]
 
+use tokio_with_wasm::task::{JoinError, spawn_blocking};
 use tokio_with_wasm::time::{Duration, Instant, sleep};
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -94,4 +95,26 @@ fn instants_are_ordered_and_hashable() {
   set.insert(later);
   set.insert(base);
   assert_eq!(set.len(), 2);
+}
+
+/// A web worker has its own `performance.timeOrigin`, so a raw
+/// `performance.now()` there would sit near zero, decades before any
+/// instant from the main thread. Adding the origin back in must keep
+/// instants from both threads on one clock.
+#[wasm_bindgen_test]
+async fn worker_instants_share_the_main_thread_clock() -> Result<(), JoinError>
+{
+  let slack = Duration::from_millis(500);
+  let before = Instant::now();
+  let worker_instant = spawn_blocking(Instant::now).await?;
+  let after = Instant::now();
+  assert!(
+    worker_instant >= before - slack,
+    "the worker clock is behind: {worker_instant:?} < {before:?}"
+  );
+  assert!(
+    worker_instant <= after + slack,
+    "the worker clock is ahead: {worker_instant:?} > {after:?}"
+  );
+  Ok(())
 }

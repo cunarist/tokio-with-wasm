@@ -153,3 +153,15 @@ async fn the_period_is_reported_back() {
   let ticker = interval(Duration::from_millis(250));
   assert_eq!(ticker.period(), Duration::from_millis(250));
 }
+
+#[wasm_bindgen_test]
+#[should_panic(expected = "`period` must be non-zero.")]
+fn a_zero_period_panics() {
+  let _ticker = interval(Duration::ZERO);
+}
+
+#[wasm_bindgen_test]
+#[should_panic(expected = "`period` must be non-zero.")]
+fn a_zero_period_panics_with_a_start_too() {
+  let _ticker = interval_at(Instant::now(), Duration::ZERO);
+}
