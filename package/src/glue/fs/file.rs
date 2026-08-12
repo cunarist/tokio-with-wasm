@@ -58,11 +58,19 @@ enum Seek {
 /// across writes rather than opened per chunk. A flush per chunk brings the
 /// copy back, once for each flush.
 ///
-/// Two open files on one path write over each other. Each opens the file on
-/// a copy of its own, and whichever closes last wins the whole file rather
-/// than only the bytes it wrote. `tokio` interleaves them instead. Nothing
-/// on the main thread can close that gap: the web API only hands out the
-/// handle that writes in place, `createSyncAccessHandle`, inside a worker.
+/// Two open files on one path never share it. Each opens the file on a copy
+/// of its own, so whichever closes last replaces the whole thing:
+///
+/// |                            | `tokio`     | here                   |
+/// | -------------------------- | ----------- | ---------------------- |
+/// | writes at other offsets    | both land   | only the last to close |
+/// | writes at the same offset  | interleaved | only the last to close |
+/// | crash partway through      | half a file | nothing half written   |
+///
+/// So the file is never left holding something no writer wrote, and a write
+/// that `tokio` would have kept can still be lost. Nothing on the main
+/// thread closes that gap: the web API only hands out the handle that
+/// writes in place, `createSyncAccessHandle`, inside a worker.
 pub struct File {
   handle: FileSystemFileHandle,
   /// Where the next read or write lands.
