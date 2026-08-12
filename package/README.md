@@ -28,7 +28,7 @@ This library assumes that you're compilng your Rust project with `wasm-pack` and
 - **Browser extensions**: parallel Rust under Manifest V3's strict security policy.
 - **In-browser tools**: parsing, encoding, and image processing on real threads.
 - **Games and simulations**: physics and AI on workers while the main thread renders.
-- **Local inference**: machine learning models that run entirely in the browser.
+- **Local inference**: ML models on a worker while the page stays responsive.
 
 ## Usage
 
