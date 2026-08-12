@@ -102,7 +102,17 @@ impl WorkerPool {
     let url = WORKER_SCRIPT_PROVIDER.with(|provider| provider.borrow()())?;
     let options = WorkerOptions::new();
     options.set_type(WorkerType::Module);
-    let worker = Worker::new_with_options(&url, &options)?;
+    let worker = Worker::new_with_options(&url, &options).map_err(|error| {
+      // A content security policy that forbids the worker's URL, such as
+      // a browser extension's `script-src 'self'` with the default
+      // `blob:` URL, lands here as a bare `SecurityError`.
+      JsValue::from_str(&format!(
+        "Creating a web worker from `{url}` failed with {error:?}. \
+           If a content security policy forbids this URL, provide a \
+           script file with \
+           `tokio_with_wasm::only_web::set_worker_script_provider`."
+      ))
+    })?;
 
     // With a worker spun up send it the module/memory so it can start
     // instantiating the wasm module. Later it might receive further
