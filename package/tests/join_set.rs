@@ -60,6 +60,15 @@ async fn join_next_yields_in_completion_order() -> Result<(), JoinError> {
 }
 
 #[wasm_bindgen_test]
+async fn spawn_local_behaves_like_spawn() -> Result<(), JoinError> {
+  let mut set = JoinSet::new();
+  set.spawn_local(async { 1 });
+  assert_eq!(set.join_next().await.transpose()?, Some(1));
+  assert!(set.is_empty());
+  Ok(())
+}
+
+#[wasm_bindgen_test]
 async fn join_all_collects_everything() {
   let mut set = JoinSet::new();
   for i in 0..5 {
@@ -88,6 +97,34 @@ async fn try_join_next_sees_only_finished_tasks() -> Result<(), JoinError> {
   sleep(Duration::from_millis(200)).await;
   assert_eq!(set.try_join_next().transpose()?, Some(5));
   assert!(set.try_join_next().is_none());
+  Ok(())
+}
+
+#[wasm_bindgen_test]
+async fn batched_completions_arrive_in_completion_order()
+-> Result<(), JoinError> {
+  let mut set = JoinSet::new();
+  set.spawn(async {
+    sleep(Duration::from_millis(300)).await;
+    "slow"
+  });
+  set.spawn(async {
+    sleep(Duration::from_millis(100)).await;
+    "fast"
+  });
+  set.spawn(async {
+    sleep(Duration::from_millis(200)).await;
+    "middle"
+  });
+  // Let every task finish before the first `join_next` poll,
+  // so the order must come from completion times, not from polling.
+  sleep(Duration::from_millis(400)).await;
+
+  let mut order = Vec::new();
+  while let Some(result) = set.join_next().await {
+    order.push(result?);
+  }
+  assert_eq!(order, vec!["fast", "middle", "slow"]);
   Ok(())
 }
 

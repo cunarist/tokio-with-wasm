@@ -79,6 +79,22 @@ impl<T> OnceReceiver<T> {
   pub fn is_done(&self) -> bool {
     lock(&self.core).sent
   }
+
+  /// Stores `waker` to be woken when the value arrives,
+  /// without touching the value itself.
+  /// If the value was already sent, the waker is woken right away.
+  pub fn set_waker(&self, waker: Waker) {
+    {
+      let mut core = lock(&self.core);
+      if !core.sent {
+        core.waker = Some(waker);
+        return;
+      }
+    }
+    // Wake after releasing the lock,
+    // because waking can poll the receiver again on this thread.
+    waker.wake();
+  }
 }
 
 impl<T> Future for OnceReceiver<T> {
@@ -127,6 +143,25 @@ mod tests {
     sender.send(7);
     assert_eq!(counter.count(), 1);
     assert_eq!(Pin::new(&mut receiver).poll(&mut cx), Poll::Ready(7));
+  }
+
+  #[wasm_bindgen_test]
+  fn set_waker_is_woken_by_a_later_send() {
+    let (sender, receiver) = once_channel();
+    let counter = CountingWaker::new();
+    receiver.set_waker(counter.waker());
+    assert_eq!(counter.count(), 0);
+    sender.send(1);
+    assert_eq!(counter.count(), 1);
+  }
+
+  #[wasm_bindgen_test]
+  fn set_waker_fires_immediately_if_already_sent() {
+    let (sender, receiver) = once_channel();
+    sender.send(1);
+    let counter = CountingWaker::new();
+    receiver.set_waker(counter.waker());
+    assert_eq!(counter.count(), 1);
   }
 
   #[wasm_bindgen_test]

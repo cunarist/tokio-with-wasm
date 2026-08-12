@@ -31,6 +31,7 @@ expect_used = "deny"
 wildcard_imports = "deny"
 
 [dependencies]
+hashbrown = { version = "0.16", default-features = false }
 tokio_with_wasm_proc = "0.9.0"
 tokio = "1.x.x"
 # 0.2.120 is the first version whose `usize` ABI
