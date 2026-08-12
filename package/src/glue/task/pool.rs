@@ -1,14 +1,14 @@
-use crate::only_web::PATH_PROVIDER;
-use crate::{BLOCKING_KEY, LogError, now};
-use js_sys::{Array, JsString, Object, Reflect, global};
+use crate::only_web::{PATH_PROVIDER, WORKER_SCRIPT_PROVIDER};
+use crate::{LogError, now};
+use js_sys::{JsString, Object, Reflect, global};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use wasm_bindgen::prelude::{Closure, JsCast, JsValue, wasm_bindgen};
 use wasm_bindgen::{memory, module};
 use web_sys::{
-  Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, ErrorEvent, Event,
-  MessageEvent, Url, Worker, WorkerOptions, WorkerType,
+  DedicatedWorkerGlobalScope, ErrorEvent, Event, MessageEvent, Worker,
+  WorkerOptions, WorkerType,
 };
 
 #[cfg(not(test))]
@@ -29,8 +29,6 @@ struct PoolState {
   idle_workers: RefCell<Vec<ManagedWorker>>,
   queued_tasks: RefCell<VecDeque<QueuedTask>>,
   callback: Closure<dyn FnMut(Event)>,
-  /// Script path and the object URL of the bootstrap script built from it.
-  script_url: RefCell<Option<(String, String)>>,
   /// Whether the periodic management task is currently running.
   is_managed: Cell<bool>,
 }
@@ -63,7 +61,6 @@ impl Default for WorkerPool {
         callback: Closure::new(|event: Event| {
           JsValue::from_str(&format!("{event:?}")).log_error("POOL_CALLBACK");
         }),
-        script_url: RefCell::new(None),
         is_managed: Cell::new(false),
       }),
     }
@@ -88,8 +85,9 @@ impl WorkerPool {
   ///
   /// Returns any error that may happen while a JS web worker is created and a
   /// message is sent to it. Creating a worker fails when the document's
-  /// content security policy forbids `blob:` workers or `eval`, in which case
-  /// a custom path provider is needed.
+  /// content security policy forbids the `blob:` URL that the worker script
+  /// is served from by default, in which case a custom worker script
+  /// provider is needed.
   fn create_worker(&self) -> Result<Worker, JsValue> {
     *self.pool_state.total_workers_count.borrow_mut() += 1;
     let created = self.create_worker_inner();
@@ -101,86 +99,41 @@ impl WorkerPool {
   }
 
   fn create_worker_inner(&self) -> Result<Worker, JsValue> {
-    let url = self.script_url()?;
+    // The provider fns are copied out of their cells before the calls,
+    // so that a provider which sets a provider itself doesn't hit a
+    // double borrow.
+    let script_provider = WORKER_SCRIPT_PROVIDER.with(|p| *p.borrow());
+    let url = script_provider()?;
+    let path_provider = PATH_PROVIDER.with(|p| *p.borrow());
+    let glue_path = path_provider()?;
     let options = WorkerOptions::new();
     options.set_type(WorkerType::Module);
-    let worker = Worker::new_with_options(&url, &options)?;
+    let worker = Worker::new_with_options(&url, &options).map_err(|error| {
+      // A content security policy that forbids the worker's URL, such as
+      // a browser extension's `script-src 'self'` with the default
+      // `blob:` URL, lands here as a bare `SecurityError`.
+      JsValue::from_str(&format!(
+        "Creating a web worker from `{url}` failed with {error:?}. \
+           If a content security policy forbids this URL, provide a \
+           script file with \
+           `tokio_with_wasm::only_web::set_worker_script_provider`."
+      ))
+    })?;
 
-    // With a worker spun up send it the module/memory so it can start
-    // instantiating the wasm module. Later it might receive further
-    // messages about code to run on the wasm module.
+    // With a worker spun up send it the glue path and the module/memory so
+    // it can start instantiating the wasm module. Later it might receive
+    // further messages about code to run on the wasm module.
     let worker_init = Object::new();
+    Reflect::set(
+      &worker_init,
+      &JsString::from("glue_path"),
+      &JsValue::from(glue_path),
+    )?;
     Reflect::set(&worker_init, &JsString::from("module_or_path"), &module())?;
     Reflect::set(&worker_init, &JsString::from("memory"), &memory())?;
     worker.post_message(&worker_init)?;
 
     Ok(worker)
-  }
-
-  /// Returns the object URL of the bootstrap script for a worker.
-  ///
-  /// Every worker on this thread runs the same script, so the URL is built
-  /// once and reused. Creating one URL per worker would leak an object URL
-  /// for the whole lifetime of the page, and revoking it right away would
-  /// race with the worker's script fetch.
-  fn script_url(&self) -> Result<String, JsValue> {
-    let script_path = PATH_PROVIDER.with(|provider| provider.borrow()())?;
-    let mut cached = self.pool_state.script_url.borrow_mut();
-    if let Some((cached_path, cached_url)) = cached.as_ref() {
-      if *cached_path == script_path {
-        return Ok(cached_url.clone());
-      }
-    }
-    let url = Self::create_script_url(&script_path)?;
-    *cached = Some((script_path, url.clone()));
-    Ok(url)
-  }
-
-  fn create_script_url(script_path: &str) -> Result<String, JsValue> {
-    let script = format!(
-      "
-      import init, * as wasmBindings from '{}';
-      globalThis.wasmBindings = wasmBindings;
-      globalThis.{BLOCKING_KEY} = true;
-      self.onmessage = event => {{
-        let initialised = init(event.data).catch(err => {{
-          // Propagate to main `onerror`:
-          setTimeout(() => {{
-            throw err;
-          }});
-          // Rethrow to keep promise rejected
-          // and prevent execution of further commands:
-          throw err;
-        }});
-
-        self.onmessage = async event => {{
-          // This will queue further commands up
-          // until the module is fully initialised:
-          await initialised;
-          try {{
-            wasmBindings.task_worker_entry_point(event.data);
-          }} catch (err) {{
-            // A panicking task traps here. Throwing inside an async
-            // handler would only reject its promise, which the parent
-            // thread never sees, so the error is rethrown from a timeout
-            // to reach the `Worker`'s `onerror`:
-            setTimeout(() => {{
-              throw err;
-            }});
-            throw err;
-          }}
-        }};
-      }};
-      ",
-      script_path
-    );
-    let blob_property_bag = BlobPropertyBag::new();
-    blob_property_bag.set_type("text/javascript");
-    let blob = Blob::new_with_blob_sequence_and_options(
-      &Array::from_iter([JsValue::from(script)]).into(),
-      &blob_property_bag,
-    )?;
-    Url::create_object_url_with_blob(&blob)
   }
 
   /// Fetches a worker from this pool, creating one if necessary.

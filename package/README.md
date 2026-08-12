@@ -22,6 +22,14 @@ This library assumes that you're compiling your Rust project with `wasm-pack` an
 
 > Though various IO functionalities can be added in the future, they're not included yet.
 
+## Use Cases
+
+- **Single-page apps**: heavy computation without freezing the UI.
+- **Browser extensions**: parallel Rust under Manifest V3's strict security policy.
+- **In-browser tools**: parsing, encoding, and image processing on real threads.
+- **Games and simulations**: physics and AI on workers while the main thread renders.
+- **Local inference**: ML models on a worker while the page stays responsive.
+
 ## Usage
 
 Add this library to your `Cargo.toml` alongside `tokio`:
@@ -101,11 +109,15 @@ A panic inside `spawn_blocking` takes down the web worker that runs it. The
 `JoinHandle` resolves to a `JoinError` whose `is_panic` is `true`, but the panic
 payload is lost and the worker's share of the shared memory is never reclaimed.
 
-`spawn_blocking` also needs to load the JavaScript glue code into each worker,
-which it does with a `blob:` worker and `eval`. Under a content security policy
-that forbids either, worker creation fails and every blocking task returns a
-`JoinError`. Pass the path of the glue code in with
-`tokio_with_wasm::only_web::set_path_provider` to avoid the `eval`.
+`spawn_blocking` runs its web workers from a `blob:` script by default. Under a
+content security policy that forbids `blob:` workers, such as a browser
+extension's `script-src 'self'`, serve
+[`blocking_worker.js`](https://github.com/cunarist/tokio-with-wasm/blob/main/package/src/glue/only_web/blocking_worker.js)
+as a file of your own and point the pool at it:
+
+```rust
+tokio_with_wasm::only_web::set_worker_script_provider(|| Ok("/blocking_worker.js".into()));
+```
 
 ## Building and Deploying
 
