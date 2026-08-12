@@ -8,7 +8,7 @@
 
 `tokio_with_wasm` is a Rust library that provides `tokio` specifically designed for web browsers. It aims to provide the exact same `tokio` features for web applications, leveraging JavaScript web API.
 
-This library is made up of JavaScript glue code that mimics the behavior of real `tokio`. Because `tokio_with_wasm` doesn't have its own runtime and adapts to the JavaScript event loop, advanced features of `tokio` might not work.
+This library is made up of JavaScript glue code that mimics the behavior of real `tokio`. `tokio_with_wasm` doesn't have its own runtime and adapts to the JavaScript event loop.
 
 When using `spawn_blocking()`, the number of web workers are automatically adjusted adapting to the number of parallel tasks. Refer to the docs for additional details.
 
