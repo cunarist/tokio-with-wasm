@@ -24,6 +24,14 @@ This library assumes that you're compilng your Rust project with `wasm-pack` and
 
 > Though various IO functionalities can be added in the future, they're not included yet.
 
+## Use Cases
+
+- **Single-page apps**: heavy computation without freezing the UI.
+- **Browser extensions**: parallel Rust under Manifest V3's strict security policy.
+- **In-browser tools**: parsing, encoding, and image processing on real threads.
+- **Games and simulations**: physics and AI on workers while the main thread renders.
+- **Local inference**: machine learning models that run entirely in the browser.
+
 ## Usage
 
 Add this library to your `Cargo.toml` alongside `tokio`:
