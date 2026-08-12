@@ -26,9 +26,8 @@ extern "C" {
 /// By default the path provider reads the glue code's own
 /// `import.meta.url`.
 ///
-/// Set it before the first call to `spawn_blocking`, because the path is
-/// read when the first web worker is created. It applies to the thread that
-/// calls this function.
+/// Set it before the first call to `spawn_blocking`. It applies to the
+/// thread that calls this function.
 ///
 /// # Example
 /// ```rust,no_run

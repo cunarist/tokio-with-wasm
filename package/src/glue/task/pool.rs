@@ -99,8 +99,13 @@ impl WorkerPool {
   }
 
   fn create_worker_inner(&self) -> Result<Worker, JsValue> {
-    let url = WORKER_SCRIPT_PROVIDER.with(|provider| provider.borrow()())?;
-    let glue_path = PATH_PROVIDER.with(|provider| provider.borrow()())?;
+    // The provider fns are copied out of their cells before the calls,
+    // so that a provider which sets a provider itself doesn't hit a
+    // double borrow.
+    let script_provider = WORKER_SCRIPT_PROVIDER.with(|p| *p.borrow());
+    let url = script_provider()?;
+    let path_provider = PATH_PROVIDER.with(|p| *p.borrow());
+    let glue_path = path_provider()?;
     let options = WorkerOptions::new();
     options.set_type(WorkerType::Module);
     let worker = Worker::new_with_options(&url, &options).map_err(|error| {
