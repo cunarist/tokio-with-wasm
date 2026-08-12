@@ -13,12 +13,13 @@ all-features = true
 [features]
 # https://github.com/tokio-rs/tokio/blob/master/tokio/Cargo.toml
 default = []
-full = ["macros", "sync", "time", "rt", "rt-multi-thread"]
-# `macros` and `sync` forward to `tokio`, because the glue code
+full = ["io-util", "macros", "sync", "time", "rt", "rt-multi-thread"]
+# `io-util`, `macros` and `sync` forward to `tokio`, because the glue code
 # re-exports those parts of `tokio` even on the web.
 # The other features only gate glue modules implemented here;
 # their native counterparts come from your own dependency on `tokio`,
 # which needs the same features enabled (see the README).
+io-util = ["tokio/io-util"]
 macros = ["tokio/macros"]
 sync = ["tokio/sync"]
 time = []
