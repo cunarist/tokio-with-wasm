@@ -4,6 +4,8 @@
 [![Documentation](https://docs.rs/tokio_with_wasm/badge.svg)](https://docs.rs/tokio_with_wasm)
 [![License](https://img.shields.io/crates/l/tokio_with_wasm.svg)](https://github.com/cunarist/tokio-with-wasm/blob/main/LICENSE)
 
+![Example](https://github.com/user-attachments/assets/83825e10-0c99-4d9f-b17c-a5b66067348a)
+
 `tokio_with_wasm` is a Rust library that provides `tokio` specifically designed for web browsers. It aims to provide the exact same `tokio` features for web applications, leveraging JavaScript web API.
 
 This library is made up of JavaScript glue code that mimics the behavior of real `tokio`. Because `tokio_with_wasm` doesn't have its own runtime and adapts to the JavaScript event loop, advanced features of `tokio` might not work.
@@ -42,9 +44,6 @@ tokio_with_wasm = { version = "0.0.0", features = ["macros", "sync", "time", "rt
 
 Keep the feature lists of the two dependencies in sync: `tokio`'s features
 serve native platforms, and `tokio_with_wasm`'s features gate the web glue.
-The one exception is `rt-multi-thread`, which `tokio` refuses to build for
-`wasm32-unknown-unknown` — enable it on `tokio` behind a target gate if you
-need it natively.
 
 Here's a simple example of using `tokio_with_wasm` that works on both native platforms and web browsers:
 
