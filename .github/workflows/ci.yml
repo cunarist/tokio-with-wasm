@@ -18,6 +18,18 @@ jobs:
       - run: curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
       - run: wasm-pack test --headless --chrome package
 
+  # The same glue must also compile for 64-bit wasm, so that the target
+  # gates keep picking the right side of the alias there. Browser tests
+  # cannot run on `wasm64` yet: the shared memory build needs `+atomics`,
+  # under which `js-sys` fails to compile because its waker hardcodes
+  # `core::arch::wasm32`.
+  web64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --features full --target wasm64-unknown-unknown -- -D warnings
+
   # The same code paths compile to plain `tokio` on native platforms.
   native:
     runs-on: ubuntu-latest
