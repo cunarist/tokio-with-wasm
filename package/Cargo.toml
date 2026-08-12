@@ -2,6 +2,7 @@
 name = "tokio_with_wasm"
 version = "0.9.0"
 edition = "2021"
+rust-version = "1.85"
 license = "MIT"
 description = "Mimicking tokio functionalities on web browsers"
 repository = "https://github.com/cunarist/tokio-with-wasm"
@@ -13,7 +14,7 @@ all-features = true
 [features]
 # https://github.com/tokio-rs/tokio/blob/master/tokio/Cargo.toml
 default = []
-full = ["io-util", "macros", "sync", "time", "rt", "rt-multi-thread"]
+full = ["fs", "io-util", "macros", "sync", "time", "rt", "rt-multi-thread"]
 # `io-util`, `macros` and `sync` forward to `tokio`, because the glue code
 # re-exports those parts of `tokio` even on the web.
 # The other features only gate glue modules implemented here;
@@ -22,6 +23,7 @@ full = ["io-util", "macros", "sync", "time", "rt", "rt-multi-thread"]
 io-util = ["tokio/io-util"]
 macros = ["tokio/macros"]
 sync = ["tokio/sync"]
+fs = []
 time = []
 rt = []
 rt-multi-thread = ["rt"]
@@ -50,6 +52,18 @@ web-sys = { version = "0.3.70", features = [
     'Blob',
     "BlobPropertyBag",
     'Url',
+    'File',
+    'StorageManager',
+    'FileSystemHandle',
+    'FileSystemHandleKind',
+    'FileSystemFileHandle',
+    'FileSystemDirectoryHandle',
+    'FileSystemGetFileOptions',
+    'FileSystemGetDirectoryOptions',
+    'FileSystemRemoveOptions',
+    'FileSystemCreateWritableOptions',
+    'FileSystemWritableFileStream',
+    'WritableStream',
 ] }
 
 [dev-dependencies]
