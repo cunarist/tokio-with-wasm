@@ -1,4 +1,4 @@
-use crate::only_web::WORKER_SCRIPT_PROVIDER;
+use crate::only_web::{PATH_PROVIDER, WORKER_SCRIPT_PROVIDER};
 use crate::{LogError, now};
 use js_sys::{JsString, Object, Reflect, global};
 use std::cell::{Cell, RefCell};
@@ -100,6 +100,7 @@ impl WorkerPool {
 
   fn create_worker_inner(&self) -> Result<Worker, JsValue> {
     let url = WORKER_SCRIPT_PROVIDER.with(|provider| provider.borrow()())?;
+    let glue_path = PATH_PROVIDER.with(|provider| provider.borrow()())?;
     let options = WorkerOptions::new();
     options.set_type(WorkerType::Module);
     let worker = Worker::new_with_options(&url, &options).map_err(|error| {
@@ -114,10 +115,15 @@ impl WorkerPool {
       ))
     })?;
 
-    // With a worker spun up send it the module/memory so it can start
-    // instantiating the wasm module. Later it might receive further
-    // messages about code to run on the wasm module.
+    // With a worker spun up send it the glue path and the module/memory so
+    // it can start instantiating the wasm module. Later it might receive
+    // further messages about code to run on the wasm module.
     let worker_init = Object::new();
+    Reflect::set(
+      &worker_init,
+      &JsString::from("glue_path"),
+      &JsValue::from(glue_path),
+    )?;
     Reflect::set(&worker_init, &JsString::from("module_or_path"), &module())?;
     Reflect::set(&worker_init, &JsString::from("memory"), &memory())?;
     worker.post_message(&worker_init)?;

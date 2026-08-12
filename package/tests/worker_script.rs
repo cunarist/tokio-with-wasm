@@ -10,7 +10,7 @@
 ))]
 
 use tokio_with_wasm::only_web::{
-  get_worker_script, set_worker_script_provider, worker_bootstrap_script,
+  get_worker_script, set_worker_script_provider,
 };
 use tokio_with_wasm::task::{JoinError, spawn_blocking};
 use wasm_bindgen::JsValue;
@@ -25,12 +25,6 @@ fn the_default_provider_builds_a_blob_url() -> Result<(), JsValue> {
   // The URL is reused, so that workers don't leak one object URL each.
   assert_eq!(url, get_worker_script()?);
   Ok(())
-}
-
-#[wasm_bindgen_test]
-fn the_bootstrap_script_imports_the_given_glue_path() {
-  let script = worker_bootstrap_script("/custom/path/to/glue.js");
-  assert!(script.contains("from '/custom/path/to/glue.js'"));
 }
 
 /// A content security policy that forbids `blob:` workers is answered by
