@@ -4,26 +4,45 @@
 //! this module leverages web workers to execute tasks in parallel,
 //! making it ideal for high-performance web applications.
 
+mod builder;
+pub mod coop;
+mod id;
 mod join_map;
 mod join_set;
 mod pool;
 
+pub use builder::Builder;
+pub use coop::{Unconstrained, consume_budget, unconstrained};
+pub use id::{Id, id, try_id};
 pub use join_map::*;
 pub use join_set::*;
+/// A key for task-local data, usable through the re-exported
+/// `task_local!` macro from real `tokio`. The macro's machinery
+/// does not depend on the `tokio` runtime, so it works on the web as is.
+pub use tokio::task::LocalKey;
 use wasm_bindgen::prelude::JsValue;
+
+/// Task-related futures, re-exported from real `tokio`.
+pub mod futures {
+  pub use tokio::task::futures::TaskLocalFuture;
+}
 
 use crate::{
   LogError, OnceReceiver, OnceSender, SelectFuture, is_main_thread,
   once_channel, set_timeout,
 };
+use id::TaskIdScope;
 use js_sys::Promise;
 use pool::WorkerPool;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll, Waker};
-use wasm_bindgen_futures::{JsFuture, spawn_local};
+// Renamed so that it doesn't collide with `task::spawn_local`.
+use wasm_bindgen_futures::{JsFuture, spawn_local as spawn_promise};
 
 thread_local! {
     static WORKER_POOL: WorkerPool = WorkerPool::new();
@@ -190,26 +209,47 @@ where
     .log_error("SPAWN");
     panic!();
   }
+  let task_id = Id::next();
   let (join_sender, join_receiver) = once_channel();
   let (cancel_sender, cancel_receiver) = once_channel::<()>();
-  spawn_local(async move {
+  let finished = Arc::new(AtomicBool::new(false));
+  let finish_flag = finished.clone();
+  spawn_promise(async move {
     let result = SelectFuture::new(
       async move {
-        let output = future.await;
+        let output = TaskIdScope::new(task_id, future).await;
         Ok(output)
       },
       async move {
         cancel_receiver.await;
-        Err(JoinError::cancelled())
+        Err(JoinError::cancelled(task_id))
       },
     )
     .await;
+    // The flag flips before the send, so a consumer woken by the
+    // send never observes an unfinished task with a stored result.
+    finish_flag.store(true, Ordering::SeqCst);
     join_sender.send(result);
   });
   JoinHandle {
+    task_id,
     join_receiver,
     cancel_sender,
+    finished,
   }
+}
+
+/// Spawns a new asynchronous task on the current thread,
+/// returning a [`JoinHandle`] for it.
+///
+/// The JavaScript event loop lives on a single thread, so this is the
+/// same as [`spawn`]. Unlike in real `tokio`, no `LocalSet` is needed.
+pub fn spawn_local<F, T>(future: F) -> JoinHandle<T>
+where
+  F: std::future::Future<Output = T> + 'static,
+  T: 'static,
+{
+  spawn(future)
 }
 
 /// Runs the provided closure on a web worker(thread) where blocking is acceptable.
@@ -275,32 +315,41 @@ where
     .log_error("SPAWN_BLOCKING");
     panic!();
   }
+  let task_id = Id::next();
   let (join_sender, join_receiver) = once_channel();
   let (cancel_sender, cancel_receiver) = once_channel::<()>();
   let failure_sender = join_sender.clone();
+  let finished = Arc::new(AtomicBool::new(false));
+  let finish_flag = finished.clone();
+  let failure_flag = finished.clone();
   WORKER_POOL.with(move |worker_pool| {
     worker_pool.queue_task(
       move || {
         if cancel_receiver.is_done() {
-          join_sender.send(Err(JoinError::cancelled()));
+          finish_flag.store(true, Ordering::SeqCst);
+          join_sender.send(Err(JoinError::cancelled(task_id)));
           return;
         }
-        let returned = callable();
+        let returned = id::scope_blocking(task_id, callable);
+        finish_flag.store(true, Ordering::SeqCst);
         join_sender.send(Ok(returned));
       },
       // Called when the web worker cannot run the task or dies while
       // running it. Without this, the `JoinHandle` would never resolve.
       move || {
-        failure_sender.send(Err(JoinError::panicked()));
+        failure_flag.store(true, Ordering::SeqCst);
+        failure_sender.send(Err(JoinError::panicked(task_id)));
       },
     );
     if worker_pool.needs_managing() {
-      spawn_local(manage_pool());
+      spawn_promise(manage_pool());
     }
   });
   JoinHandle {
+    task_id,
     join_receiver,
     cancel_sender,
+    finished,
   }
 }
 
@@ -378,8 +427,12 @@ pub async fn yield_now() {
 /// }
 /// ```
 pub struct JoinHandle<T> {
+  task_id: Id,
   join_receiver: OnceReceiver<Result<T, JoinError>>,
   cancel_sender: OnceSender<()>,
+  /// Flipped by the task right before it stores its result.
+  /// Shared with [`AbortHandle`], which cannot hold the typed receiver.
+  finished: Arc<AtomicBool>,
 }
 
 impl<T> Future for JoinHandle<T> {
@@ -460,8 +513,16 @@ impl<T> JoinHandle<T> {
   /// Returns a new `AbortHandle` that can be used to remotely abort this task.
   pub fn abort_handle(&self) -> AbortHandle {
     AbortHandle {
+      task_id: self.task_id,
       cancel_sender: self.cancel_sender.clone(),
+      finished: self.finished.clone(),
     }
+  }
+
+  /// Returns a task ID that uniquely identifies this task relative to other
+  /// currently spawned tasks.
+  pub fn id(&self) -> Id {
+    self.task_id
   }
 
   /// Stores `waker` to be woken when the task completes,
@@ -476,14 +537,16 @@ impl<T> JoinHandle<T> {
 /// Returned when a task failed to execute to completion.
 #[derive(Debug)]
 pub struct JoinError {
+  task_id: Id,
   cancelled: bool,
   panicked: bool,
 }
 
 impl JoinError {
   /// The task was aborted before it could finish.
-  fn cancelled() -> Self {
+  fn cancelled(task_id: Id) -> Self {
     JoinError {
+      task_id,
       cancelled: true,
       panicked: false,
     }
@@ -491,8 +554,9 @@ impl JoinError {
 
   /// The web worker running the task died,
   /// which is what a panic looks like on the web.
-  fn panicked() -> Self {
+  fn panicked(task_id: Id) -> Self {
     JoinError {
+      task_id,
       cancelled: false,
       panicked: true,
     }
@@ -530,6 +594,12 @@ impl JoinError {
   pub fn is_panic(&self) -> bool {
     self.panicked
   }
+
+  /// Returns a task ID that identifies the task which errored relative to
+  /// other currently spawned tasks.
+  pub fn id(&self) -> Id {
+    self.task_id
+  }
 }
 
 /// An owned permission to abort a spawned task, without awaiting its completion.
@@ -551,7 +621,10 @@ impl JoinError {
 /// [`spawn_blocking`]: crate::task::spawn_blocking
 #[derive(Clone)]
 pub struct AbortHandle {
+  task_id: Id,
   cancel_sender: OnceSender<()>,
+  /// Flipped by the task right before it stores its result.
+  finished: Arc<AtomicBool>,
 }
 
 impl AbortHandle {
@@ -571,6 +644,22 @@ impl AbortHandle {
   /// yet; in that case, calling `abort` may prevent the task from starting.
   pub fn abort(&self) {
     self.cancel_sender.send(());
+  }
+
+  /// Checks if the task associated with this `AbortHandle` has finished.
+  ///
+  /// Please note that this method can return `false` even if `abort` has
+  /// been called on the task. This is because the cancellation process may
+  /// take some time, and this method does not return `true` until it has
+  /// completed.
+  pub fn is_finished(&self) -> bool {
+    self.finished.load(Ordering::SeqCst)
+  }
+
+  /// Returns a task ID that uniquely identifies this task relative to other
+  /// currently spawned tasks.
+  pub fn id(&self) -> Id {
+    self.task_id
   }
 }
 

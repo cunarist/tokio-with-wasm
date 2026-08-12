@@ -228,3 +228,68 @@ async fn detach_all_keeps_tasks_running() {
   sleep(Duration::from_millis(300)).await;
   assert!(flag.get(), "the detached task was aborted");
 }
+
+#[wasm_bindgen_test]
+async fn join_next_with_id_pairs_outputs_with_task_ids() -> Result<(), JoinError>
+{
+  let mut set = JoinSet::new();
+  let mut expected = std::collections::HashMap::new();
+  for i in 0..5 {
+    let abort_handle = set.spawn(async move { i });
+    expected.insert(abort_handle.id(), i);
+  }
+
+  let mut joined = 0;
+  while let Some(result) = set.join_next_with_id().await {
+    let (task_id, output) = result?;
+    assert_eq!(expected.get(&task_id), Some(&output));
+    joined += 1;
+  }
+  assert_eq!(joined, 5);
+  Ok(())
+}
+
+#[wasm_bindgen_test]
+async fn try_join_next_with_id_sees_only_finished_tasks()
+-> Result<(), JoinError> {
+  let mut set = JoinSet::new();
+  let abort_handle = set.spawn(async {
+    sleep(Duration::from_millis(100)).await;
+    5
+  });
+  let task_id = abort_handle.id();
+  // Nothing has finished yet.
+  assert!(set.try_join_next_with_id().is_none());
+  sleep(Duration::from_millis(200)).await;
+  assert_eq!(set.try_join_next_with_id().transpose()?, Some((task_id, 5)));
+  assert!(set.try_join_next_with_id().is_none());
+  Ok(())
+}
+
+#[wasm_bindgen_test]
+async fn join_next_with_id_reports_the_aborted_task() {
+  let mut set = JoinSet::new();
+  let abort_handle = set.spawn(async {
+    sleep(Duration::from_secs(10)).await;
+  });
+  let task_id = abort_handle.id();
+  abort_handle.abort();
+
+  let Some(Err(error)) = set.join_next_with_id().await else {
+    panic!("the aborted task did not report an error");
+  };
+  assert!(error.is_cancelled());
+  assert_eq!(error.id(), task_id);
+}
+
+#[wasm_bindgen_test]
+async fn blocking_tasks_also_carry_ids() -> Result<(), JoinError> {
+  let mut set = JoinSet::new();
+  let abort_handle = set.spawn_blocking(|| 7);
+  let task_id = abort_handle.id();
+  let Some(result) = set.join_next_with_id().await else {
+    panic!("the blocking task went missing");
+  };
+  assert_eq!(result?, (task_id, 7));
+  Ok(())
+}
