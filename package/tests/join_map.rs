@@ -60,7 +60,8 @@ async fn join_next_yields_in_completion_order() -> Result<(), JoinError> {
 }
 
 #[wasm_bindgen_test]
-async fn batched_completions_arrive_in_completion_order() -> Result<(), JoinError> {
+async fn batched_completions_arrive_in_completion_order()
+-> Result<(), JoinError> {
   let mut map = JoinMap::new();
   map.spawn("slow", async {
     sleep(Duration::from_millis(300)).await;

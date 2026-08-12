@@ -344,8 +344,7 @@ impl<T: 'static> JoinSet<T> {
       // The task queued its tag on completion, so its result is stored;
       // this poll with a no-op waker just takes the result out.
       let mut noop_cx = Context::from_waker(std::task::Waker::noop());
-      let Poll::Ready(result) = Pin::new(&mut handle).poll(&mut noop_cx)
-      else {
+      let Poll::Ready(result) = Pin::new(&mut handle).poll(&mut noop_cx) else {
         unreachable!("a queued task's result was missing");
       };
       return Poll::Ready(Some(result));

@@ -101,7 +101,8 @@ async fn try_join_next_sees_only_finished_tasks() -> Result<(), JoinError> {
 }
 
 #[wasm_bindgen_test]
-async fn batched_completions_arrive_in_completion_order() -> Result<(), JoinError> {
+async fn batched_completions_arrive_in_completion_order()
+-> Result<(), JoinError> {
   let mut set = JoinSet::new();
   set.spawn(async {
     sleep(Duration::from_millis(300)).await;

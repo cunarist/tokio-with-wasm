@@ -272,10 +272,8 @@ where
     let key_hash = self.hasher.hash_one(&key);
     let serial = self.next_serial;
     self.next_serial += 1;
-    join_handle.register_waker(self.queue.task_waker(TaskTag {
-      key_hash,
-      serial,
-    }));
+    join_handle
+      .register_waker(self.queue.task_waker(TaskTag { key_hash, serial }));
 
     let entry = self.table.entry(
       key_hash,
@@ -446,8 +444,7 @@ where
     // The task queued its tag on completion, so its result is stored;
     // this poll with a no-op waker just takes the result out.
     let mut cx = Context::from_waker(std::task::Waker::noop());
-    let Poll::Ready(result) = Pin::new(&mut stored.handle).poll(&mut cx)
-    else {
+    let Poll::Ready(result) = Pin::new(&mut stored.handle).poll(&mut cx) else {
       unreachable!("a queued task's result was missing");
     };
     Some((stored.key, result))
