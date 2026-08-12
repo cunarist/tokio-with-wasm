@@ -41,8 +41,8 @@ async fn the_test_macro_unwraps_ok_results() -> Result<(), std::io::Error> {
 // The expansion references the crate by the given path
 // when the dependency is renamed in `Cargo.toml`.
 mod renamed {
-  pub use tokio_with_wasm as renamed_wasm;
   use renamed_wasm::alias as tokio;
+  pub use tokio_with_wasm as renamed_wasm;
 
   #[tokio::test(crate = "renamed_wasm")]
   async fn the_test_macro_honors_a_renamed_crate() {
