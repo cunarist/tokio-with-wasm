@@ -29,7 +29,13 @@ pub use interval::{Interval, MissedTickBehavior, interval, interval_at};
 /// Web timers cut off at this many milliseconds: JavaScript stores the
 /// delay of `setTimeout` in a 32-bit integer, and a longer delay fires
 /// immediately instead of far in the future. Longer waits chain timers.
+#[cfg(not(test))]
 const MAX_TIMER_MILLIS: f64 = 2_147_483_647.0;
+/// Tests shrink the timer cap to two ticks of a JavaScript clock,
+/// so that the timer-chaining branch runs in CI instead of needing
+/// a 25-day sleep.
+#[cfg(test)]
+const MAX_TIMER_MILLIS: f64 = 50.0;
 
 /// Resolves after `duration` through one JavaScript timer.
 async fn time_future(duration: Duration) {
@@ -226,5 +232,41 @@ impl<F: Future> Future for Timeout<F> {
         Poll::Pending => Poll::Pending,
       },
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use wasm_bindgen_test::wasm_bindgen_test;
+
+  /// The test build caps a single JavaScript timer at 50ms, so this
+  /// sleep can only complete on time by chaining six timers, the same
+  /// way a 25-day sleep must on the real 32-bit cap. Completing at the
+  /// first timer would wake up at 50ms and fail the assertion.
+  #[wasm_bindgen_test]
+  async fn sleeps_chain_timers_beyond_the_single_timer_cap() {
+    let start = Instant::now();
+    sleep(Duration::from_millis(300)).await;
+    let elapsed = start.elapsed();
+    assert!(
+      elapsed >= Duration::from_millis(250),
+      "the sleep ended at the timer cap: {elapsed:?}"
+    );
+    assert!(
+      elapsed < Duration::from_secs(5),
+      "the sleep chained too long: {elapsed:?}"
+    );
+  }
+
+  /// A timeout that outlives the timer cap must not elapse early.
+  #[wasm_bindgen_test]
+  async fn timeouts_survive_the_single_timer_cap() {
+    let output = timeout(Duration::from_millis(300), async {
+      sleep(Duration::from_millis(150)).await;
+      42
+    })
+    .await;
+    assert_eq!(output.ok(), Some(42));
   }
 }
