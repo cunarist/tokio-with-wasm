@@ -5,7 +5,7 @@
 // The glue code only exists on the web target,
 // so this file is empty everywhere else.
 #![cfg(all(
-  target_arch = "wasm32",
+  target_family = "wasm",
   target_vendor = "unknown",
   target_os = "unknown"
 ))]

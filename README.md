@@ -12,7 +12,7 @@ This library is made up of JavaScript glue code that mimics the behavior of real
 
 When using `spawn_blocking()`, the number of web workers are automatically adjusted adapting to the number of parallel tasks. Refer to the docs for additional details.
 
-This library assumes that you're compilng your Rust project with `wasm-pack` and `wasm-bindgen`, which currently uses `wasm32-unknown-unknown` Rust target. Note that this library currently only supports the `web` target of `wasm-bindgen`, not [others](https://rustwasm.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
+This library assumes that you're compiling your Rust project with `wasm-pack` and `wasm-bindgen`, which currently uses the `wasm32-unknown-unknown` and `wasm64-unknown-unknown` Rust targets. Note that this library currently only supports the `web` target of `wasm-bindgen`, not [others](https://rustwasm.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
 
 ## Features
 
@@ -70,14 +70,14 @@ The `use tokio_with_wasm::alias as tokio;` statement is functionally equivalent 
 
 ```rust
 #[cfg(all(
-  target_arch = "wasm32",
+  target_family = "wasm",
   target_vendor = "unknown",
   target_os = "unknown"
 ))]
 use tokio_with_wasm as tokio;
 
 #[cfg(not(all(
-  target_arch = "wasm32",
+  target_family = "wasm",
   target_vendor = "unknown",
   target_os = "unknown"
 )))]

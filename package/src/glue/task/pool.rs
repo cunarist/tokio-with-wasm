@@ -216,7 +216,9 @@ impl WorkerPool {
     let worker = self.get_worker()?;
     let work = Box::new(task);
     let ptr = Box::into_raw(work);
-    match worker.post_message(&JsValue::from(ptr as u32)) {
+    // `usize`, not `u32`, so that the pointer survives on `wasm64`.
+    // It crosses JS as an `f64` there, which is exact below 2^53.
+    match worker.post_message(&JsValue::from(ptr as usize)) {
       Ok(()) => Ok(worker),
       Err(error) => {
         unsafe {
@@ -424,7 +426,7 @@ impl PoolState {
 
 /// Entry point invoked by JavaScript in a worker.
 #[wasm_bindgen]
-pub fn task_worker_entry_point(ptr: u32) -> Result<(), JsValue> {
+pub fn task_worker_entry_point(ptr: usize) -> Result<(), JsValue> {
   let ptr = unsafe { Box::from_raw(ptr as *mut Task) };
   let global = global().unchecked_into::<DedicatedWorkerGlobalScope>();
   (ptr.callable)();
