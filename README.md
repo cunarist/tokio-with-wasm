@@ -6,19 +6,19 @@
 
 ![Example](https://github.com/user-attachments/assets/83825e10-0c99-4d9f-b17c-a5b66067348a)
 
-`tokio_with_wasm` is a Rust library that provides `tokio` specifically designed for web browsers. It aims to provide the exact same `tokio` features for web applications, leveraging JavaScript web API.
+`tokio_with_wasm` is a Rust library that provides `tokio` specifically designed for web browsers. It aims to provide the exact same `tokio` features for web applications, leveraging JavaScript web APIs.
 
 This library is made up of JavaScript glue code that mimics the behavior of real `tokio`. `tokio_with_wasm` doesn't have its own runtime and adapts to the JavaScript event loop.
 
-When using `spawn_blocking()`, the number of web workers are automatically adjusted adapting to the number of parallel tasks. Refer to the docs for additional details.
+When using `spawn_blocking()`, the number of web workers is automatically adjusted to the number of parallel tasks. Refer to the docs for additional details.
 
-This library assumes that you're compiling your Rust project with `wasm-pack` and `wasm-bindgen`, which currently uses the `wasm32-unknown-unknown` and `wasm64-unknown-unknown` Rust targets. Note that this library currently only supports the `web` target of `wasm-bindgen`, not [others](https://rustwasm.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
+This library assumes that you're compiling your Rust project with `wasm-pack` and `wasm-bindgen`, which currently use the `wasm32-unknown-unknown` and `wasm64-unknown-unknown` Rust targets. Note that this library currently only supports the `web` target of `wasm-bindgen`, not [others](https://rustwasm.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
 
 ## Features
 
 - **Familiar API**: If you're familiar with `tokio`, you'll feel right at home with `tokio_with_wasm`. It provides similar functionality and follows the same patterns for spawning and managing asynchronous tasks.
 
-- **Web Worker Integration**: `tokio_with_wasm` adapts to the JavaScript environment by utilizing web API under the hood. This means you can write Rust code that runs concurrently and efficiently in web applications.
+- **Web Worker Integration**: `tokio_with_wasm` adapts to the JavaScript environment by utilizing web APIs under the hood. This means you can write Rust code that runs concurrently and efficiently in web applications.
 
 - **Spawn Async and Blocking Tasks**: You can spawn both asynchronous and blocking tasks. Asynchronous tasks allow you to perform non-blocking operations, while blocking tasks are suitable for compute-heavy or synchronous tasks.
 
@@ -59,11 +59,11 @@ async fn main() {
   let async_join_handle = spawn(async {
     // Asynchronous code here.
     // This will run concurrently
-    // in the same web worker(thread).
+    // in the same web worker (thread).
   });
   let blocking_join_handle = spawn_blocking(|| {
     // Blocking code here.
-    // This will run parallelly
+    // This will run in parallel
     // in the external pool of web workers.
   });
   let async_result = async_join_handle.await;
@@ -184,7 +184,7 @@ export RUSTUP_TOOLCHAIN="nightly"
 wasm-pack build <path> --target web -- -Z build-std=std,panic_abort
 ```
 
-After building your webassembly module and preparing it for deployment, ensure that your web server is configured to include cross-origin-related HTTP headers in its responses. These headers enable clients using your website to gain access to `SharedArrayBuffer` web API, which is something similar to shared memory on the web.
+After building your WebAssembly module and preparing it for deployment, ensure that your web server is configured to include cross-origin-related HTTP headers in its responses. These headers enable clients using your website to gain access to the `SharedArrayBuffer` web API, which is something similar to shared memory on the web.
 
 - [`Cross-Origin-Opener-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy): `same-origin`
 - [`Cross-Origin-Embedder-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy): `require-corp`
@@ -193,7 +193,7 @@ Additionally, don't forget to specify the MIME type `application/wasm` for `.was
 
 ## Why This is Needed
 
-The web has many restrictions due to its sandboxed environment which prevents the use of threads, time, file IO, network IO, and many other native functionalities. Consequently, certain features are missing from Rust's `std` due to these limitations. That's why `tokio` doesn't really work well on web browsers.
+The web has many restrictions due to its sandboxed environment, which prevents the use of threads, time, file IO, network IO, and many other native functionalities. Consequently, certain features are missing from Rust's `std` due to these limitations. That's why `tokio` doesn't really work well on web browsers.
 
 To address this issue, this crate offers `tokio` modules with the **same names** as the original native ones, providing workarounds for these constraints.
 
@@ -209,15 +209,15 @@ Until that time, there's `tokio_with_wasm`!
 
 Contributions are always welcome! If you have any suggestions, bug reports, or want to contribute to the development of `tokio_with_wasm`, please open an issue or submit a pull request.
 
-There are situations where you cannot use native Rust code directly on the web. This is because `wasm32-unknown-unknown` Rust target used by `wasm-bindgen` doesn't have a full `std` module. Refer to the links below to understand how to interact with JavaScript with `wasm-bindgen`.
+There are situations where you cannot use native Rust code directly on the web. This is because the `wasm32-unknown-unknown` Rust target used by `wasm-bindgen` doesn't have a full `std` module. Refer to the links below to understand how to interact with JavaScript with `wasm-bindgen`.
 
 - https://rustwasm.github.io/wasm-bindgen/reference/attributes/on-js-imports/js_name.html
 - https://rustwasm.github.io/wasm-bindgen/reference/attributes/on-js-imports/js_namespace.html
 
-It is possible for rust code to be called in a **web worker**. Therefore, we cannot access the global `window` JavaScript object
-just like when you work in the main thread of JavaScript. Refer to the link below to check which web APIs are available in a web worker.
-You'll be surprised by various capabilities that modern JavaScript has.
+It is possible for Rust code to be called in a **web worker**. Therefore, we cannot access the global `window` JavaScript object
+as we can in the main thread of JavaScript. Refer to the link below to check which web APIs are available in a web worker.
+You'll be surprised by the various capabilities that modern JavaScript has.
 
 - https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Functions_and_classes_available_to_workers
 
-Please note that this library uses a quite hacky and naive approach to mimic native `tokio` functionalities. That's because this library is regarded as a temporary solution for the period before `wasm32-wasi`. Any kind of PR is possible, as long as it makes things just work on the web.
+Please note that this library uses quite a hacky and naive approach to mimic native `tokio` functionalities. That's because this library is regarded as a temporary solution for the period before `wasm32-wasi`. Any kind of PR is possible, as long as it makes things just work on the web.
