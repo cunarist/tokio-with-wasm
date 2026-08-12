@@ -217,6 +217,7 @@ impl WorkerPool {
     let work = Box::new(task);
     let ptr = Box::into_raw(work);
     // `usize`, not `u32`, so that the pointer survives on `wasm64`.
+    // It crosses JS as an `f64` there, which is exact below 2^53.
     match worker.post_message(&JsValue::from(ptr as usize)) {
       Ok(()) => Ok(worker),
       Err(error) => {
