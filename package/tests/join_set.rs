@@ -95,6 +95,33 @@ async fn try_join_next_sees_only_finished_tasks() -> Result<(), JoinError> {
 /// no-op waker, which replaced the real waker registered by a concurrent
 /// `join_next`. The completion then woke nobody and `join_next` hung.
 #[wasm_bindgen_test]
+async fn batched_completions_arrive_in_completion_order() -> Result<(), JoinError> {
+  let mut set = JoinSet::new();
+  set.spawn(async {
+    sleep(Duration::from_millis(300)).await;
+    "slow"
+  });
+  set.spawn(async {
+    sleep(Duration::from_millis(100)).await;
+    "fast"
+  });
+  set.spawn(async {
+    sleep(Duration::from_millis(200)).await;
+    "middle"
+  });
+  // Let every task finish before the first `join_next` poll,
+  // so the order must come from completion times, not from polling.
+  sleep(Duration::from_millis(400)).await;
+
+  let mut order = Vec::new();
+  while let Some(result) = set.join_next().await {
+    order.push(result?);
+  }
+  assert_eq!(order, vec!["fast", "middle", "slow"]);
+  Ok(())
+}
+
+#[wasm_bindgen_test]
 async fn try_join_next_does_not_silence_join_next() -> Result<(), JoinError> {
   let set = Rc::new(RefCell::new(JoinSet::new()));
   set.borrow_mut().spawn(async {

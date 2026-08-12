@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
+mod completion_queue;
 mod local_channel;
 mod once_channel;
 mod select_future;
@@ -8,6 +9,7 @@ mod select_future;
 mod test_util;
 mod thread_check;
 
+pub use completion_queue::*;
 pub use local_channel::*;
 pub use once_channel::*;
 pub use select_future::*;

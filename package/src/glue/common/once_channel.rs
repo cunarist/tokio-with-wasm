@@ -79,6 +79,22 @@ impl<T> OnceReceiver<T> {
   pub fn is_done(&self) -> bool {
     lock(&self.core).sent
   }
+
+  /// Stores `waker` to be woken when the value arrives,
+  /// without touching the value itself.
+  /// If the value was already sent, the waker is woken right away.
+  pub fn set_waker(&self, waker: Waker) {
+    {
+      let mut core = lock(&self.core);
+      if !core.sent {
+        core.waker = Some(waker);
+        return;
+      }
+    }
+    // Wake after releasing the lock,
+    // because waking can poll the receiver again on this thread.
+    waker.wake();
+  }
 }
 
 impl<T> Future for OnceReceiver<T> {

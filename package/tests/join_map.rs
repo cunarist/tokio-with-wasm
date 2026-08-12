@@ -60,6 +60,49 @@ async fn join_next_yields_in_completion_order() -> Result<(), JoinError> {
 }
 
 #[wasm_bindgen_test]
+async fn batched_completions_arrive_in_completion_order() -> Result<(), JoinError> {
+  let mut map = JoinMap::new();
+  map.spawn("slow", async {
+    sleep(Duration::from_millis(300)).await;
+  });
+  map.spawn("fast", async {
+    sleep(Duration::from_millis(100)).await;
+  });
+  map.spawn("middle", async {
+    sleep(Duration::from_millis(200)).await;
+  });
+  // Let every task finish before the first `join_next` poll,
+  // so the order must come from completion times, not from polling.
+  sleep(Duration::from_millis(400)).await;
+
+  let mut order = Vec::new();
+  while let Some((key, result)) = map.join_next().await {
+    result?;
+    order.push(key);
+  }
+  assert_eq!(order, vec!["fast", "middle", "slow"]);
+  Ok(())
+}
+
+#[wasm_bindgen_test]
+async fn with_hasher_supports_a_custom_hasher() -> Result<(), JoinError> {
+  use std::hash::{BuildHasherDefault, DefaultHasher};
+  let mut map: JoinMap<&str, i32, BuildHasherDefault<DefaultHasher>> =
+    JoinMap::with_hasher(BuildHasherDefault::default());
+  map.spawn("a", async { 1 });
+  map.spawn("b", async { 2 });
+  assert!(map.contains_key("a"));
+
+  let mut outputs = Vec::new();
+  while let Some((key, result)) = map.join_next().await {
+    outputs.push((key, result?));
+  }
+  outputs.sort();
+  assert_eq!(outputs, vec![("a", 1), ("b", 2)]);
+  Ok(())
+}
+
+#[wasm_bindgen_test]
 async fn join_next_on_an_empty_map_is_none() {
   let mut map: JoinMap<u8, ()> = JoinMap::new();
   assert!(map.join_next().await.is_none());

@@ -22,7 +22,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::future::Future;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, Waker};
 use wasm_bindgen_futures::{JsFuture, spawn_local};
 
 thread_local! {
@@ -462,6 +462,14 @@ impl<T> JoinHandle<T> {
     AbortHandle {
       cancel_sender: self.cancel_sender.clone(),
     }
+  }
+
+  /// Stores `waker` to be woken when the task completes,
+  /// without consuming the task's output.
+  /// Task collections use this to learn about completions
+  /// without polling every stored handle.
+  pub(crate) fn register_waker(&self, waker: Waker) {
+    self.join_receiver.set_waker(waker);
   }
 }
 

@@ -4,8 +4,10 @@
 //! of spawned tasks and allows asynchronously awaiting the output of those
 //! tasks as they complete. See the documentation for the [`JoinSet`] type for
 //! details.
-use crate::{AbortHandle, JoinError, JoinHandle, spawn, spawn_blocking};
-use std::collections::VecDeque;
+use crate::{
+  AbortHandle, CompletionQueue, JoinError, JoinHandle, spawn, spawn_blocking,
+};
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::pin::Pin;
@@ -14,8 +16,8 @@ use std::task::{Context, Poll};
 /// A collection of tasks spawned in JavaScript.
 ///
 /// A `JoinSet` can be used to await the completion of some or all of the tasks
-/// in the set. The set is not ordered: when several tasks have already
-/// completed, which of them is returned first is unspecified.
+/// in the set. The set is not ordered, and the tasks will be returned in the
+/// order they complete.
 ///
 /// All of the tasks must have the same return type `T`.
 ///
@@ -49,25 +51,32 @@ use std::task::{Context, Poll};
 /// }
 /// ```
 pub struct JoinSet<T> {
-  inner: VecDeque<JoinHandle<T>>,
+  /// Tasks that have not been joined yet, by task tag.
+  tasks: HashMap<u64, JoinHandle<T>>,
+  /// Completed task tags, in the order they completed.
+  queue: CompletionQueue<u64>,
+  /// The tag for the next spawned task.
+  next_tag: u64,
 }
 
 impl<T> JoinSet<T> {
   /// Create a new `JoinSet`.
   pub fn new() -> Self {
     Self {
-      inner: VecDeque::new(),
+      tasks: HashMap::new(),
+      queue: CompletionQueue::new(),
+      next_tag: 0,
     }
   }
 
   /// Returns the number of tasks currently in the `JoinSet`.
   pub fn len(&self) -> usize {
-    self.inner.len()
+    self.tasks.len()
   }
 
   /// Returns whether the `JoinSet` is empty.
   pub fn is_empty(&self) -> bool {
-    self.inner.is_empty()
+    self.tasks.is_empty()
   }
 
   /// Aborts all tasks on this `JoinSet`.
@@ -75,7 +84,7 @@ impl<T> JoinSet<T> {
   /// This does not remove the tasks from the `JoinSet`. To wait for the tasks to complete
   /// cancellation, you should call `join_next` in a loop until the `JoinSet` is empty.
   pub fn abort_all(&mut self) {
-    self.inner.iter().for_each(|jh| jh.abort());
+    self.tasks.values().for_each(|jh| jh.abort());
   }
 
   /// Removes all tasks from this `JoinSet` without aborting them.
@@ -83,7 +92,16 @@ impl<T> JoinSet<T> {
   /// The tasks removed by this call will continue to run in the background even if the `JoinSet`
   /// is dropped.
   pub fn detach_all(&mut self) {
-    self.inner.clear();
+    self.tasks.clear();
+  }
+
+  /// Stores a spawned task's handle and hooks its completion
+  /// into the completion queue.
+  fn store(&mut self, join_handle: JoinHandle<T>) {
+    let tag = self.next_tag;
+    self.next_tag += 1;
+    join_handle.register_waker(self.queue.task_waker(tag));
+    self.tasks.insert(tag, join_handle);
   }
 }
 
@@ -104,7 +122,7 @@ impl<T: 'static> JoinSet<T> {
   {
     let join_handle = spawn(task);
     let abort_handle = join_handle.abort_handle();
-    self.inner.push_back(join_handle);
+    self.store(join_handle);
     abort_handle
   }
 
@@ -150,7 +168,7 @@ impl<T: 'static> JoinSet<T> {
   {
     let join_handle = spawn_blocking(f);
     let abort_handle = join_handle.abort_handle();
-    self.inner.push_back(join_handle);
+    self.store(join_handle);
     abort_handle
   }
 
@@ -171,34 +189,18 @@ impl<T: 'static> JoinSet<T> {
   ///
   /// Returns `None` if there are no completed tasks, or if the set is empty.
   pub fn try_join_next(&mut self) -> Option<Result<T, JoinError>> {
-    // Get the number of `JoinHandle`s.
-    let handle_count = self.inner.len();
-    if handle_count == 0 {
-      return None;
-    }
-
-    // Create an async context with a waker that does nothing.
-    // It is only ever handed to a task that is already finished,
-    // because polling a pending task would make it register this waker
-    // and lose the real one from the last `poll_join_next` call.
-    let mut cx = Context::from_waker(std::task::Waker::noop());
-
-    // Loop over all `JoinHandle`s to find one that's ready.
-    for _ in 0..handle_count {
-      // The length was checked above and each iteration
-      // pushes back what it popped, so there is always an element.
-      let Some(mut handle) = self.inner.pop_front() else {
-        break;
+    while let Some(tag) = self.queue.pop() {
+      // A tag can be stale if its task was detached earlier.
+      let Some(mut handle) = self.tasks.remove(&tag) else {
+        continue;
       };
-      if handle.is_finished() {
-        let polled = Pin::new(&mut handle).poll(&mut cx);
-        if let Poll::Ready(result) = polled {
-          return Some(result);
-        }
+      // The task queued its tag on completion, so its result is stored;
+      // this poll with a no-op waker just takes the result out.
+      let mut cx = Context::from_waker(std::task::Waker::noop());
+      if let Poll::Ready(result) = Pin::new(&mut handle).poll(&mut cx) {
+        return Some(result);
       }
-      self.inner.push_back(handle);
     }
-
     None
   }
 
@@ -306,36 +308,28 @@ impl<T: 'static> JoinSet<T> {
   ///  * `Poll::Ready(Some(Err(err)))` if one of the tasks in this `JoinSet` has panicked or been
   ///    aborted. The `err` is the `JoinError` from the panicked/aborted task.
   ///  * `Poll::Ready(None)` if the `JoinSet` is empty.
-  ///
-  /// Note that this method may return `Poll::Pending` even if one of the tasks has completed.
-  /// This can happen if the [coop budget] is reached.
-  ///
-  /// [coop budget]: crate::task#cooperative-scheduling
   pub fn poll_join_next(
     &mut self,
     cx: &mut Context<'_>,
   ) -> Poll<Option<Result<T, JoinError>>> {
-    // Get the number of `JoinHandle`s.
-    let handle_count = self.inner.len();
-    if handle_count == 0 {
-      return Poll::Ready(None);
-    }
-
-    // Loop over all `JoinHandle`s to find one that's ready.
-    for _ in 0..handle_count {
-      // The length was checked above and each iteration
-      // pushes back what it popped, so there is always an element.
-      let Some(mut handle) = self.inner.pop_front() else {
-        break;
+    loop {
+      let Some(tag) = self.queue.pop_or_register(cx.waker()) else {
+        if self.tasks.is_empty() {
+          return Poll::Ready(None);
+        }
+        return Poll::Pending;
       };
-      let polled = Pin::new(&mut handle).poll(cx);
-      if let Poll::Ready(result) = polled {
+      // A tag can be stale if its task was detached earlier.
+      let Some(mut handle) = self.tasks.remove(&tag) else {
+        continue;
+      };
+      // The task queued its tag on completion, so its result is stored;
+      // this poll with a no-op waker just takes the result out.
+      let mut noop_cx = Context::from_waker(std::task::Waker::noop());
+      if let Poll::Ready(result) = Pin::new(&mut handle).poll(&mut noop_cx) {
         return Poll::Ready(Some(result));
       }
-      self.inner.push_back(handle);
     }
-
-    Poll::Pending
   }
 }
 
