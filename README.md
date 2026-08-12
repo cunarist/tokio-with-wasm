@@ -106,11 +106,11 @@ payload is lost and the worker's share of the shared memory is never reclaimed.
 `spawn_blocking` runs its web workers from a `blob:` script by default. Under a
 content security policy that forbids `blob:` workers, such as a browser
 extension's `script-src 'self'`, serve
-[`tokio_worker.js`](https://github.com/cunarist/tokio-with-wasm/blob/main/package/src/glue/only_web/tokio_worker.js)
+[`blocking_worker.js`](https://github.com/cunarist/tokio-with-wasm/blob/main/package/src/glue/only_web/blocking_worker.js)
 as a file of your own and point the pool at it:
 
 ```rust
-tokio_with_wasm::only_web::set_worker_script_provider(|| Ok("/tokio_worker.js".into()));
+tokio_with_wasm::only_web::set_worker_script_provider(|| Ok("/blocking_worker.js".into()));
 ```
 
 ## Building and Deploying

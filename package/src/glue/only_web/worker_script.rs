@@ -22,7 +22,7 @@ thread_local! {
 /// The default provider builds that script in memory and passes it as a
 /// `blob:` URL, which a content security policy such as a browser
 /// extension's `script-src 'self'` rejects. To stay within such a policy,
-/// serve `tokio_worker.js` from this crate's repository as a file of your
+/// serve `blocking_worker.js` from this crate's repository as a file of your
 /// own and point this at it. The script is the same for every application,
 /// because the wasm module and its glue path arrive in a message.
 ///
@@ -33,7 +33,7 @@ thread_local! {
 /// ```rust,no_run
 /// use tokio_with_wasm::only_web::set_worker_script_provider;
 ///
-/// set_worker_script_provider(|| Ok(String::from("/tokio_worker.js")));
+/// set_worker_script_provider(|| Ok(String::from("/blocking_worker.js")));
 /// ```
 #[inline(always)]
 pub fn set_worker_script_provider(provider: fn() -> Result<String, JsValue>) {
@@ -72,7 +72,7 @@ pub fn get_worker_script() -> Result<String, JsValue> {
 /// URL to [`set_worker_script_provider`] under a content security policy
 /// that forbids `blob:` workers.
 pub fn worker_bootstrap_script() -> &'static str {
-  include_str!("tokio_worker.js")
+  include_str!("blocking_worker.js")
 }
 
 /// Wraps a script in an object URL that a web worker can be created from.
