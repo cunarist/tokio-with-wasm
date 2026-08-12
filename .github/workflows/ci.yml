@@ -8,7 +8,7 @@ on:
 jobs:
   # Browser tests under the shared memory build
   # that `.cargo/config.toml` sets up.
-  web:
+  web32:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
