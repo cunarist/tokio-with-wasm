@@ -18,6 +18,23 @@ jobs:
       - run: curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
       - run: wasm-pack test --headless --chrome package
 
+  # `fs` reads the file system API of whichever engine is running it, and
+  # the engines disagree on the edges of that API, so the tests run on a
+  # second one. Firefox stands in for the engines that are not Chromium.
+  web32-firefox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+      - run: wasm-pack test --headless --firefox package
+
+  # Safari, the third engine, is not covered. `safaridriver` needs a signed
+  # in desktop session with remote automation turned on by hand, which a
+  # hosted runner does not have: it accepts `--enable`, then never opens a
+  # session and is killed. So WebKit is the one engine `fs` claims to work
+  # on without the tests having run there.
+
   # The same glue must also compile for 64-bit wasm, so that the target
   # gates keep picking the right side of the alias there. Browser tests
   # cannot run on `wasm64` yet: the shared memory build needs `+atomics`,

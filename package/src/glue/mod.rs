@@ -2,6 +2,15 @@
 
 mod common;
 
+#[cfg(feature = "fs")]
+pub mod fs;
+
+// `tokio::io` reads and writes through the `AsyncRead` and `AsyncWrite`
+// traits rather than through the operating system, so the real
+// implementation already compiles for the web without any glue.
+#[cfg(feature = "io-util")]
+pub use tokio::io;
+
 #[cfg(feature = "macros")]
 pub use tokio::{join, pin, select, try_join};
 
