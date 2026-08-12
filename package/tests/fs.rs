@@ -18,20 +18,38 @@ use std::path::PathBuf;
 use std::task::{Context, Waker};
 use tokio_with_wasm::fs;
 use tokio_with_wasm::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio_with_wasm::time::{Duration, sleep};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 /// Hands back an empty directory named after the test that asked for it.
+///
+/// A run that failed to clear the last one has to say so. Left alone, the
+/// leftovers would show up as a test failing somewhere else entirely.
 async fn scratch(name: &str) -> PathBuf {
   let path = PathBuf::from(name);
-  if fs::remove_dir_all(&path).await.is_ok() {
-    // The leftovers of an earlier run are gone.
+  match fs::remove_dir_all(&path).await {
+    Ok(()) => {}
+    Err(failure) if failure.kind() == ErrorKind::NotFound => {}
+    Err(failure) => panic!("could not clear `{name}`: {failure}"),
   }
   if let Err(failure) = fs::create_dir_all(&path).await {
     panic!("could not prepare `{name}`: {failure}");
   }
+  let mut entries = ok(fs::read_dir(&path).await, "read the directory");
+  if let Ok(Some(entry)) = entries.next_entry().await {
+    panic!("`{name}` still holds `{}`", entry.path().display());
+  }
   path
+}
+
+/// Bytes that give away a chunk written twice or out of order.
+///
+/// The stride is prime, so it never lines up with a buffer boundary the
+/// way a round number would.
+fn pattern(length: usize) -> Vec<u8> {
+  (0..length).map(|index| (index % 251) as u8).collect()
 }
 
 /// Unwraps without tripping the lint against `unwrap` in this repository.
@@ -200,7 +218,10 @@ async fn a_directory_that_holds_something_needs_removing_in_full() {
   ok(fs::create_dir(&nested).await, "create");
   ok(fs::write(nested.join("kept.txt"), b"x").await, "write");
 
-  assert!(fs::remove_dir(&nested).await.is_err());
+  assert_eq!(
+    kind(fs::remove_dir(&nested).await),
+    ErrorKind::DirectoryNotEmpty
+  );
   ok(fs::remove_dir_all(&nested).await, "remove everything");
   assert!(!ok(fs::try_exists(&nested).await, "look"));
 }
@@ -211,8 +232,11 @@ async fn removing_a_file_as_a_directory_does_not_work() {
   let file = directory.join("file.txt");
   ok(fs::write(&file, b"x").await, "write");
 
-  assert!(fs::remove_dir(&file).await.is_err());
-  assert!(fs::remove_file(&directory).await.is_err());
+  assert_eq!(kind(fs::remove_dir(&file).await), ErrorKind::NotADirectory);
+  assert_eq!(
+    kind(fs::remove_file(&directory).await),
+    ErrorKind::IsADirectory
+  );
   assert!(ok(fs::try_exists(&file).await, "look"));
 }
 
@@ -267,11 +291,19 @@ async fn spells_a_path_one_way() {
   let directory = scratch("canonicalize").await;
   ok(fs::write(directory.join("here.txt"), b"x").await, "write");
 
+  // `..` is resolved without walking, because there is nothing to follow.
+  // `tokio` would refuse this path, where `inner` is not there at all.
   let spelled = ok(
     fs::canonicalize("canonicalize/./inner/../here.txt").await,
     "spell the path",
   );
   assert_eq!(spelled, PathBuf::from("/canonicalize/here.txt"));
+
+  // What the entry leads to still has to be there, as in `tokio`.
+  assert_eq!(
+    kind(fs::canonicalize(directory.join("absent")).await),
+    ErrorKind::NotFound
+  );
 }
 
 #[wasm_bindgen_test]
@@ -296,12 +328,13 @@ async fn dropping_a_file_still_lands_the_writes() {
   ok(file.write_all(b"left behind").await, "write");
   drop(file);
 
-  // The commit was handed to the event loop, so let it run.
-  for _ in 0..100 {
+  // Nothing signals when a commit handed to the event loop has landed, so
+  // there is no waking up on it, only waiting for it.
+  for _ in 0..200 {
     if !ok(fs::metadata(&path).await, "read metadata").is_empty() {
       break;
     }
-    tokio_with_wasm::task::yield_now().await;
+    sleep(Duration::from_millis(10)).await;
   }
   assert_eq!(ok(fs::read_to_string(&path).await, "read"), "left behind");
 }
@@ -364,7 +397,10 @@ async fn seeking_before_the_start_does_not_work() {
   ok(fs::write(&path, b"ab").await, "write");
 
   let mut file = ok(fs::File::open(&path).await, "open");
-  assert!(file.seek(SeekFrom::Current(-1)).await.is_err());
+  assert_eq!(
+    kind(file.seek(SeekFrom::Current(-1)).await),
+    ErrorKind::InvalidInput
+  );
 }
 
 #[wasm_bindgen_test]
@@ -453,17 +489,17 @@ async fn opening_a_file_needs_a_reason() {
 async fn writes_more_than_the_buffer_holds() {
   let directory = scratch("large_write").await;
   let path = directory.join("large.bin");
-  let block = vec![7u8; 300 * 1024];
+  let written = pattern(5 * 300 * 1024);
 
   let mut file = ok(fs::File::create(&path).await, "create");
-  for _ in 0..5 {
-    ok(file.write_all(&block).await, "write");
+  for slice in written.chunks(300 * 1024) {
+    ok(file.write_all(slice).await, "write");
   }
   ok(file.flush().await, "flush");
 
-  let written = ok(fs::read(&path).await, "read");
-  assert_eq!(written.len(), block.len() * 5);
-  assert!(written.iter().all(|byte| *byte == 7));
+  let read = ok(fs::read(&path).await, "read");
+  assert_eq!(read.len(), written.len());
+  assert!(read == written, "the bytes came back out of order");
 }
 
 #[wasm_bindgen_test]
@@ -510,20 +546,24 @@ async fn metadata_still_reads_a_directory() {
 async fn a_flush_partway_through_keeps_the_rest_in_order() {
   let directory = scratch("flush_partway").await;
   let path = directory.join("ordered.bin");
-  let block = vec![3u8; 400 * 1024];
+  let block = 400 * 1024;
+  let written = pattern(3 * block);
 
   let mut file = ok(fs::File::create(&path).await, "create");
-  ok(file.write_all(&block).await, "write");
-  ok(file.write_all(&block).await, "write");
+  ok(file.write_all(&written[..block]).await, "write");
+  ok(file.write_all(&written[block..block * 2]).await, "write");
   ok(file.flush().await, "flush partway");
-  assert_eq!(ok(fs::read(&path).await, "read").len(), block.len() * 2);
+  assert!(
+    ok(fs::read(&path).await, "read") == written[..block * 2],
+    "the flush partway did not leave the first two blocks in order"
+  );
 
-  ok(file.write_all(&block).await, "write after the flush");
+  ok(file.write_all(&written[block * 2..]).await, "write after");
   ok(file.flush().await, "flush");
 
-  let written = ok(fs::read(&path).await, "read");
-  assert_eq!(written.len(), block.len() * 3);
-  assert!(written.iter().all(|byte| *byte == 3));
+  let read = ok(fs::read(&path).await, "read");
+  assert_eq!(read.len(), written.len());
+  assert!(read == written, "the bytes came back out of order");
 }
 
 #[wasm_bindgen_test]
@@ -803,4 +843,46 @@ async fn removing_what_is_not_there_reports_not_found() {
   assert_eq!(kind(fs::remove_dir(&absent).await), ErrorKind::NotFound);
   assert_eq!(kind(fs::remove_dir_all(&absent).await), ErrorKind::NotFound);
   assert_eq!(kind(fs::read_dir(&absent).await), ErrorKind::NotFound);
+}
+
+#[wasm_bindgen_test]
+async fn creating_over_a_file_empties_it_first() {
+  let directory = scratch("create_truncates").await;
+  let path = directory.join("over.txt");
+  ok(fs::write(&path, b"the older and longer one").await, "write");
+
+  let mut file = ok(fs::File::create(&path).await, "create");
+  ok(file.write_all(b"short").await, "write");
+  ok(file.flush().await, "flush");
+  assert_eq!(ok(fs::read_to_string(&path).await, "read"), "short");
+}
+
+#[wasm_bindgen_test]
+async fn refusing_to_create_a_new_file_leaves_the_old_one_alone() {
+  let directory = scratch("create_new_keeps").await;
+  let path = directory.join("kept.txt");
+  ok(fs::write(&path, b"kept").await, "write");
+
+  assert_eq!(
+    kind(fs::File::create_new(&path).await),
+    ErrorKind::AlreadyExists
+  );
+  assert_eq!(ok(fs::read_to_string(&path).await, "read"), "kept");
+}
+
+#[wasm_bindgen_test]
+async fn writing_past_the_end_leaves_zeros_in_the_gap() {
+  let directory = scratch("gap").await;
+  let path = directory.join("gap.bin");
+  ok(fs::write(&path, b"ab").await, "write");
+
+  let mut file = ok(fs::File::options().write(true).open(&path).await, "open");
+  ok(file.seek(SeekFrom::Start(5)).await, "seek");
+  ok(file.write_all(b"z").await, "write");
+  ok(file.flush().await, "flush");
+
+  assert_eq!(
+    ok(fs::read(&path).await, "read"),
+    [b'a', b'b', 0, 0, 0, b'z']
+  );
 }
