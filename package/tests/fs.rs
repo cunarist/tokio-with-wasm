@@ -590,3 +590,50 @@ async fn a_file_still_works_after_a_write_is_cancelled() {
     "the write after the cancellation did not land"
   );
 }
+
+#[wasm_bindgen_test]
+async fn reads_the_same_bytes_however_small_the_asking_buffer() {
+  let directory = scratch("read_ahead").await;
+  let path = directory.join("read_ahead.bin");
+  // Longer than one read ahead, so more than one round trip is needed.
+  let written: Vec<u8> =
+    (0..700 * 1024).map(|index| (index % 251) as u8).collect();
+  ok(fs::write(&path, &written).await, "write");
+
+  let mut file = ok(fs::File::open(&path).await, "open");
+  let mut read = Vec::new();
+  let mut chunk = [0u8; 8192];
+  loop {
+    let count = ok(file.read(&mut chunk).await, "read");
+    if count == 0 {
+      break;
+    }
+    read.extend_from_slice(&chunk[..count]);
+  }
+  assert_eq!(read.len(), written.len());
+  assert!(read == written, "the bytes came back changed");
+}
+
+#[wasm_bindgen_test]
+async fn a_write_throws_away_what_was_read_ahead() {
+  let directory = scratch("read_ahead_stale").await;
+  let path = directory.join("stale.txt");
+  ok(fs::write(&path, b"0123456789").await, "write");
+
+  let mut file = ok(
+    fs::File::options().read(true).write(true).open(&path).await,
+    "open",
+  );
+  let mut head = [0u8; 2];
+  ok(file.read_exact(&mut head).await, "read");
+  assert_eq!(&head, b"01");
+
+  // This lands at the cursor and invalidates the rest of the read ahead.
+  ok(file.write_all(b"XY").await, "write");
+  ok(file.flush().await, "flush");
+  ok(file.seek(SeekFrom::Start(0)).await, "seek");
+
+  let mut all = String::new();
+  ok(file.read_to_string(&mut all).await, "read");
+  assert_eq!(all, "01XY456789");
+}

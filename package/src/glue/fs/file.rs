@@ -20,6 +20,13 @@ use web_sys::{
 /// How many bytes a file holds in memory before pushing them to the stream.
 const WRITE_BUFFER_LIMIT: usize = 1 << 20;
 
+/// How much a file reads at once, however little was asked for.
+///
+/// Every read is a round trip through JavaScript, so a run of small reads
+/// would otherwise pay for one each. Reading a whole file eight kilobytes
+/// at a time costs a hundred and twenty eight times fewer of them this way.
+const READ_AHEAD: usize = 256 * 1024;
+
 /// A call into JavaScript that has been started but has not finished.
 type Started<T> = Pin<Box<dyn Future<Output = io::Result<T>>>>;
 
@@ -79,6 +86,10 @@ pub struct File {
   buffer: Vec<u8>,
   /// Where the first byte of `buffer` belongs in the file.
   buffer_start: u64,
+  /// Bytes read ahead of what was asked for.
+  read_buffer: Vec<u8>,
+  /// Where the first byte of `read_buffer` sits in the file.
+  read_start: u64,
   writer: Option<Writer>,
   work: Option<Work>,
   seek: Option<Seek>,
@@ -126,6 +137,8 @@ impl File {
       position: 0,
       buffer: Vec::new(),
       buffer_start: 0,
+      read_buffer: Vec::new(),
+      read_start: 0,
       writer: None,
       work: None,
       seek: None,
@@ -145,6 +158,7 @@ impl File {
   /// Grows or shrinks the file to `size` bytes.
   pub async fn set_len(&mut self, size: u64) -> io::Result<()> {
     self.settle().await?;
+    self.forget_read_ahead();
     let stream = open_writer(self.handle.clone(), true).await?;
     await_call(stream.truncate_with_f64(size as f64), Wanted::File).await?;
     close_writer(stream).await
@@ -273,6 +287,21 @@ impl File {
     }
   }
 
+  /// How much of what was read ahead still sits at the cursor.
+  fn read_ahead(&self) -> Option<usize> {
+    let end = self.read_start + self.read_buffer.len() as u64;
+    if self.position < self.read_start || self.position >= end {
+      return None;
+    }
+    Some((end - self.position) as usize)
+  }
+
+  /// Lets go of what was read ahead, because the file has moved on from it.
+  fn forget_read_ahead(&mut self) {
+    self.read_buffer = Vec::new();
+    self.read_start = 0;
+  }
+
   /// Moves the cursor to the end of the file as it stands right now.
   ///
   /// The end can only have moved while no stream of ours was open, because
@@ -353,6 +382,14 @@ impl AsyncRead for File {
       return Poll::Ready(Ok(()));
     }
     loop {
+      // Everything that was read ahead is served without going out again.
+      if let Some(waiting) = this.read_ahead() {
+        let taken = waiting.min(buf.remaining());
+        let from = (this.position - this.read_start) as usize;
+        buf.put_slice(&this.read_buffer[from..from + taken]);
+        this.position += taken as u64;
+        return Poll::Ready(Ok(()));
+      }
       match this.work.take() {
         Some(Work::Reading(mut future)) => match future.as_mut().poll(cx) {
           Poll::Pending => {
@@ -361,9 +398,12 @@ impl AsyncRead for File {
           }
           Poll::Ready(Err(failure)) => return Poll::Ready(Err(failure)),
           Poll::Ready(Ok(bytes)) => {
-            this.position += bytes.len() as u64;
-            buf.put_slice(&bytes);
-            return Poll::Ready(Ok(()));
+            // Nothing came back, so the cursor is at the end of the file.
+            if bytes.is_empty() {
+              return Poll::Ready(Ok(()));
+            }
+            this.read_start = this.position;
+            this.read_buffer = bytes;
           }
         },
         Some(other) => {
@@ -374,8 +414,9 @@ impl AsyncRead for File {
           // A read has to see what was written, and a write reaches the
           // file only when the stream carrying it closes.
           if this.buffer.is_empty() && this.writer.is_none() {
+            let wanted = buf.remaining().max(READ_AHEAD);
             let reading =
-              read_range(this.handle.clone(), this.position, buf.remaining());
+              read_range(this.handle.clone(), this.position, wanted);
             this.work = Some(Work::Reading(Box::pin(reading)));
           } else {
             ready!(this.poll_closed(cx))?;
@@ -417,6 +458,8 @@ impl AsyncWrite for File {
     }
     this.buffer.extend_from_slice(data);
     this.position += data.len() as u64;
+    // What was read ahead describes a file that no longer holds.
+    this.forget_read_ahead();
     Poll::Ready(Ok(data.len()))
   }
 
