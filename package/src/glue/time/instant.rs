@@ -1,5 +1,6 @@
 //! A monotonic clock backed by JavaScript's `performance.now()`.
 
+use std::cell::Cell;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::time::Duration;
 use wasm_bindgen::{JsCast, JsValue};
@@ -21,8 +22,25 @@ fn epoch_millis() -> f64 {
   PERFORMANCE.with(|performance| match performance {
     Some((time_origin, performance)) => time_origin + performance.now(),
     // A JavaScript runtime without the `performance` web API;
-    // the wall clock is the only clock left.
+    // the wall clock is the only clock left. It can jump backwards,
+    // which the clamp in `monotonic` absorbs.
     None => js_sys::Date::now(),
+  })
+}
+
+thread_local! {
+  /// The largest reading handed out on this thread, so that
+  /// [`Instant::now`] never goes backwards even on the wall-clock
+  /// fallback.
+  static LAST_NOW: Cell<Duration> = const { Cell::new(Duration::ZERO) };
+}
+
+/// Clamps a clock reading to the largest one seen so far.
+fn monotonic(since_epoch: Duration) -> Duration {
+  LAST_NOW.with(|last| {
+    let clamped = since_epoch.max(last.get());
+    last.set(clamped);
+    clamped
   })
 }
 
@@ -56,7 +74,9 @@ impl Instant {
     } else {
       Duration::ZERO
     };
-    Instant { since_epoch }
+    Instant {
+      since_epoch: monotonic(since_epoch),
+    }
   }
 
   /// A deadline for waits without a real deadline, far enough away
@@ -160,6 +180,15 @@ mod tests {
     let first = Instant::now();
     let second = Instant::now();
     assert!(second >= first);
+  }
+
+  #[wasm_bindgen_test]
+  fn a_backwards_clock_reading_is_clamped() {
+    let latest = Instant::now().since_epoch;
+    // A reading older than the last one, as a jumping wall clock
+    // produces, must not travel back in time.
+    let earlier = latest.saturating_sub(Duration::from_secs(1));
+    assert!(monotonic(earlier) >= latest);
   }
 
   #[wasm_bindgen_test]
