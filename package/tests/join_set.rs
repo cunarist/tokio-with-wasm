@@ -60,6 +60,15 @@ async fn join_next_yields_in_completion_order() -> Result<(), JoinError> {
 }
 
 #[wasm_bindgen_test]
+async fn spawn_local_behaves_like_spawn() -> Result<(), JoinError> {
+  let mut set = JoinSet::new();
+  set.spawn_local(async { 1 });
+  assert_eq!(set.join_next().await.transpose()?, Some(1));
+  assert!(set.is_empty());
+  Ok(())
+}
+
+#[wasm_bindgen_test]
 async fn join_all_collects_everything() {
   let mut set = JoinSet::new();
   for i in 0..5 {
@@ -91,9 +100,6 @@ async fn try_join_next_sees_only_finished_tasks() -> Result<(), JoinError> {
   Ok(())
 }
 
-/// Regression test: `try_join_next` used to poll pending tasks with a
-/// no-op waker, which replaced the real waker registered by a concurrent
-/// `join_next`. The completion then woke nobody and `join_next` hung.
 #[wasm_bindgen_test]
 async fn batched_completions_arrive_in_completion_order() -> Result<(), JoinError> {
   let mut set = JoinSet::new();
@@ -121,6 +127,9 @@ async fn batched_completions_arrive_in_completion_order() -> Result<(), JoinErro
   Ok(())
 }
 
+/// Regression test: `try_join_next` used to poll pending tasks with a
+/// no-op waker, which replaced the real waker registered by a concurrent
+/// `join_next`. The completion then woke nobody and `join_next` hung.
 #[wasm_bindgen_test]
 async fn try_join_next_does_not_silence_join_next() -> Result<(), JoinError> {
   let set = Rc::new(RefCell::new(JoinSet::new()));

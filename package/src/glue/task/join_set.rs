@@ -126,6 +126,23 @@ impl<T: 'static> JoinSet<T> {
     abort_handle
   }
 
+  /// Spawn the provided task on the `JoinSet`, returning an [`AbortHandle`]
+  /// that can be used to remotely cancel the task.
+  ///
+  /// On the web there is no separate thread-local executor, so this is
+  /// the same as [`spawn`](Self::spawn). It exists so that code written
+  /// against `tokio` compiles unchanged.
+  ///
+  /// [`AbortHandle`]: crate::task::AbortHandle
+  #[track_caller]
+  pub fn spawn_local<F>(&mut self, task: F) -> AbortHandle
+  where
+    F: Future<Output = T>,
+    F: 'static,
+  {
+    self.spawn(task)
+  }
+
   /// Spawn the blocking code on the blocking threadpool and store
   /// it in this `JoinSet`, returning an [`AbortHandle`] that can be
   /// used to remotely cancel the task.
@@ -197,9 +214,10 @@ impl<T: 'static> JoinSet<T> {
       // The task queued its tag on completion, so its result is stored;
       // this poll with a no-op waker just takes the result out.
       let mut cx = Context::from_waker(std::task::Waker::noop());
-      if let Poll::Ready(result) = Pin::new(&mut handle).poll(&mut cx) {
-        return Some(result);
-      }
+      let Poll::Ready(result) = Pin::new(&mut handle).poll(&mut cx) else {
+        unreachable!("a queued task's result was missing");
+      };
+      return Some(result);
     }
     None
   }
@@ -326,9 +344,11 @@ impl<T: 'static> JoinSet<T> {
       // The task queued its tag on completion, so its result is stored;
       // this poll with a no-op waker just takes the result out.
       let mut noop_cx = Context::from_waker(std::task::Waker::noop());
-      if let Poll::Ready(result) = Pin::new(&mut handle).poll(&mut noop_cx) {
-        return Poll::Ready(Some(result));
-      }
+      let Poll::Ready(result) = Pin::new(&mut handle).poll(&mut noop_cx)
+      else {
+        unreachable!("a queued task's result was missing");
+      };
+      return Poll::Ready(Some(result));
     }
   }
 }

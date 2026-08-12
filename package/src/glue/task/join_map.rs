@@ -446,12 +446,11 @@ where
     // The task queued its tag on completion, so its result is stored;
     // this poll with a no-op waker just takes the result out.
     let mut cx = Context::from_waker(std::task::Waker::noop());
-    match Pin::new(&mut stored.handle).poll(&mut cx) {
-      Poll::Ready(result) => Some((stored.key, result)),
-      // A completed task always has its result stored,
-      // so this is logically unreachable.
-      Poll::Pending => None,
-    }
+    let Poll::Ready(result) = Pin::new(&mut stored.handle).poll(&mut cx)
+    else {
+      unreachable!("a queued task's result was missing");
+    };
+    Some((stored.key, result))
   }
 }
 

@@ -96,3 +96,47 @@ where
     }
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::super::test_util::CountingWaker;
+  use super::*;
+  use wasm_bindgen_test::wasm_bindgen_test;
+
+  #[wasm_bindgen_test]
+  fn tags_come_out_in_completion_order() {
+    let queue: CompletionQueue<u64> = CompletionQueue::new();
+    queue.task_waker(1).wake();
+    queue.task_waker(2).wake();
+    assert_eq!(queue.pop(), Some(1));
+    assert_eq!(queue.pop(), Some(2));
+    assert_eq!(queue.pop(), None);
+  }
+
+  #[wasm_bindgen_test]
+  fn a_completion_wakes_the_registered_consumer() {
+    let queue: CompletionQueue<u64> = CompletionQueue::new();
+    let counter = CountingWaker::new();
+    let waker = counter.waker();
+    assert_eq!(queue.pop_or_register(&waker), None);
+
+    queue.task_waker(7).wake();
+    assert_eq!(counter.count(), 1);
+    assert_eq!(queue.pop_or_register(&waker), Some(7));
+
+    // The pop above found a tag, so no waker was registered:
+    // this completion has nobody to wake.
+    queue.task_waker(8).wake();
+    assert_eq!(counter.count(), 1);
+  }
+
+  #[wasm_bindgen_test]
+  fn a_queued_completion_is_popped_instead_of_registering() {
+    let queue: CompletionQueue<u64> = CompletionQueue::new();
+    queue.task_waker(1).wake();
+    let counter = CountingWaker::new();
+    let waker = counter.waker();
+    assert_eq!(queue.pop_or_register(&waker), Some(1));
+    assert_eq!(counter.count(), 0);
+  }
+}

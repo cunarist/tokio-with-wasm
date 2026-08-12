@@ -146,6 +146,25 @@ mod tests {
   }
 
   #[wasm_bindgen_test]
+  fn set_waker_is_woken_by_a_later_send() {
+    let (sender, receiver) = once_channel();
+    let counter = CountingWaker::new();
+    receiver.set_waker(counter.waker());
+    assert_eq!(counter.count(), 0);
+    sender.send(1);
+    assert_eq!(counter.count(), 1);
+  }
+
+  #[wasm_bindgen_test]
+  fn set_waker_fires_immediately_if_already_sent() {
+    let (sender, receiver) = once_channel();
+    sender.send(1);
+    let counter = CountingWaker::new();
+    receiver.set_waker(counter.waker());
+    assert_eq!(counter.count(), 1);
+  }
+
+  #[wasm_bindgen_test]
   fn is_done_stays_true_after_the_value_is_taken() {
     let (sender, mut receiver) = once_channel();
     assert!(!receiver.is_done());
