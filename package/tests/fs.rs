@@ -12,11 +12,12 @@
   target_os = "unknown"
 ))]
 
+use std::future::Future;
 use std::io::{ErrorKind, SeekFrom};
 use std::path::PathBuf;
+use std::task::{Context, Waker};
 use tokio_with_wasm::fs;
 use tokio_with_wasm::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio_with_wasm::time::{Duration, timeout};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -564,15 +565,24 @@ async fn a_file_still_works_after_a_write_is_cancelled() {
   let block = vec![9u8; 2 * 1024 * 1024];
 
   let mut file = ok(fs::File::create(&path).await, "create");
-  // The first write only fills the buffer. The second one pushes it, which
-  // is the call that a cancellation can leave in flight.
+  // The first write only fills the buffer. The second one has to push it,
+  // and that push cannot finish inside a single poll, so dropping the
+  // future right after leaves the call in flight for `sync_all` to find.
   ok(file.write_all(&block).await, "write");
-  let _ = timeout(Duration::from_millis(1), file.write_all(&block)).await;
+  {
+    let mut writing = Box::pin(file.write_all(b"dropped"));
+    let mut context = Context::from_waker(Waker::noop());
+    assert!(
+      writing.as_mut().poll(&mut context).is_pending(),
+      "the push was supposed to still be in flight"
+    );
+  }
   ok(file.sync_all().await, "sync");
 
   // Whatever the cancellation left behind, the file has to be closed and
   // the handle usable, so that what comes next lands where it belongs.
   let settled = ok(fs::metadata(&path).await, "read metadata").len();
+  assert_eq!(settled as usize, block.len(), "the buffer was stranded");
   ok(
     file.write_all(b"tail").await,
     "write after the cancellation",
@@ -636,4 +646,161 @@ async fn a_write_throws_away_what_was_read_ahead() {
   let mut all = String::new();
   ok(file.read_to_string(&mut all).await, "read");
   assert_eq!(all, "01XY456789");
+}
+
+#[wasm_bindgen_test]
+async fn two_open_files_that_flush_in_turn_both_land() {
+  let directory = scratch("two_handles_small").await;
+  let path = directory.join("shared.txt");
+  ok(fs::write(&path, b"..........").await, "write");
+
+  let mut first = ok(fs::File::options().write(true).open(&path).await, "open");
+  let mut second =
+    ok(fs::File::options().write(true).open(&path).await, "open");
+
+  ok(first.write_all(b"AA").await, "write");
+  ok(second.seek(SeekFrom::Start(5)).await, "seek");
+  ok(second.write_all(b"BB").await, "write");
+  ok(first.flush().await, "flush");
+  ok(second.flush().await, "flush");
+
+  assert_eq!(ok(fs::read_to_string(&path).await, "read"), "AA...BB...");
+}
+
+#[wasm_bindgen_test]
+async fn two_open_files_that_overlap_keep_only_the_last_to_close() {
+  let directory = scratch("two_handles_large").await;
+  let path = directory.join("shared.bin");
+  ok(fs::write(&path, b"").await, "write");
+
+  let mut first = ok(fs::File::options().write(true).open(&path).await, "open");
+  let mut second =
+    ok(fs::File::options().write(true).open(&path).await, "open");
+
+  // Enough to spill, which is what makes a file hold its stream open
+  // rather than opening and closing one inside a single flush.
+  let mine = vec![b'A'; 2 * 1024 * 1024];
+  let yours = vec![b'B'; 2 * 1024 * 1024];
+  ok(first.write_all(&mine).await, "write");
+  ok(first.write_all(b"!").await, "spill");
+  ok(second.write_all(&yours).await, "write");
+  ok(second.write_all(b"!").await, "spill");
+  ok(first.flush().await, "flush");
+  ok(second.flush().await, "flush");
+
+  let written = ok(fs::read(&path).await, "read");
+  assert_eq!(written.len(), yours.len() + 1);
+  assert!(
+    written.iter().take(yours.len()).all(|byte| *byte == b'B'),
+    "the file should hold what the last one to close wrote"
+  );
+}
+
+#[wasm_bindgen_test]
+async fn a_file_reports_and_syncs_through_its_own_handle() {
+  let directory = scratch("file_handle_api").await;
+  let path = directory.join("through.txt");
+
+  let mut file = ok(fs::File::create_new(&path).await, "create");
+  ok(file.write_all(b"held").await, "write");
+  assert_eq!(ok(file.metadata().await, "read metadata").len(), 0);
+  ok(file.sync_data().await, "sync");
+
+  let about = ok(file.metadata().await, "read metadata");
+  assert_eq!(about.len(), 4);
+  assert!(about.is_file());
+  assert!(about.file_type().is_file());
+  assert!(!about.is_symlink());
+  assert!(!about.file_type().is_symlink());
+
+  assert_eq!(
+    kind(fs::File::create_new(&path).await),
+    ErrorKind::AlreadyExists
+  );
+}
+
+#[wasm_bindgen_test]
+async fn an_entry_reports_what_is_known_about_it() {
+  let directory = scratch("entry_metadata").await;
+  ok(
+    fs::write(directory.join("sized.bin"), b"1234").await,
+    "write",
+  );
+  ok(fs::create_dir(directory.join("inner")).await, "create");
+
+  let mut entries = ok(fs::read_dir(&directory).await, "read the directory");
+  let mut seen = Vec::new();
+  while let Some(entry) = ok(entries.next_entry().await, "step") {
+    let about = ok(entry.metadata().await, "read metadata");
+    seen.push((
+      entry.file_name().to_string_lossy().into_owned(),
+      about.len(),
+    ));
+    assert!(!about.is_symlink());
+  }
+  seen.sort();
+  assert_eq!(seen, [("inner".to_owned(), 0), ("sized.bin".to_owned(), 4)]);
+}
+
+#[wasm_bindgen_test]
+async fn text_that_is_not_utf8_is_refused() {
+  let directory = scratch("not_utf8").await;
+  let path = directory.join("bytes.bin");
+  ok(fs::write(&path, [0xff, 0xfe]).await, "write");
+
+  assert_eq!(
+    kind(fs::read_to_string(&path).await),
+    ErrorKind::InvalidData
+  );
+  assert_eq!(ok(fs::read(&path).await, "read"), [0xff, 0xfe]);
+}
+
+#[wasm_bindgen_test]
+async fn copying_and_renaming_replace_what_is_already_there() {
+  let directory = scratch("replacing").await;
+  let from = directory.join("from.txt");
+  let onto = directory.join("onto.txt");
+  ok(fs::write(&from, b"new").await, "write");
+  ok(fs::write(&onto, b"the older and longer one").await, "write");
+
+  ok(fs::copy(&from, &onto).await, "copy");
+  assert_eq!(ok(fs::read_to_string(&onto).await, "read"), "new");
+
+  ok(fs::write(&onto, b"the older and longer one").await, "write");
+  ok(fs::rename(&from, &onto).await, "rename");
+  assert_eq!(ok(fs::read_to_string(&onto).await, "read"), "new");
+  assert!(!ok(fs::try_exists(&from).await, "look"));
+}
+
+#[wasm_bindgen_test]
+async fn growing_a_file_fills_it_with_zeros() {
+  let directory = scratch("growing").await;
+  let path = directory.join("grown.bin");
+  ok(fs::write(&path, b"ab").await, "write");
+
+  let mut file = ok(fs::File::options().write(true).open(&path).await, "open");
+  ok(file.set_len(5).await, "grow");
+  assert_eq!(ok(fs::read(&path).await, "read"), [b'a', b'b', 0, 0, 0]);
+}
+
+#[wasm_bindgen_test]
+async fn an_empty_file_reads_as_nothing() {
+  let directory = scratch("empty_file").await;
+  let path = directory.join("empty.bin");
+  ok(fs::write(&path, b"").await, "write");
+
+  assert_eq!(ok(fs::read(&path).await, "read"), Vec::<u8>::new());
+  let mut file = ok(fs::File::open(&path).await, "open");
+  let mut read = Vec::new();
+  assert_eq!(ok(file.read_to_end(&mut read).await, "read"), 0);
+}
+
+#[wasm_bindgen_test]
+async fn removing_what_is_not_there_reports_not_found() {
+  let directory = scratch("removing_absent").await;
+  let absent = directory.join("absent");
+  assert_eq!(kind(fs::remove_file(&absent).await), ErrorKind::NotFound);
+  assert_eq!(kind(fs::remove_dir(&absent).await), ErrorKind::NotFound);
+  assert_eq!(kind(fs::remove_dir_all(&absent).await), ErrorKind::NotFound);
+  assert_eq!(kind(fs::read_dir(&absent).await), ErrorKind::NotFound);
 }

@@ -65,14 +65,18 @@ enum Seek {
 /// across writes rather than opened per chunk. A flush per chunk brings the
 /// copy back, once for each flush.
 ///
-/// Two open files on one path never share it. Each opens the file on a copy
-/// of its own, so whichever closes last replaces the whole thing:
+/// Two open files on one path never share it. Each writes into the copy it
+/// took when its stream opened, and closing that stream replaces the whole
+/// file. A stream is only open from the moment writes spill out of memory
+/// until the next flush, so two files lose each other's work only when
+/// those windows overlap:
 ///
-/// |                            | `tokio`     | here                   |
-/// | -------------------------- | ----------- | ---------------------- |
-/// | writes at other offsets    | both land   | only the last to close |
-/// | writes at the same offset  | interleaved | only the last to close |
-/// | crash partway through      | half a file | nothing half written   |
+/// |                              | `tokio`     | here                   |
+/// | ---------------------------- | ----------- | ---------------------- |
+/// | flushes that do not overlap  | both land   | both land              |
+/// | overlapping, other offsets   | both land   | only the last to close |
+/// | overlapping, same offset     | interleaved | only the last to close |
+/// | crash partway through        | half a file | nothing half written   |
 ///
 /// So the file is never left holding something no writer wrote, and a write
 /// that `tokio` would have kept can still be lost. Nothing on the main

@@ -122,11 +122,12 @@ dropped, because the web API commits a write when the stream carrying it closes.
 Opening that stream copies the whole file, so one stream stays open across
 writes; flushing after every chunk brings the copy back, once per flush.
 
-Two open files on one path write over each other. Each opens the file on a copy
-of its own, and whichever closes last wins the whole file rather than only the
-bytes it wrote, where `tokio` would interleave them. Nothing on the main thread
-can close that gap: the web API only hands out the handle that writes in place,
-`createSyncAccessHandle`, inside a worker.
+Two open files on one path never share it. Each writes into the copy it took
+when its stream opened, and closing that stream replaces the whole file. A
+stream is only open from the moment writes spill out of memory until the next
+flush, so two files lose each other's work only when those windows overlap.
+Nothing on the main thread closes that gap: the web API only hands out the
+handle that writes in place, `createSyncAccessHandle`, inside a worker.
 
 The store shares one quota with the other storage APIs, and the browser may
 throw all of it away under disk pressure unless `navigator.storage.persist()`
