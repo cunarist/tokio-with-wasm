@@ -20,6 +20,7 @@ thread_local! {
   static RAN: Cell<bool> = const { Cell::new(false) };
   static RAN_WITH_ARGS: Cell<bool> = const { Cell::new(false) };
   static RAN_WITH_RESULT: Cell<bool> = const { Cell::new(false) };
+  static RAN_RENAMED: Cell<bool> = const { Cell::new(false) };
 }
 
 // The macro turns this into a plain function
@@ -43,6 +44,18 @@ async fn entry_with_result() -> Result<(), std::io::Error> {
   Ok(())
 }
 
+// The expansion references the crate by the given path
+// when the dependency is renamed in `Cargo.toml`.
+mod renamed {
+  pub use tokio_with_wasm as renamed_wasm;
+  use renamed_wasm::alias as tokio;
+
+  #[tokio::main(crate = "renamed_wasm")]
+  pub async fn entry_renamed() {
+    super::RAN_RENAMED.with(|ran| ran.set(true));
+  }
+}
+
 #[wasm_bindgen_test]
 async fn the_main_macro_spawns_the_future() {
   entry();
@@ -63,4 +76,11 @@ async fn the_main_macro_unwraps_ok_results() {
   entry_with_result();
   yield_now().await;
   assert!(RAN_WITH_RESULT.with(|ran| ran.get()));
+}
+
+#[wasm_bindgen_test]
+async fn the_main_macro_honors_a_renamed_crate() {
+  renamed::entry_renamed();
+  yield_now().await;
+  assert!(RAN_RENAMED.with(|ran| ran.get()));
 }

@@ -1,36 +1,60 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::punctuated::Punctuated;
-use syn::{ItemFn, Meta, Token, parse_macro_input};
+use syn::{Expr, ItemFn, Lit, Meta, Path, Token, parse_macro_input};
 
-/// Checks the attribute arguments that real `tokio` macros accept.
-/// They configure a native runtime that doesn't exist on the web,
-/// so their values are ignored; unknown arguments are an error,
-/// so that typos don't silently pass on the web target only.
+/// Checks the attribute arguments that real `tokio` macros accept and
+/// returns the path that the expansion should reference this crate by.
+/// The runtime arguments configure a native runtime that doesn't exist
+/// on the web, so their values are ignored; `crate = "..."` renames the
+/// expansion path for dependencies renamed in `Cargo.toml`; unknown
+/// arguments are an error, so that typos don't silently pass on the web
+/// target only.
 fn check_macro_args(
   args: &Punctuated<Meta, Token![,]>,
-) -> Result<(), syn::Error> {
-  const KNOWN: &[&str] = &[
+) -> Result<Path, syn::Error> {
+  const IGNORED: &[&str] = &[
     "flavor",
     "worker_threads",
     "start_paused",
     "unhandled_panic",
-    "crate",
   ];
+  let mut crate_path: Path = syn::parse_quote!(tokio_with_wasm);
   for meta in args {
-    let is_known = meta
-      .path()
-      .get_ident()
-      .is_some_and(|ident| KNOWN.contains(&ident.to_string().as_str()));
-    if !is_known {
-      return Err(syn::Error::new_spanned(
-        meta,
-        "unknown attribute argument; expected one of: `flavor`, \
-         `worker_threads`, `start_paused`, `unhandled_panic`, `crate`",
-      ));
+    let Some(ident) = meta.path().get_ident() else {
+      return Err(unknown_argument_error(meta));
+    };
+    if ident == "crate" {
+      let string = match meta {
+        Meta::NameValue(pair) => match &pair.value {
+          Expr::Lit(expr) => match &expr.lit {
+            Lit::Str(string) => Some(string),
+            _ => None,
+          },
+          _ => None,
+        },
+        _ => None,
+      };
+      let Some(string) = string else {
+        return Err(syn::Error::new_spanned(
+          meta,
+          "`crate` expects a string literal, like `crate = \"my_alias\"`",
+        ));
+      };
+      crate_path = string.parse()?;
+    } else if !IGNORED.contains(&ident.to_string().as_str()) {
+      return Err(unknown_argument_error(meta));
     }
   }
-  Ok(())
+  Ok(crate_path)
+}
+
+fn unknown_argument_error(meta: &Meta) -> syn::Error {
+  syn::Error::new_spanned(
+    meta,
+    "unknown attribute argument; expected one of: `flavor`, \
+     `worker_threads`, `start_paused`, `unhandled_panic`, `crate`",
+  )
 }
 
 /// Attribute macro that mimics `tokio::main`.
@@ -50,9 +74,10 @@ pub fn main(attr: TokenStream, item: TokenStream) -> TokenStream {
   let args = parse_macro_input!(
     attr with Punctuated::<Meta, Token![,]>::parse_terminated
   );
-  if let Err(error) = check_macro_args(&args) {
-    return error.to_compile_error().into();
-  }
+  let crate_path = match check_macro_args(&args) {
+    Ok(crate_path) => crate_path,
+    Err(error) => return error.to_compile_error().into(),
+  };
 
   // Parse the input tokens as a function
   let input_fn = parse_macro_input!(item as ItemFn);
@@ -73,8 +98,8 @@ pub fn main(attr: TokenStream, item: TokenStream) -> TokenStream {
       async fn original(#fn_args) #return_type #fn_block
 
       // Spawn the async function in a local task
-      tokio_with_wasm::spawn_local(async {
-        tokio_with_wasm::MacroOutcome::handle(original().await);
+      #crate_path::spawn_local(async {
+        #crate_path::MacroOutcome::handle(original().await);
       });
     }
   };
@@ -96,9 +121,10 @@ pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
   let args = parse_macro_input!(
     attr with Punctuated::<Meta, Token![,]>::parse_terminated
   );
-  if let Err(error) = check_macro_args(&args) {
-    return error.to_compile_error().into();
-  }
+  let crate_path = match check_macro_args(&args) {
+    Ok(crate_path) => crate_path,
+    Err(error) => return error.to_compile_error().into(),
+  };
 
   // Parse the input tokens as a function
   let input_fn = parse_macro_input!(item as ItemFn);
@@ -118,7 +144,7 @@ pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
     #vis async fn #fn_name() {
       async fn original(#fn_args) #return_type #fn_block
 
-      tokio_with_wasm::MacroOutcome::handle(original().await);
+      #crate_path::MacroOutcome::handle(original().await);
     }
   };
 
