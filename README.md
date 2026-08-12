@@ -22,7 +22,9 @@ This library assumes that you're compiling your Rust project with `wasm-pack` an
 
 - **Spawn Async and Blocking Tasks**: You can spawn both asynchronous and blocking tasks. Asynchronous tasks allow you to perform non-blocking operations, while blocking tasks are suitable for compute-heavy or synchronous tasks.
 
-> Though various IO functionalities can be added in the future, they're not included yet.
+- **File System**: `fs` reads and writes files in the origin private file system, the store every browser keeps on disk for one origin.
+
+> `net`, `process`, and `signal` have no counterpart on the web, so they are missing rather than failing at runtime.
 
 ## Use Cases
 
@@ -95,6 +97,42 @@ use tokio;
 ## Documentation
 
 API documentation can be found on [docs.rs](https://docs.rs/tokio_with_wasm).
+
+## File System
+
+`fs` keeps files in the origin private file system, a store the browser holds on
+disk for one origin and hands to no one else. It asks the user for nothing and
+every engine has it, unlike the file pickers, which only desktop Chromium has
+and only inside a click.
+
+```rust
+use tokio::fs;
+
+fs::create_dir_all("cache").await?;
+fs::write("cache/state.bin", b"...").await?;
+let bytes = fs::read("cache/state.bin").await?;
+```
+
+Paths lead from the root of that store rather than from a disk, so a leading
+slash is accepted and ignored. `hard_link`, `read_link`, `symlink_metadata`, and
+`set_permissions` have nothing to stand on and are absent.
+
+Writes through an open `File` land only once it is flushed, shut down, or
+dropped, because the web API commits a write when the stream carrying it closes.
+Opening that stream copies the whole file, so one stream stays open across
+writes; flushing after every chunk brings the copy back, once per flush.
+
+Two open files on one path never share it. Each writes into the copy it took
+when its stream opened, and closing that stream replaces the whole file. A
+stream is only open from the moment writes spill out of memory until the next
+flush, so two files lose each other's work only when those windows overlap.
+Nothing on the main thread closes that gap: the web API only hands out the
+handle that writes in place, `createSyncAccessHandle`, inside a worker.
+
+The store shares one quota with the other storage APIs, and the browser may
+throw all of it away under disk pressure unless `navigator.storage.persist()`
+has been granted. Nothing outside the page can read these files, so a page that
+wants to hand one to the user has to offer it as a download.
 
 ## Caution
 

@@ -1,0 +1,23 @@
+name: Publish
+
+# Pushing a version tag such as `v0.10.0` releases that version to crates.io.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+
+      # The proc macro crate goes first, because the main crate depends on
+      # its published version. `cargo publish` returns only after the crate
+      # shows up in the registry index, so the second command sees the first.
+      - run: cargo publish --package tokio_with_wasm_proc
+      - run: cargo publish --package tokio_with_wasm
