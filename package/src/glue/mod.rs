@@ -31,17 +31,11 @@ pub(crate) use task::*;
 #[cfg(feature = "rt")]
 pub use tokio::task_local;
 
-#[cfg(all(
-  any(feature = "rt", feature = "rt-multi-thread"),
-  feature = "macros"
-))]
+#[cfg(all(feature = "rt", feature = "macros"))]
 pub use tokio_with_wasm_proc::{main, test};
 
 #[doc(hidden)]
-#[cfg(all(
-  any(feature = "rt", feature = "rt-multi-thread"),
-  feature = "macros"
-))]
+#[cfg(all(feature = "rt", feature = "macros"))]
 // This export is needed for the `main` macro.
 pub use wasm_bindgen_futures::spawn_local;
 
@@ -49,26 +43,17 @@ pub use wasm_bindgen_futures::spawn_local;
 /// function into an outcome, panicking on `Err` the way a native binary
 /// exits with an error. This export is needed for those macros.
 #[doc(hidden)]
-#[cfg(all(
-  any(feature = "rt", feature = "rt-multi-thread"),
-  feature = "macros"
-))]
+#[cfg(all(feature = "rt", feature = "macros"))]
 pub trait MacroOutcome {
   fn handle(self);
 }
 
-#[cfg(all(
-  any(feature = "rt", feature = "rt-multi-thread"),
-  feature = "macros"
-))]
+#[cfg(all(feature = "rt", feature = "macros"))]
 impl MacroOutcome for () {
   fn handle(self) {}
 }
 
-#[cfg(all(
-  any(feature = "rt", feature = "rt-multi-thread"),
-  feature = "macros"
-))]
+#[cfg(all(feature = "rt", feature = "macros"))]
 impl<T, E: std::fmt::Debug> MacroOutcome for Result<T, E> {
   fn handle(self) {
     if let Err(error) = self {
