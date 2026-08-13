@@ -1,5 +1,6 @@
+use super::lock;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::task::{Wake, Waker};
 
 /// Records which tasks of a collection have completed, in completion order.
@@ -20,12 +21,6 @@ struct QueueCore<I> {
   ready: VecDeque<I>,
   /// Waker of the consumer awaiting the next completion.
   consumer: Option<Waker>,
-}
-
-/// Locks the shared state, recovering it
-/// even if another thread panicked while holding the lock.
-fn lock<I>(core: &Mutex<QueueCore<I>>) -> MutexGuard<'_, QueueCore<I>> {
-  core.lock().unwrap_or_else(|error| error.into_inner())
 }
 
 impl<I> CompletionQueue<I> {

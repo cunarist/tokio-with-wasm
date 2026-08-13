@@ -104,6 +104,20 @@ impl<T> JoinSet<T> {
     join_handle.register_waker(self.queue.task_waker(tag));
     self.tasks.insert(tag, join_handle);
   }
+
+  /// Removes the task identified by `tag` and takes out its result.
+  /// Returns `None` for a stale tag whose task was detached earlier.
+  fn take(&mut self, tag: u64) -> Option<Result<(Id, T), JoinError>> {
+    let mut handle = self.tasks.remove(&tag)?;
+    let task_id = handle.id();
+    // The task queued its tag on completion, so its result is stored;
+    // this poll with a no-op waker just takes the result out.
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    let Poll::Ready(result) = Pin::new(&mut handle).poll(&mut cx) else {
+      unreachable!("a queued task's result was missing");
+    };
+    Some(result.map(|output| (task_id, output)))
+  }
 }
 
 impl<T: 'static> JoinSet<T> {
@@ -248,17 +262,9 @@ impl<T: 'static> JoinSet<T> {
   ) -> Option<Result<(Id, T), JoinError>> {
     while let Some(tag) = self.queue.pop() {
       // A tag can be stale if its task was detached earlier.
-      let Some(mut handle) = self.tasks.remove(&tag) else {
-        continue;
-      };
-      let task_id = handle.id();
-      // The task queued its tag on completion, so its result is stored;
-      // this poll with a no-op waker just takes the result out.
-      let mut cx = Context::from_waker(std::task::Waker::noop());
-      let Poll::Ready(result) = Pin::new(&mut handle).poll(&mut cx) else {
-        unreachable!("a queued task's result was missing");
-      };
-      return Some(result.map(|output| (task_id, output)));
+      if let Some(joined) = self.take(tag) {
+        return Some(joined);
+      }
     }
     None
   }
@@ -412,17 +418,9 @@ impl<T: 'static> JoinSet<T> {
         return Poll::Pending;
       };
       // A tag can be stale if its task was detached earlier.
-      let Some(mut handle) = self.tasks.remove(&tag) else {
-        continue;
-      };
-      let task_id = handle.id();
-      // The task queued its tag on completion, so its result is stored;
-      // this poll with a no-op waker just takes the result out.
-      let mut noop_cx = Context::from_waker(std::task::Waker::noop());
-      let Poll::Ready(result) = Pin::new(&mut handle).poll(&mut noop_cx) else {
-        unreachable!("a queued task's result was missing");
-      };
-      return Poll::Ready(Some(result.map(|output| (task_id, output))));
+      if let Some(joined) = self.take(tag) {
+        return Poll::Ready(Some(joined));
+      }
     }
   }
 }

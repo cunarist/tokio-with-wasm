@@ -45,6 +45,22 @@ enum Work {
   Sizing(Started<u64>),
 }
 
+/// Polls a started call, putting it back into `work` when it is not done.
+fn poll_started<T>(
+  work: &mut Option<Work>,
+  mut future: Started<T>,
+  wrap: fn(Started<T>) -> Work,
+  cx: &mut Context<'_>,
+) -> Poll<io::Result<T>> {
+  match future.as_mut().poll(cx) {
+    Poll::Pending => {
+      *work = Some(wrap(future));
+      Poll::Pending
+    }
+    Poll::Ready(outcome) => Poll::Ready(outcome),
+  }
+}
+
 /// A seek that has been asked for but not reported back yet.
 enum Seek {
   /// The new position is already known.
@@ -199,49 +215,30 @@ impl File {
   fn poll_settled(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
     match self.work.take() {
       None => Poll::Ready(Ok(())),
-      Some(Work::Reading(mut future)) => match future.as_mut().poll(cx) {
-        Poll::Pending => {
-          self.work = Some(Work::Reading(future));
-          Poll::Pending
-        }
-        Poll::Ready(outcome) => Poll::Ready(outcome.map(|_| ())),
-      },
-      Some(Work::Sizing(mut future)) => match future.as_mut().poll(cx) {
-        Poll::Pending => {
-          self.work = Some(Work::Sizing(future));
-          Poll::Pending
-        }
-        Poll::Ready(outcome) => Poll::Ready(outcome.map(|_| ())),
-      },
-      Some(Work::Opening(mut future)) => match future.as_mut().poll(cx) {
-        Poll::Pending => {
-          self.work = Some(Work::Opening(future));
-          Poll::Pending
-        }
-        Poll::Ready(Err(failure)) => Poll::Ready(Err(failure)),
-        Poll::Ready(Ok(stream)) => {
-          self.writer = Some(Writer { stream, cursor: 0 });
-          Poll::Ready(Ok(()))
-        }
-      },
-      Some(Work::Pushing(mut future)) => match future.as_mut().poll(cx) {
-        Poll::Pending => {
-          self.work = Some(Work::Pushing(future));
-          Poll::Pending
-        }
-        Poll::Ready(Err(failure)) => Poll::Ready(Err(failure)),
-        Poll::Ready(Ok(writer)) => {
-          self.writer = Some(writer);
-          Poll::Ready(Ok(()))
-        }
-      },
-      Some(Work::Closing(mut future)) => match future.as_mut().poll(cx) {
-        Poll::Pending => {
-          self.work = Some(Work::Closing(future));
-          Poll::Pending
-        }
-        Poll::Ready(outcome) => Poll::Ready(outcome),
-      },
+      Some(Work::Reading(future)) => {
+        ready!(poll_started(&mut self.work, future, Work::Reading, cx))?;
+        Poll::Ready(Ok(()))
+      }
+      Some(Work::Sizing(future)) => {
+        ready!(poll_started(&mut self.work, future, Work::Sizing, cx))?;
+        Poll::Ready(Ok(()))
+      }
+      Some(Work::Opening(future)) => {
+        let stream =
+          ready!(poll_started(&mut self.work, future, Work::Opening, cx))?;
+        self.writer = Some(Writer { stream, cursor: 0 });
+        Poll::Ready(Ok(()))
+      }
+      Some(Work::Pushing(future)) => {
+        let writer =
+          ready!(poll_started(&mut self.work, future, Work::Pushing, cx))?;
+        self.writer = Some(writer);
+        Poll::Ready(Ok(()))
+      }
+      Some(Work::Closing(future)) => {
+        ready!(poll_started(&mut self.work, future, Work::Closing, cx))?;
+        Poll::Ready(Ok(()))
+      }
     }
   }
 
@@ -249,24 +246,16 @@ impl File {
   fn poll_pushed(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
     loop {
       match self.work.take() {
-        Some(Work::Opening(mut future)) => match future.as_mut().poll(cx) {
-          Poll::Pending => {
-            self.work = Some(Work::Opening(future));
-            return Poll::Pending;
-          }
-          Poll::Ready(Err(failure)) => return Poll::Ready(Err(failure)),
-          Poll::Ready(Ok(stream)) => {
-            self.writer = Some(Writer { stream, cursor: 0 });
-          }
-        },
-        Some(Work::Pushing(mut future)) => match future.as_mut().poll(cx) {
-          Poll::Pending => {
-            self.work = Some(Work::Pushing(future));
-            return Poll::Pending;
-          }
-          Poll::Ready(Err(failure)) => return Poll::Ready(Err(failure)),
-          Poll::Ready(Ok(writer)) => self.writer = Some(writer),
-        },
+        Some(Work::Opening(future)) => {
+          let stream =
+            ready!(poll_started(&mut self.work, future, Work::Opening, cx))?;
+          self.writer = Some(Writer { stream, cursor: 0 });
+        }
+        Some(Work::Pushing(future)) => {
+          let writer =
+            ready!(poll_started(&mut self.work, future, Work::Pushing, cx))?;
+          self.writer = Some(writer);
+        }
         Some(other) => {
           self.work = Some(other);
           ready!(self.poll_settled(cx))?;
@@ -313,17 +302,12 @@ impl File {
   fn poll_at_end(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
     loop {
       match self.work.take() {
-        Some(Work::Sizing(mut future)) => match future.as_mut().poll(cx) {
-          Poll::Pending => {
-            self.work = Some(Work::Sizing(future));
-            return Poll::Pending;
-          }
-          Poll::Ready(Err(failure)) => return Poll::Ready(Err(failure)),
-          Poll::Ready(Ok(size)) => {
-            self.position = size;
-            return Poll::Ready(Ok(()));
-          }
-        },
+        Some(Work::Sizing(future)) => {
+          let size =
+            ready!(poll_started(&mut self.work, future, Work::Sizing, cx))?;
+          self.position = size;
+          return Poll::Ready(Ok(()));
+        }
         Some(other) => {
           self.work = Some(other);
           ready!(self.poll_settled(cx))?;
@@ -340,13 +324,10 @@ impl File {
   fn poll_closed(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
     loop {
       match self.work.take() {
-        Some(Work::Closing(mut future)) => match future.as_mut().poll(cx) {
-          Poll::Pending => {
-            self.work = Some(Work::Closing(future));
-            return Poll::Pending;
-          }
-          Poll::Ready(outcome) => return Poll::Ready(outcome),
-        },
+        Some(Work::Closing(future)) => {
+          ready!(poll_started(&mut self.work, future, Work::Closing, cx))?;
+          return Poll::Ready(Ok(()));
+        }
         Some(other) => {
           self.work = Some(other);
           ready!(self.poll_pushed(cx))?;
@@ -395,21 +376,16 @@ impl AsyncRead for File {
         return Poll::Ready(Ok(()));
       }
       match this.work.take() {
-        Some(Work::Reading(mut future)) => match future.as_mut().poll(cx) {
-          Poll::Pending => {
-            this.work = Some(Work::Reading(future));
-            return Poll::Pending;
+        Some(Work::Reading(future)) => {
+          let bytes =
+            ready!(poll_started(&mut this.work, future, Work::Reading, cx))?;
+          // Nothing came back, so the cursor is at the end of the file.
+          if bytes.is_empty() {
+            return Poll::Ready(Ok(()));
           }
-          Poll::Ready(Err(failure)) => return Poll::Ready(Err(failure)),
-          Poll::Ready(Ok(bytes)) => {
-            // Nothing came back, so the cursor is at the end of the file.
-            if bytes.is_empty() {
-              return Poll::Ready(Ok(()));
-            }
-            this.read_start = this.position;
-            this.read_buffer = bytes;
-          }
-        },
+          this.read_start = this.position;
+          this.read_buffer = bytes;
+        }
         Some(other) => {
           this.work = Some(other);
           ready!(this.poll_closed(cx))?;
@@ -513,19 +489,20 @@ impl AsyncSeek for File {
         Some(Seek::FromEnd(offset)) => {
           this.seek = Some(Seek::FromEnd(offset));
           match this.work.take() {
-            Some(Work::Sizing(mut future)) => match future.as_mut().poll(cx) {
-              Poll::Pending => {
-                this.work = Some(Work::Sizing(future));
-                return Poll::Pending;
+            Some(Work::Sizing(future)) => {
+              let sized =
+                ready!(poll_started(&mut this.work, future, Work::Sizing, cx))
+                  .and_then(|size| shifted(size, offset));
+              match sized {
+                Ok(landed) => this.seek = Some(Seek::Settled(landed)),
+                Err(failure) => {
+                  // Either failure ends the seek; leaving it pending would
+                  // make every later `poll_complete` fail the same way.
+                  this.seek = None;
+                  return Poll::Ready(Err(failure));
+                }
               }
-              Poll::Ready(Err(failure)) => {
-                this.seek = None;
-                return Poll::Ready(Err(failure));
-              }
-              Poll::Ready(Ok(size)) => {
-                this.seek = Some(Seek::Settled(shifted(size, offset)?));
-              }
-            },
+            }
             Some(other) => {
               this.work = Some(other);
               ready!(this.poll_closed(cx))?;

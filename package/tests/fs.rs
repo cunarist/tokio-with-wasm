@@ -404,6 +404,28 @@ async fn seeking_before_the_start_does_not_work() {
 }
 
 #[wasm_bindgen_test]
+async fn a_failed_seek_from_the_end_is_over_when_it_reports() {
+  let directory = scratch("seek_failed_from_end").await;
+  let path = directory.join("short.txt");
+  ok(fs::write(&path, b"ab").await, "write");
+
+  // Landing before the start is only discovered after the file
+  // has been measured, unlike the `SeekFrom::Current` case.
+  let mut file = ok(fs::File::open(&path).await, "open");
+  assert_eq!(
+    kind(file.seek(SeekFrom::End(-3)).await),
+    ErrorKind::InvalidInput
+  );
+
+  // The failed seek must not linger: the next seek starts fresh
+  // instead of reporting that a seek is already under way.
+  assert_eq!(ok(file.seek(SeekFrom::Start(1)).await, "seek again"), 1);
+  let mut read = Vec::new();
+  ok(file.read_to_end(&mut read).await, "read");
+  assert_eq!(read, b"b");
+}
+
+#[wasm_bindgen_test]
 async fn cuts_a_file_down_to_size() {
   let directory = scratch("set_len").await;
   let path = directory.join("trimmed.txt");

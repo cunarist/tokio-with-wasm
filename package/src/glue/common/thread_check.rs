@@ -17,11 +17,7 @@ thread_local! {
 }
 
 pub fn is_main_thread() -> bool {
-  let mut is_main: bool = false;
-  IS_MAIN_THREAD.with(|cell| {
-    is_main = **cell;
-  });
-  is_main
+  IS_MAIN_THREAD.with(|cell| **cell)
 }
 
 #[cfg(test)]

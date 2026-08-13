@@ -12,11 +12,11 @@ use web_sys::{
 };
 
 #[cfg(not(test))]
-pub static MAX_WORKERS: usize = 512;
+pub const MAX_WORKERS: usize = 512;
 /// Tests cap the pool at two workers,
 /// so that saturation can be exercised without creating hundreds of them.
 #[cfg(test)]
-pub static MAX_WORKERS: usize = 2;
+pub const MAX_WORKERS: usize = 2;
 
 pub struct WorkerPool {
   pool_state: Rc<PoolState>,
@@ -174,6 +174,9 @@ impl WorkerPool {
     match worker.post_message(&JsValue::from(ptr as usize)) {
       Ok(()) => Ok(worker),
       Err(error) => {
+        // Safety: the message never left this thread, so the worker
+        // cannot have taken ownership of the task. The pointer comes
+        // straight from `Box::into_raw` above and is dropped once.
         unsafe {
           drop(Box::from_raw(ptr));
         }
@@ -378,8 +381,15 @@ impl PoolState {
 }
 
 /// Entry point invoked by JavaScript in a worker.
+///
+/// The `ptr` must be the one that [`WorkerPool::execute`] posted to this
+/// worker, which is the only value the glue code ever passes here. The
+/// module is private, so nothing but that message can reach this function.
 #[wasm_bindgen]
 pub fn task_worker_entry_point(ptr: usize) -> Result<(), JsValue> {
+  // Safety: the task was leaked by `Box::into_raw` for this message,
+  // and each message is delivered to a single worker exactly once,
+  // so ownership passes here and the box is dropped once.
   let ptr = unsafe { Box::from_raw(ptr as *mut Task) };
   let global = global().unchecked_into::<DedicatedWorkerGlobalScope>();
   (ptr.callable)();

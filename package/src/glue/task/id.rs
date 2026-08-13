@@ -2,10 +2,7 @@
 
 use std::cell::Cell;
 use std::fmt::{Display, Formatter};
-use std::future::Future;
 use std::num::NonZeroU64;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 thread_local! {
   /// The identifier handed to the next spawned task.
@@ -69,41 +66,14 @@ pub fn try_id() -> Option<Id> {
 }
 
 /// Runs `callable` with [`try_id`] reporting `id`,
-/// the way a blocking task observes its own identifier.
-pub(crate) fn scope_blocking<T>(id: Id, callable: impl FnOnce() -> T) -> T {
+/// the way a task observes its own identifier.
+/// This wraps a single poll of a spawned task,
+/// or the whole closure of a blocking one.
+pub(crate) fn scope<T>(id: Id, callable: impl FnOnce() -> T) -> T {
   let previous = CURRENT_TASK_ID.replace(Some(id));
   let returned = callable();
   CURRENT_TASK_ID.set(previous);
   returned
-}
-
-/// A future that makes [`try_id`] report the task's identifier
-/// while the inner future is being polled.
-pub(crate) struct TaskIdScope<F> {
-  id: Id,
-  future: F,
-}
-
-impl<F> TaskIdScope<F> {
-  pub fn new(id: Id, future: F) -> Self {
-    TaskIdScope { id, future }
-  }
-}
-
-impl<F: Future> Future for TaskIdScope<F> {
-  type Output = F::Output;
-  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    // Safety: `future` is never moved out of the pinned struct,
-    // and `id` is `Copy`.
-    let (id, future) = unsafe {
-      let this = self.get_unchecked_mut();
-      (this.id, Pin::new_unchecked(&mut this.future))
-    };
-    let previous = CURRENT_TASK_ID.replace(Some(id));
-    let polled = future.poll(cx);
-    CURRENT_TASK_ID.set(previous);
-    polled
-  }
 }
 
 #[cfg(test)]
@@ -131,9 +101,9 @@ mod tests {
   }
 
   #[wasm_bindgen_test]
-  fn scope_blocking_restores_the_previous_id() {
+  fn scope_restores_the_previous_id() {
     let id = Id::next();
-    let observed = scope_blocking(id, try_id);
+    let observed = scope(id, try_id);
     assert_eq!(observed, Some(id));
     assert_eq!(try_id(), None);
   }
