@@ -102,11 +102,9 @@ API documentation can be found on [docs.rs](https://docs.rs/tokio_with_wasm).
 
 ### Never panic!
 
-Keep in mind that you should NEVER write panicking code.
+Stick to the `Result` enum whenever possible.
 
 On `wasm32-unknown-unknown`, there's currently [no way](https://wasm-bindgen.github.io/wasm-bindgen/api/wasm_bindgen_futures/fn.future_to_promise.html#panics) to catch and unwind panics like on native platforms. Panics will eventually lead to leaked JavaScript `Promise`s.
-
-Stick to the `Result` enum whenever possible.
 
 A panic inside `spawn_blocking` takes down the web worker that runs it. The
 `JoinHandle` resolves to a `JoinError` whose `is_panic` is `true`, but the panic
