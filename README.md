@@ -1,4 +1,4 @@
-# `tokio_with_wasm`
+# About this library
 
 [![Crates.io](https://img.shields.io/crates/v/tokio_with_wasm.svg)](https://crates.io/crates/tokio_with_wasm)
 [![Documentation](https://docs.rs/tokio_with_wasm/badge.svg)](https://docs.rs/tokio_with_wasm)
@@ -6,27 +6,27 @@
 
 ![Example](https://github.com/user-attachments/assets/83825e10-0c99-4d9f-b17c-a5b66067348a)
 
-`tokio_with_wasm` is a Rust library that provides `tokio` specifically designed for web browsers. It aims to provide the exact same `tokio` features for web applications, leveraging JavaScript web APIs.
+`tokio_with_wasm` is a Rust library that provides `tokio` for web browsers. It aims to offer the exact same `tokio` features to web applications, leveraging JavaScript web APIs.
 
 This library is made up of JavaScript glue code that mimics the behavior of real `tokio`. `tokio_with_wasm` doesn't have its own runtime and adapts to the JavaScript event loop.
 
 When using `spawn_blocking()`, the number of web workers is automatically adjusted to the number of parallel tasks. Refer to the docs for additional details.
 
-This library assumes that you're compiling your Rust project with `wasm-pack` and `wasm-bindgen`, which currently use the `wasm32-unknown-unknown` and `wasm64-unknown-unknown` Rust targets. Note that this library currently only supports the `web` target of `wasm-bindgen`, not [others](https://rustwasm.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
+This library assumes that you're compiling your Rust project with `wasm-pack` and `wasm-bindgen`, which build for the `wasm32-unknown-unknown` and `wasm64-unknown-unknown` Rust targets. Note that this library only supports the `web` target of `wasm-bindgen`, not [others](https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
 
 ## Features
 
 - **Familiar API**: If you're familiar with `tokio`, you'll feel right at home with `tokio_with_wasm`. It provides similar functionality and follows the same patterns for spawning and managing asynchronous tasks.
 
-- **Web Worker Integration**: `tokio_with_wasm` adapts to the JavaScript environment by utilizing web APIs under the hood. This means you can write Rust code that runs concurrently and efficiently in web applications.
+- **Web worker integration**: `tokio_with_wasm` adapts to the JavaScript environment by utilizing web APIs under the hood. This means you can write Rust code that runs concurrently and efficiently in web applications.
 
-- **Spawn Async and Blocking Tasks**: You can spawn both asynchronous and blocking tasks. Asynchronous tasks allow you to perform non-blocking operations, while blocking tasks are suitable for compute-heavy or synchronous tasks.
+- **Spawn async and blocking tasks**: You can spawn both asynchronous and blocking tasks. Asynchronous tasks allow you to perform non-blocking operations, while blocking tasks are suitable for compute-heavy or synchronous tasks.
 
-- **File System**: `fs` reads and writes files in the origin private file system, the store every browser keeps on disk for one origin.
+- **File system**: `fs` reads and writes files in the [OPFS](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system), the store every browser keeps on disk for one origin.
 
-> `net`, `process`, and `signal` have no counterpart on the web, so they are missing rather than failing at runtime.
+> `net`, `process`, and `signal` have no counterpart on the web, so they are missing from the web build. Using them is a compile error, not a runtime failure.
 
-## Use Cases
+## Use cases
 
 - **Single-page apps**: heavy computation without freezing the UI.
 - **Browser extensions**: parallel Rust under Manifest V3's strict security policy.
@@ -34,7 +34,7 @@ This library assumes that you're compiling your Rust project with `wasm-pack` an
 - **Games and simulations**: physics and AI on workers while the main thread renders.
 - **Local inference**: ML models on a worker while the page stays responsive.
 
-## Usage
+# Usage
 
 Add this library to your `Cargo.toml` alongside `tokio`:
 
@@ -44,8 +44,8 @@ tokio = { version = "0.0.0", features = ["macros", "sync", "time", "rt"] }
 tokio_with_wasm = { version = "0.0.0", features = ["macros", "sync", "time", "rt"] }
 ```
 
-Keep the feature lists of the two dependencies in sync: `tokio`'s features
-serve native platforms, and `tokio_with_wasm`'s features gate the web glue.
+Keep the feature lists of the two dependencies in sync. `tokio`'s features
+serve native platforms, and `tokio_with_wasm`'s features enable the web glue.
 
 Here's a simple example of using `tokio_with_wasm` that works on both native platforms and web browsers:
 
@@ -76,7 +76,7 @@ async fn main() {
 }
 ```
 
-The `use tokio_with_wasm::alias as tokio;` statement is functionally equivalent to the code below. This import is provided for convenience and to allow for shorter code.
+The `use tokio_with_wasm::alias as tokio;` statement is functionally equivalent to the code below. This import is provided for convenience, allowing for shorter code.
 
 ```rust
 #[cfg(all(
@@ -98,65 +98,19 @@ use tokio;
 
 API documentation can be found on [docs.rs](https://docs.rs/tokio_with_wasm).
 
-## File System
-
-`fs` keeps files in the origin private file system, a store the browser holds on
-disk for one origin and hands to no one else. It asks the user for nothing and
-every engine has it, unlike the file pickers, which only desktop Chromium has
-and only inside a click.
-
-```rust
-use tokio::fs;
-
-fs::create_dir_all("cache").await?;
-fs::write("cache/state.bin", b"...").await?;
-let bytes = fs::read("cache/state.bin").await?;
-```
-
-Paths lead from the root of that store rather than from a disk, so a leading
-slash is accepted and ignored. `hard_link`, `read_link`, `symlink_metadata`, and
-`set_permissions` have nothing to stand on and are absent.
-
-Writes through an open `File` land only once it is flushed, shut down, or
-dropped, because the web API commits a write when the stream carrying it closes.
-Opening that stream copies the whole file, so one stream stays open across
-writes; flushing after every chunk brings the copy back, once per flush.
-
-Two open files on one path never share it. Each writes into the copy it took
-when its stream opened, and closing that stream replaces the whole file. A
-stream is only open from the moment writes spill out of memory until the next
-flush, so two files lose each other's work only when those windows overlap.
-Nothing on the main thread closes that gap: the web API only hands out the
-handle that writes in place, `createSyncAccessHandle`, inside a worker.
-
-The store shares one quota with the other storage APIs, and the browser may
-throw all of it away under disk pressure unless `navigator.storage.persist()`
-has been granted. Nothing outside the page can read these files, so a page that
-wants to hand one to the user has to offer it as a download.
-
 ## Caution
 
-Keep in mind that you should NEVER write panicking code.
-
-On `wasm32-unknown-unknown`, there's currently [no way](https://rustwasm.github.io/wasm-bindgen/api/wasm_bindgen_futures/fn.future_to_promise.html#panics) to catch and unwind panics like on native platforms. Panics will eventually lead to leaked JavaScript `Promise`s.
+### Never panic!
 
 Stick to the `Result` enum whenever possible.
+
+On `wasm32-unknown-unknown`, there's currently [no way](https://wasm-bindgen.github.io/wasm-bindgen/api/wasm_bindgen_futures/fn.future_to_promise.html#panics) to catch and unwind panics like on native platforms. Panics will eventually lead to leaked JavaScript `Promise`s.
 
 A panic inside `spawn_blocking` takes down the web worker that runs it. The
 `JoinHandle` resolves to a `JoinError` whose `is_panic` is `true`, but the panic
 payload is lost and the worker's share of the shared memory is never reclaimed.
 
-`spawn_blocking` runs its web workers from a `blob:` script by default. Under a
-content security policy that forbids `blob:` workers, such as a browser
-extension's `script-src 'self'`, serve
-[`blocking_worker.js`](https://github.com/cunarist/tokio-with-wasm/blob/main/package/src/glue/only_web/blocking_worker.js)
-as a file of your own and point the pool at it:
-
-```rust
-tokio_with_wasm::only_web::set_worker_script_provider(|| Ok("/blocking_worker.js".into()));
-```
-
-## Building and Deploying
+### Threads are actually web workers
 
 If you're using Web Workers (threads) by calling `spawn_blocking`, you need to set specific Rust compiler flags. Also, you must use the `nightly` toolchain and include certain Rust standard library components in the compilation.
 
@@ -184,20 +138,36 @@ export RUSTUP_TOOLCHAIN="nightly"
 wasm-pack build <path> --target web -- -Z build-std=std,panic_abort
 ```
 
-After building your WebAssembly module and preparing it for deployment, ensure that your web server is configured to include cross-origin-related HTTP headers in its responses. These headers enable clients using your website to gain access to the `SharedArrayBuffer` web API, which is something similar to shared memory on the web.
+After building your WebAssembly module and preparing it for deployment, ensure that your web server is configured to include cross-origin-related HTTP headers in its responses. These headers let clients of your website access the `SharedArrayBuffer` web API, which is the web's counterpart to shared memory.
 
-- [`Cross-Origin-Opener-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy): `same-origin`
-- [`Cross-Origin-Embedder-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy): `require-corp`
+- [`cross-origin-opener-policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cross-Origin-Opener-Policy): `same-origin`
+- [`cross-origin-embedder-policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cross-Origin-Embedder-Policy): `require-corp`
 
-Additionally, don't forget to specify the MIME type `application/wasm` for `.wasm` files within the server configurations to ensure optimal performance.
+### Serve `.wasm` with the right MIME type
 
-## Why This is Needed
+Don't forget to specify the MIME type `application/wasm` for `.wasm` files in your HTTP server configuration to ensure optimal performance.
 
-The web has many restrictions due to its sandboxed environment, which prevents the use of threads, time, file IO, network IO, and many other native functionalities. Consequently, certain features are missing from Rust's `std` due to these limitations. That's why `tokio` doesn't really work well on web browsers.
+`WebAssembly.instantiateStreaming()` rejects any other MIME type, so the module falls back to being compiled after the whole download finishes rather than while it arrives.
+
+### Adapt to a strict CSP
+
+`spawn_blocking` runs its web workers from a `blob:` script by default. Under a
+content security policy that forbids `blob:` workers, such as a browser
+extension's `script-src 'self'`, serve
+[`blocking_worker.js`](https://github.com/cunarist/tokio-with-wasm/blob/main/package/src/glue/only_web/blocking_worker.js)
+as your own file and point the pool at it:
+
+```rust
+tokio_with_wasm::only_web::set_worker_script_provider(|| Ok("/blocking_worker.js".into()));
+```
+
+# Why this is needed
+
+The web has many restrictions due to its sandboxed environment, which prevents the use of threads, time, file IO, network IO, and many other native functionalities. Consequently, certain features are missing from Rust's `std`. That's why `tokio` doesn't really work well in web browsers.
 
 To address this issue, this crate offers `tokio` modules with the **same names** as the original native ones, providing workarounds for these constraints.
 
-## Future Vision
+## Future vision
 
 Because a large portion of Rust's web ecosystem is based on `wasm32-unknown-unknown` right now, we had to make an alias crate of `tokio` to use its functionalities directly on the web.
 
@@ -205,19 +175,19 @@ Hopefully, when `wasm32-wasi` becomes the mainstream Rust target for the web, [`
 
 Until that time, there's `tokio_with_wasm`!
 
-## Contribution Guide
+# Contribution guide
 
 Contributions are always welcome! If you have any suggestions, bug reports, or want to contribute to the development of `tokio_with_wasm`, please open an issue or submit a pull request.
 
 There are situations where you cannot use native Rust code directly on the web. This is because the `wasm32-unknown-unknown` Rust target used by `wasm-bindgen` doesn't have a full `std` module. Refer to the links below to understand how to interact with JavaScript with `wasm-bindgen`.
 
-- https://rustwasm.github.io/wasm-bindgen/reference/attributes/on-js-imports/js_name.html
-- https://rustwasm.github.io/wasm-bindgen/reference/attributes/on-js-imports/js_namespace.html
+- https://wasm-bindgen.github.io/wasm-bindgen/reference/attributes/on-js-imports/js_name.html
+- https://wasm-bindgen.github.io/wasm-bindgen/reference/attributes/on-js-imports/js_namespace.html
 
-It is possible for Rust code to be called in a **web worker**. Therefore, we cannot access the global `window` JavaScript object
-as we can in the main thread of JavaScript. Refer to the link below to check which web APIs are available in a web worker.
-You'll be surprised by the various capabilities that modern JavaScript has.
+Rust code can be called in a **web worker**. Therefore, we cannot access the global `window` JavaScript object
+as we can on the main thread of JavaScript. Refer to the link below to check which web APIs are available in a web worker.
+You'll be surprised by the various capabilities of modern JavaScript.
 
 - https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Functions_and_classes_available_to_workers
 
-Please note that this library uses quite a hacky and naive approach to mimic native `tokio` functionalities. That's because this library is regarded as a temporary solution for the period before `wasm32-wasi`. Any kind of PR is possible, as long as it makes things just work on the web.
+Please note that this library uses quite a hacky and naive approach to mimic native `tokio` functionalities. That's because this library is meant as a temporary solution for the period before `wasm32-wasi`. Any kind of PR is welcome, as long as it makes things just work on the web.
