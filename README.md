@@ -1,4 +1,4 @@
-# About this library
+﻿# About this library
 
 [![Crates.io](https://img.shields.io/crates/v/tokio_with_wasm.svg)](https://crates.io/crates/tokio_with_wasm)
 [![Documentation](https://docs.rs/tokio_with_wasm/badge.svg)](https://docs.rs/tokio_with_wasm)
@@ -12,7 +12,7 @@ This library is made up of JavaScript glue code that mimics the behavior of real
 
 When using `spawn_blocking()`, the number of web workers is automatically adjusted to the number of parallel tasks. Refer to the docs for additional details.
 
-This library assumes that you're compiling your Rust project with `wasm-pack` and `wasm-bindgen`, which build for the `wasm32-unknown-unknown` and `wasm64-unknown-unknown` Rust targets. Note that this library only supports the `web` target of `wasm-bindgen`, not [others](https://rustwasm.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
+This library assumes that you're compiling your Rust project with `wasm-pack` and `wasm-bindgen`, which build for the `wasm32-unknown-unknown` and `wasm64-unknown-unknown` Rust targets. Note that this library only supports the `web` target of `wasm-bindgen`, not [others](https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
 
 ## Features
 
@@ -104,7 +104,7 @@ API documentation can be found on [docs.rs](https://docs.rs/tokio_with_wasm).
 
 Keep in mind that you should NEVER write panicking code.
 
-On `wasm32-unknown-unknown`, there's currently [no way](https://rustwasm.github.io/wasm-bindgen/api/wasm_bindgen_futures/fn.future_to_promise.html#panics) to catch and unwind panics like on native platforms. Panics will eventually lead to leaked JavaScript `Promise`s.
+On `wasm32-unknown-unknown`, there's currently [no way](https://wasm-bindgen.github.io/wasm-bindgen/api/wasm_bindgen_futures/fn.future_to_promise.html#panics) to catch and unwind panics like on native platforms. Panics will eventually lead to leaked JavaScript `Promise`s.
 
 Stick to the `Result` enum whenever possible.
 
@@ -142,8 +142,8 @@ wasm-pack build <path> --target web -- -Z build-std=std,panic_abort
 
 After building your WebAssembly module and preparing it for deployment, ensure that your web server is configured to include cross-origin-related HTTP headers in its responses. These headers let clients of your website access the `SharedArrayBuffer` web API, which is the web's counterpart to shared memory.
 
-- [`cross-origin-opener-policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy): `same-origin`
-- [`cross-origin-embedder-policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy): `require-corp`
+- [`cross-origin-opener-policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cross-Origin-Opener-Policy): `same-origin`
+- [`cross-origin-embedder-policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cross-Origin-Embedder-Policy): `require-corp`
 
 ### Serve `.wasm` with the right MIME type
 
@@ -183,8 +183,8 @@ Contributions are always welcome! If you have any suggestions, bug reports, or w
 
 There are situations where you cannot use native Rust code directly on the web. This is because the `wasm32-unknown-unknown` Rust target used by `wasm-bindgen` doesn't have a full `std` module. Refer to the links below to understand how to interact with JavaScript with `wasm-bindgen`.
 
-- https://rustwasm.github.io/wasm-bindgen/reference/attributes/on-js-imports/js_name.html
-- https://rustwasm.github.io/wasm-bindgen/reference/attributes/on-js-imports/js_namespace.html
+- https://wasm-bindgen.github.io/wasm-bindgen/reference/attributes/on-js-imports/js_name.html
+- https://wasm-bindgen.github.io/wasm-bindgen/reference/attributes/on-js-imports/js_namespace.html
 
 Rust code can be called in a **web worker**. Therefore, we cannot access the global `window` JavaScript object
 as we can on the main thread of JavaScript. Refer to the link below to check which web APIs are available in a web worker.
