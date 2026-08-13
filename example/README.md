@@ -20,5 +20,3 @@ To view in a browser:
 ```shell
 miniserve pkg --index index.html --header "Cross-Origin-Opener-Policy:same-origin" --header "Cross-Origin-Embedder-Policy:require-corp"
 ```
-
-> You need to temporarily modify `.cargo/config.toml` to make `cargo run` use the native platform, if you've directly cloned this repository.
