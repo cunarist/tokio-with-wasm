@@ -6,6 +6,7 @@
 
 mod builder;
 pub mod coop;
+mod flags;
 mod id;
 mod join_map;
 mod join_set;
@@ -28,18 +29,17 @@ pub mod futures {
 }
 
 use crate::{
-  LogError, OnceReceiver, OnceSender, SelectFuture, is_main_thread,
-  once_channel, set_timeout,
+  LogError, OnceReceiver, is_main_thread, once_channel, set_timeout,
 };
+use flags::TaskFlags;
 use id::TaskIdScope;
 use js_sys::Promise;
 use pool::WorkerPool;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::future::Future;
-use std::pin::Pin;
+use std::future::{Future, poll_fn};
+use std::pin::{Pin, pin};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll, Waker};
 // Renamed so that it doesn't collide with `task::spawn_local`.
 use wasm_bindgen_futures::{JsFuture, spawn_local as spawn_promise};
@@ -70,6 +70,24 @@ async fn manage_pool() {
     });
     JsFuture::from(promise).await.log_error("MANAGE_POOL");
   }
+}
+
+/// Stops a call that must stay on the main thread,
+/// explaining what to do instead.
+fn assert_main_thread(name: &str, code: &str) {
+  if is_main_thread() {
+    return;
+  }
+  JsValue::from_str(&format!(
+    "Calling `{name}` in a blocking thread is not allowed. \
+     While this is possible in real `tokio`, \
+     it may cause undefined behavior in the JavaScript environment. \
+     Instead, use `tokio::sync::mpsc::channel` \
+     to listen for messages from the main thread \
+     and spawn a task there."
+  ))
+  .log_error(code);
+  panic!();
 }
 
 /// Spawns a new asynchronous task, returning a
@@ -197,45 +215,32 @@ where
   F: std::future::Future<Output = T> + 'static,
   T: 'static,
 {
-  if !is_main_thread() {
-    JsValue::from_str(concat!(
-      "Calling `spawn` in a blocking thread is not allowed. ",
-      "While this is possible in real `tokio`, ",
-      "it may cause undefined behavior in the JavaScript environment. ",
-      "Instead, use `tokio::sync::mpsc::channel` ",
-      "to listen for messages from the main thread ",
-      "and spawn a task there."
-    ))
-    .log_error("SPAWN");
-    panic!();
-  }
+  assert_main_thread("spawn", "SPAWN");
   let task_id = Id::next();
   let (join_sender, join_receiver) = once_channel();
-  let (cancel_sender, cancel_receiver) = once_channel::<()>();
-  let finished = Arc::new(AtomicBool::new(false));
-  let finish_flag = finished.clone();
+  let flags = TaskFlags::new();
+  let task_flags = flags.clone();
   spawn_promise(async move {
-    let result = SelectFuture::new(
-      async move {
-        let output = TaskIdScope::new(task_id, future).await;
-        Ok(output)
-      },
-      async move {
-        cancel_receiver.await;
-        Err(JoinError::cancelled(task_id))
-      },
-    )
+    let mut future = pin!(TaskIdScope::new(task_id, future));
+    let result = poll_fn(|cx| {
+      // The waker is registered under the same lock as the check, so an
+      // abort arriving mid-poll wakes the task
+      // and is seen at the next poll.
+      if task_flags.cancelled_or_register(cx.waker()) {
+        return Poll::Ready(Err(JoinError::cancelled(task_id)));
+      }
+      future.as_mut().poll(cx).map(Ok)
+    })
     .await;
     // The flag flips before the send, so a consumer woken by the
     // send never observes an unfinished task with a stored result.
-    finish_flag.store(true, Ordering::SeqCst);
+    task_flags.finish();
     join_sender.send(result);
   });
   JoinHandle {
     task_id,
     join_receiver,
-    cancel_sender,
-    finished,
+    flags,
   }
 }
 
@@ -303,41 +308,29 @@ where
   C: FnOnce() -> T + Send + 'static,
   T: Send + 'static,
 {
-  if !is_main_thread() {
-    JsValue::from_str(concat!(
-      "Calling `spawn_blocking` in a blocking thread is not allowed. ",
-      "While this is possible in real `tokio`, ",
-      "it may cause undefined behavior in the JavaScript environment. ",
-      "Instead, use `tokio::sync::mpsc::channel` ",
-      "to listen for messages from the main thread ",
-      "and spawn a task there."
-    ))
-    .log_error("SPAWN_BLOCKING");
-    panic!();
-  }
+  assert_main_thread("spawn_blocking", "SPAWN_BLOCKING");
   let task_id = Id::next();
   let (join_sender, join_receiver) = once_channel();
-  let (cancel_sender, cancel_receiver) = once_channel::<()>();
   let failure_sender = join_sender.clone();
-  let finished = Arc::new(AtomicBool::new(false));
-  let finish_flag = finished.clone();
-  let failure_flag = finished.clone();
+  let flags = TaskFlags::new();
+  let task_flags = flags.clone();
+  let failure_flags = flags.clone();
   WORKER_POOL.with(move |worker_pool| {
     worker_pool.queue_task(
       move || {
-        if cancel_receiver.is_done() {
-          finish_flag.store(true, Ordering::SeqCst);
+        if task_flags.is_cancelled() {
+          task_flags.finish();
           join_sender.send(Err(JoinError::cancelled(task_id)));
           return;
         }
         let returned = id::scope_blocking(task_id, callable);
-        finish_flag.store(true, Ordering::SeqCst);
+        task_flags.finish();
         join_sender.send(Ok(returned));
       },
       // Called when the web worker cannot run the task or dies while
       // running it. Without this, the `JoinHandle` would never resolve.
       move || {
-        failure_flag.store(true, Ordering::SeqCst);
+        failure_flags.finish();
         failure_sender.send(Err(JoinError::panicked(task_id)));
       },
     );
@@ -348,8 +341,7 @@ where
   JoinHandle {
     task_id,
     join_receiver,
-    cancel_sender,
-    finished,
+    flags,
   }
 }
 
@@ -429,10 +421,9 @@ pub async fn yield_now() {
 pub struct JoinHandle<T> {
   task_id: Id,
   join_receiver: OnceReceiver<Result<T, JoinError>>,
-  cancel_sender: OnceSender<()>,
-  /// Flipped by the task right before it stores its result.
-  /// Shared with [`AbortHandle`], which cannot hold the typed receiver.
-  finished: Arc<AtomicBool>,
+  /// Cancellation and completion state,
+  /// shared with the task and with every [`AbortHandle`].
+  flags: Arc<TaskFlags>,
 }
 
 impl<T> Future for JoinHandle<T> {
@@ -495,7 +486,7 @@ impl<T> JoinHandle<T> {
   /// }
   /// ```
   pub fn abort(&self) {
-    self.cancel_sender.send(());
+    self.flags.cancel();
   }
 
   /// Checks if the task associated with this `JoinHandle` has finished.
@@ -507,6 +498,9 @@ impl<T> JoinHandle<T> {
   ///
   /// [`abort`]: JoinHandle::abort
   pub fn is_finished(&self) -> bool {
+    // Answered from the join channel rather than from the flags:
+    // the channel reports `true` only once the result is stored,
+    // so a finished handle is guaranteed to resolve without waiting.
     self.join_receiver.is_done()
   }
 
@@ -514,8 +508,7 @@ impl<T> JoinHandle<T> {
   pub fn abort_handle(&self) -> AbortHandle {
     AbortHandle {
       task_id: self.task_id,
-      cancel_sender: self.cancel_sender.clone(),
-      finished: self.finished.clone(),
+      flags: self.flags.clone(),
     }
   }
 
@@ -622,9 +615,8 @@ impl JoinError {
 #[derive(Clone)]
 pub struct AbortHandle {
   task_id: Id,
-  cancel_sender: OnceSender<()>,
-  /// Flipped by the task right before it stores its result.
-  finished: Arc<AtomicBool>,
+  /// Cancellation and completion state, shared with the task.
+  flags: Arc<TaskFlags>,
 }
 
 impl AbortHandle {
@@ -643,7 +635,7 @@ impl AbortHandle {
   /// running normally. The exception is if the task has not started running
   /// yet; in that case, calling `abort` may prevent the task from starting.
   pub fn abort(&self) {
-    self.cancel_sender.send(());
+    self.flags.cancel();
   }
 
   /// Checks if the task associated with this `AbortHandle` has finished.
@@ -653,7 +645,7 @@ impl AbortHandle {
   /// take some time, and this method does not return `true` until it has
   /// completed.
   pub fn is_finished(&self) -> bool {
-    self.finished.load(Ordering::SeqCst)
+    self.flags.is_finished()
   }
 
   /// Returns a task ID that uniquely identifies this task relative to other

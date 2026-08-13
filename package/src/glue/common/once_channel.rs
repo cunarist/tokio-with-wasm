@@ -1,6 +1,7 @@
+use super::lock;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 /// Creates a channel that carries a single value.
@@ -25,13 +26,6 @@ struct ChannelCore<T> {
   /// Indicates that the value has been sent.
   /// This stays `true` after the value is taken.
   sent: bool,
-}
-
-/// Locks the shared state, recovering it
-/// even if another thread panicked while holding the lock.
-/// A poisoned lock would otherwise make the channel hang forever.
-fn lock<T>(core: &Mutex<ChannelCore<T>>) -> MutexGuard<'_, ChannelCore<T>> {
-  core.lock().unwrap_or_else(|error| error.into_inner())
 }
 
 pub struct OnceSender<T> {

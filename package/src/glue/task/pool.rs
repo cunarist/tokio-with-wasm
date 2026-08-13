@@ -12,11 +12,11 @@ use web_sys::{
 };
 
 #[cfg(not(test))]
-pub static MAX_WORKERS: usize = 512;
+pub const MAX_WORKERS: usize = 512;
 /// Tests cap the pool at two workers,
 /// so that saturation can be exercised without creating hundreds of them.
 #[cfg(test)]
-pub static MAX_WORKERS: usize = 2;
+pub const MAX_WORKERS: usize = 2;
 
 pub struct WorkerPool {
   pool_state: Rc<PoolState>,
