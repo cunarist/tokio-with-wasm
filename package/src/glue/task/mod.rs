@@ -32,7 +32,6 @@ use crate::{
   LogError, OnceReceiver, is_main_thread, once_channel, set_timeout,
 };
 use flags::TaskFlags;
-use id::TaskIdScope;
 use js_sys::Promise;
 use pool::WorkerPool;
 use std::error::Error;
@@ -221,7 +220,7 @@ where
   let flags = TaskFlags::new();
   let task_flags = flags.clone();
   spawn_promise(async move {
-    let mut future = pin!(TaskIdScope::new(task_id, future));
+    let mut future = pin!(future);
     let result = poll_fn(|cx| {
       // The waker is registered under the same lock as the check, so an
       // abort arriving mid-poll wakes the task
@@ -229,7 +228,9 @@ where
       if task_flags.cancelled_or_register(cx.waker()) {
         return Poll::Ready(Err(JoinError::cancelled(task_id)));
       }
-      future.as_mut().poll(cx).map(Ok)
+      // The scope makes `task::id` report this task's identifier
+      // while the future is being polled.
+      id::scope(task_id, || future.as_mut().poll(cx).map(Ok))
     })
     .await;
     // The flag flips before the send, so a consumer woken by the
@@ -323,7 +324,7 @@ where
           join_sender.send(Err(JoinError::cancelled(task_id)));
           return;
         }
-        let returned = id::scope_blocking(task_id, callable);
+        let returned = id::scope(task_id, callable);
         task_flags.finish();
         join_sender.send(Ok(returned));
       },

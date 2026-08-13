@@ -214,15 +214,13 @@ impl<F> Timeout<F> {
 impl<F: Future> Future for Timeout<F> {
   type Output = Result<F::Output, Elapsed>;
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    // Safety: `value` is never moved out of the pinned struct,
-    // and `delay` is `Unpin`.
+    // Safety: `value` is never moved out of the pinned struct.
     let (value, delay) = unsafe {
       let this = self.get_unchecked_mut();
-      (
-        Pin::new_unchecked(&mut this.value),
-        Pin::new(&mut this.delay),
-      )
+      (Pin::new_unchecked(&mut this.value), &mut this.delay)
     };
+    // `delay` needs no such promise, because `Sleep` is `Unpin`.
+    let delay = Pin::new(delay);
     // Poll the future first. If it's ready, return the output
     // even when the deadline has passed, like in `tokio`.
     match value.poll(cx) {
