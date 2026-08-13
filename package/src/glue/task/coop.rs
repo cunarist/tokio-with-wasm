@@ -33,13 +33,15 @@ thread_local! {
 /// ```no_run
 /// use tokio_with_wasm::alias as tokio;
 ///
-/// async fn sum_iterator(input: &mut impl std::iter::Iterator<Item=i64>) -> i64 {
-///     let mut sum: i64 = 0;
-///     while let Some(i) = input.next() {
-///         sum += i;
-///         tokio::task::consume_budget().await
-///     }
-///     sum
+/// async fn sum_iterator(
+///   input: &mut impl std::iter::Iterator<Item = i64>,
+/// ) -> i64 {
+///   let mut sum: i64 = 0;
+///   while let Some(i) = input.next() {
+///     sum += i;
+///     tokio::task::consume_budget().await
+///   }
+///   sum
 /// }
 /// ```
 pub async fn consume_budget() {

@@ -110,17 +110,17 @@ fn assert_main_thread(name: &str, code: &str) {
 /// use tokio_with_wasm::alias as tokio;
 ///
 /// async fn process(job: u32) -> io::Result<u32> {
-///     // Some process...
-///     Ok(job)
+///   // Some process...
+///   Ok(job)
 /// }
 ///
 /// async fn work(job: u32) -> io::Result<u32> {
-///     tokio::spawn(async move {
-///         // Process this job concurrently.
-///         process(job).await
-///     })
-///     .await
-///     .expect("the task was cancelled")
+///   tokio::spawn(async move {
+///     // Process this job concurrently.
+///     process(job).await
+///   })
+///   .await
+///   .expect("the task was cancelled")
 /// }
 /// ```
 ///
@@ -131,26 +131,26 @@ fn assert_main_thread(name: &str, code: &str) {
 /// use tokio_with_wasm::alias as tokio;
 ///
 /// async fn my_background_op(id: i32) -> String {
-///     format!("Finished background task {id}.")
+///   format!("Finished background task {id}.")
 /// }
 ///
 /// async fn work() {
-///     let ops = vec![1, 2, 3];
-///     let mut tasks = Vec::with_capacity(ops.len());
-///     for op in ops {
-///         // This call will make them start running in the background
-///         // immediately.
-///         tasks.push(tokio::spawn(my_background_op(op)));
-///     }
+///   let ops = vec![1, 2, 3];
+///   let mut tasks = Vec::with_capacity(ops.len());
+///   for op in ops {
+///     // This call will make them start running in the background
+///     // immediately.
+///     tasks.push(tokio::spawn(my_background_op(op)));
+///   }
 ///
-///     let mut outputs = Vec::with_capacity(tasks.len());
-///     for task in tasks {
-///         match task.await {
-///             Ok(output) => outputs.push(output),
-///             Err(error) => println!("An error occurred: {error}"),
-///         }
+///   let mut outputs = Vec::with_capacity(tasks.len());
+///   for task in tasks {
+///     match task.await {
+///       Ok(output) => outputs.push(output),
+///       Err(error) => println!("An error occurred: {error}"),
 ///     }
-///     println!("{outputs:?}");
+///   }
+///   println!("{outputs:?}");
 /// }
 /// ```
 ///
@@ -170,20 +170,21 @@ fn assert_main_thread(name: &str, code: &str) {
 /// use tokio_with_wasm::alias as tokio;
 ///
 /// fn use_rc(rc: Rc<()>) {
-///     // Do stuff w/ rc
-///     drop(rc);
+///   // Do stuff w/ rc
+///   drop(rc);
 /// }
 ///
 /// async fn work() {
-///     let _ = tokio::spawn(async {
-///         // Force the `Rc` to stay in a scope with no `.await`
-///         {
-///             let rc = Rc::new(());
-///             use_rc(rc.clone());
-///         }
+///   let _ = tokio::spawn(async {
+///     // Force the `Rc` to stay in a scope with no `.await`
+///     {
+///       let rc = Rc::new(());
+///       use_rc(rc.clone());
+///     }
 ///
-///         tokio::task::yield_now().await;
-///     }).await;
+///     tokio::task::yield_now().await;
+///   })
+///   .await;
 /// }
 /// ```
 ///
@@ -195,18 +196,19 @@ fn assert_main_thread(name: &str, code: &str) {
 /// use tokio_with_wasm::alias as tokio;
 ///
 /// fn use_rc(rc: Rc<()>) {
-///     // Do stuff w/ rc
-///     drop(rc);
+///   // Do stuff w/ rc
+///   drop(rc);
 /// }
 ///
 /// async fn work() {
-///     let _ = tokio::spawn(async {
-///         let rc = Rc::new(());
+///   let _ = tokio::spawn(async {
+///     let rc = Rc::new(());
 ///
-///         tokio::task::yield_now().await;
+///     tokio::task::yield_now().await;
 ///
-///         use_rc(rc.clone());
-///     }).await;
+///     use_rc(rc.clone());
+///   })
+///   .await;
 /// }
 /// ```
 pub fn spawn<F, T>(future: F) -> JoinHandle<T>
@@ -289,19 +291,19 @@ where
 /// use tokio_with_wasm::alias as tokio;
 ///
 /// async fn work() {
-///     // Initial input
-///     let mut data = "Hello, ".to_string();
-///     let output = tokio::task::spawn_blocking(move || {
-///         // Stand-in for compute-heavy work or using synchronous APIs
-///         data.push_str("world");
-///         // Pass ownership of the value back to the asynchronous context
-///         data
-///     })
-///     .await
-///     .expect("the blocking task did not finish");
+///   // Initial input
+///   let mut data = "Hello, ".to_string();
+///   let output = tokio::task::spawn_blocking(move || {
+///     // Stand-in for compute-heavy work or using synchronous APIs
+///     data.push_str("world");
+///     // Pass ownership of the value back to the asynchronous context
+///     data
+///   })
+///   .await
+///   .expect("the blocking task did not finish");
 ///
-///     // `output` is the value returned from the thread
-///     assert_eq!(output.as_str(), "Hello, world");
+///   // `output` is the value returned from the thread
+///   assert_eq!(output.as_str(), "Hello, world");
 /// }
 /// ```
 pub fn spawn_blocking<C, T>(callable: C) -> JoinHandle<T>
@@ -379,44 +381,44 @@ pub async fn yield_now() {
 /// Creation from [`spawn`]:
 ///
 /// ```no_run
-/// use tokio_with_wasm::alias as tokio;
 /// use tokio::spawn;
+/// use tokio_with_wasm::alias as tokio;
 ///
 /// let join_handle: tokio::task::JoinHandle<_> = spawn(async {
-///     // some work here
+///   // some work here
 /// });
 /// ```
 ///
 /// Creation from [`spawn_blocking`]:
 ///
 /// ```no_run
-/// use tokio_with_wasm::alias as tokio;
 /// use tokio::task::spawn_blocking;
+/// use tokio_with_wasm::alias as tokio;
 ///
 /// let join_handle: tokio::task::JoinHandle<_> = spawn_blocking(|| {
-///     // some blocking work here
+///   // some blocking work here
 /// });
 /// ```
 ///
 /// Child being detached and outliving its parent:
 ///
 /// ```no_run
-/// use tokio_with_wasm::alias as tokio;
 /// use tokio::spawn;
+/// use tokio_with_wasm::alias as tokio;
 ///
 /// async fn work() {
-///     let original_task = spawn(async {
-///         let _detached_task = spawn(async {
-///             // Here we sleep to make sure that the first task returns
-///             // before. Assume that code takes a few seconds to execute
-///             // here. This will be called, even though the `JoinHandle`
-///             // is dropped.
-///             println!("♫ Still alive ♫");
-///         });
+///   let original_task = spawn(async {
+///     let _detached_task = spawn(async {
+///       // Here we sleep to make sure that the first task returns
+///       // before. Assume that code takes a few seconds to execute
+///       // here. This will be called, even though the `JoinHandle`
+///       // is dropped.
+///       println!("♫ Still alive ♫");
 ///     });
+///   });
 ///
-///     let _ = original_task.await;
-///     println!("Original task is joined.");
+///   let _ = original_task.await;
+///   println!("Original task is joined.");
 /// }
 /// ```
 pub struct JoinHandle<T> {
@@ -461,29 +463,29 @@ impl<T> JoinHandle<T> {
   /// yet; in that case, calling `abort` may prevent the task from starting.
   ///
   /// ```no_run
-  /// use tokio_with_wasm::alias as tokio;
   /// use tokio::time;
+  /// use tokio_with_wasm::alias as tokio;
   ///
   /// async fn work() {
-  ///     let mut handles = Vec::new();
+  ///   let mut handles = Vec::new();
   ///
-  ///     handles.push(tokio::spawn(async {
-  ///         time::sleep(time::Duration::from_secs(10)).await;
-  ///         true
-  ///     }));
+  ///   handles.push(tokio::spawn(async {
+  ///     time::sleep(time::Duration::from_secs(10)).await;
+  ///     true
+  ///   }));
   ///
-  ///     handles.push(tokio::spawn(async {
-  ///         time::sleep(time::Duration::from_secs(10)).await;
-  ///         false
-  ///     }));
+  ///   handles.push(tokio::spawn(async {
+  ///     time::sleep(time::Duration::from_secs(10)).await;
+  ///     false
+  ///   }));
   ///
-  ///     for handle in &handles {
-  ///         handle.abort();
-  ///     }
+  ///   for handle in &handles {
+  ///     handle.abort();
+  ///   }
   ///
-  ///     for handle in handles {
-  ///         assert!(handle.await.unwrap_err().is_cancelled());
-  ///     }
+  ///   for handle in handles {
+  ///     assert!(handle.await.unwrap_err().is_cancelled());
+  ///   }
   /// }
   /// ```
   pub fn abort(&self) {

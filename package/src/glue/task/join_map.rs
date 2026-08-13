@@ -33,15 +33,15 @@ use std::task::{Context, Poll};
 ///
 /// ```ignore
 /// #[cfg(all(
-///     target_family = "wasm",
-///     target_vendor = "unknown",
-///     target_os = "unknown"
+///   target_family = "wasm",
+///   target_vendor = "unknown",
+///   target_os = "unknown"
 /// ))]
 /// use tokio_with_wasm::task::JoinMap;
 /// #[cfg(not(all(
-///     target_family = "wasm",
-///     target_vendor = "unknown",
-///     target_os = "unknown"
+///   target_family = "wasm",
+///   target_vendor = "unknown",
+///   target_os = "unknown"
 /// )))]
 /// use tokio_util::task::JoinMap;
 /// ```
@@ -56,22 +56,22 @@ use std::task::{Context, Poll};
 ///
 /// #[tokio::main]
 /// async fn main() {
-///     let mut map = JoinMap::new();
+///   let mut map = JoinMap::new();
 ///
-///     for i in 0..10 {
-///         map.spawn(i, async move { i * 2 });
-///     }
+///   for i in 0..10 {
+///     map.spawn(i, async move { i * 2 });
+///   }
 ///
-///     let mut seen = [false; 10];
-///     while let Some((key, result)) = map.join_next().await {
-///         let output = result.unwrap();
-///         assert_eq!(output, key * 2);
-///         seen[key] = true;
-///     }
+///   let mut seen = [false; 10];
+///   while let Some((key, result)) = map.join_next().await {
+///     let output = result.unwrap();
+///     assert_eq!(output, key * 2);
+///     seen[key] = true;
+///   }
 ///
-///     for i in 0..10 {
-///         assert!(seen[i]);
-///     }
+///   for i in 0..10 {
+///     assert!(seen[i]);
+///   }
 /// }
 /// ```
 ///
@@ -243,15 +243,15 @@ where
   ///
   /// #[tokio::main]
   /// async fn main() {
-  ///     let mut map = JoinMap::new();
+  ///   let mut map = JoinMap::new();
   ///
-  ///     for i in 0..10 {
-  ///         map.spawn_blocking(i, move || i * 2);
-  ///     }
+  ///   for i in 0..10 {
+  ///     map.spawn_blocking(i, move || i * 2);
+  ///   }
   ///
-  ///     while let Some((key, result)) = map.join_next().await {
-  ///         assert_eq!(result.unwrap(), key * 2);
-  ///     }
+  ///   while let Some((key, result)) = map.join_next().await {
+  ///     assert_eq!(result.unwrap(), key * 2);
+  ///   }
   /// }
   /// ```
   #[track_caller]

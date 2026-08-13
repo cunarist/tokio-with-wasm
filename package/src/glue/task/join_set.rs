@@ -29,26 +29,26 @@ use std::task::{Context, Poll};
 /// Spawn multiple tasks and wait for them.
 ///
 /// ```no_run
-/// use tokio_with_wasm::alias as tokio;
 /// use tokio::task::JoinSet;
+/// use tokio_with_wasm::alias as tokio;
 ///
 /// #[tokio::main]
 /// async fn main() {
-///     let mut set = JoinSet::new();
+///   let mut set = JoinSet::new();
 ///
-///     for i in 0..10 {
-///         set.spawn(async move { i });
-///     }
+///   for i in 0..10 {
+///     set.spawn(async move { i });
+///   }
 ///
-///     let mut seen = [false; 10];
-///     while let Some(res) = set.join_next().await {
-///         let idx = res.unwrap();
-///         seen[idx] = true;
-///     }
+///   let mut seen = [false; 10];
+///   while let Some(res) = set.join_next().await {
+///     let idx = res.unwrap();
+///     seen[idx] = true;
+///   }
 ///
-///     for i in 0..10 {
-///         assert!(seen[i]);
-///     }
+///   for i in 0..10 {
+///     assert!(seen[i]);
+///   }
 /// }
 /// ```
 pub struct JoinSet<T> {
@@ -167,26 +167,26 @@ impl<T: 'static> JoinSet<T> {
   /// Spawn multiple blocking tasks and wait for them.
   ///
   /// ```no_run
-  /// use tokio_with_wasm::alias as tokio;
   /// use tokio::task::JoinSet;
+  /// use tokio_with_wasm::alias as tokio;
   ///
   /// #[tokio::main]
   /// async fn main() {
-  ///     let mut set = JoinSet::new();
+  ///   let mut set = JoinSet::new();
   ///
-  ///     for i in 0..10 {
-  ///         set.spawn_blocking(move || { i });
-  ///     }
+  ///   for i in 0..10 {
+  ///     set.spawn_blocking(move || i);
+  ///   }
   ///
-  ///     let mut seen = [false; 10];
-  ///     while let Some(res) = set.join_next().await {
-  ///         let idx = res.unwrap();
-  ///         seen[idx] = true;
-  ///     }
+  ///   let mut seen = [false; 10];
+  ///   while let Some(res) = set.join_next().await {
+  ///     let idx = res.unwrap();
+  ///     seen[idx] = true;
+  ///   }
   ///
-  ///     for i in 0..10 {
-  ///         assert!(seen[i]);
-  ///     }
+  ///   for i in 0..10 {
+  ///     assert!(seen[i]);
+  ///   }
   /// }
   /// ```
   ///
@@ -297,48 +297,48 @@ impl<T: 'static> JoinSet<T> {
   /// Spawn multiple tasks and `join_all` them.
   ///
   /// ```no_run
-  /// use tokio_with_wasm::alias as tokio;
-  /// use tokio::task::JoinSet;
   /// use std::time::Duration;
+  /// use tokio::task::JoinSet;
+  /// use tokio_with_wasm::alias as tokio;
   ///
   /// #[tokio::main]
   /// async fn main() {
-  ///     let mut set = JoinSet::new();
+  ///   let mut set = JoinSet::new();
   ///
-  ///     for i in 0..3 {
-  ///        set.spawn(async move {
-  ///            tokio::time::sleep(Duration::from_secs(3 - i)).await;
-  ///            i
-  ///        });
-  ///     }
+  ///   for i in 0..3 {
+  ///     set.spawn(async move {
+  ///       tokio::time::sleep(Duration::from_secs(3 - i)).await;
+  ///       i
+  ///     });
+  ///   }
   ///
-  ///     let output = set.join_all().await;
-  ///     assert_eq!(output, vec![2, 1, 0]);
+  ///   let output = set.join_all().await;
+  ///   assert_eq!(output, vec![2, 1, 0]);
   /// }
   /// ```
   ///
   /// Equivalent implementation of `join_all`, using [`join_next`] and loop.
   ///
   /// ```no_run
-  /// use tokio_with_wasm::alias as tokio;
   /// use tokio::task::JoinSet;
+  /// use tokio_with_wasm::alias as tokio;
   ///
   /// #[tokio::main]
   /// async fn main() {
-  ///     let mut set = JoinSet::new();
+  ///   let mut set = JoinSet::new();
   ///
-  ///     for i in 0..3 {
-  ///        set.spawn(async move {i});
-  ///     }
+  ///   for i in 0..3 {
+  ///     set.spawn(async move { i });
+  ///   }
   ///
-  ///     let mut output = Vec::new();
-  ///     while let Some(res) = set.join_next().await{
-  ///         match res {
-  ///             Ok(t) => output.push(t),
-  ///             Err(_) => (),
-  ///         }
+  ///   let mut output = Vec::new();
+  ///   while let Some(res) = set.join_next().await {
+  ///     match res {
+  ///       Ok(t) => output.push(t),
+  ///       Err(_) => (),
   ///     }
-  ///     assert_eq!(output.len(),3);
+  ///   }
+  ///   assert_eq!(output.len(), 3);
   /// }
   /// ```
   /// [`join_next`]: fn@Self::join_next
