@@ -1,6 +1,6 @@
 [package]
 name = "tokio_with_wasm"
-version = "0.10.0"
+version = "0.10.1"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
@@ -36,7 +36,7 @@ wildcard_imports = "deny"
 
 [dependencies]
 hashbrown = { version = "0.16", default-features = false }
-tokio_with_wasm_proc = "0.10.0"
+tokio_with_wasm_proc = "0.10.1"
 tokio = "1.x.x"
 # 0.2.120 is the first version whose `usize` ABI
 # is pointer-sized on `wasm64` instead of `u32`.
