@@ -24,7 +24,7 @@ This library assumes that you're compiling your Rust project with `wasm-pack` an
 
 - **File system**: `fs` reads and writes files in the [OPFS](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system), the store every browser keeps on disk for one origin.
 
-> `net`, `process`, and `signal` have no counterpart on the web, so they are not included in this library.
+> `net`, `process`, and `signal` have no counterpart on the web, so they are missing from the web build. Using them is a compile error, not a runtime failure.
 
 ## Use cases
 
