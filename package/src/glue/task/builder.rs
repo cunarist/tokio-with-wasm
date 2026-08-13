@@ -14,15 +14,13 @@ use std::io;
 /// # Examples
 ///
 /// ```no_run
-/// use tokio_with_wasm::alias as tokio;
 /// use tokio::task::Builder;
+/// use tokio_with_wasm::alias as tokio;
 ///
 /// async fn work() -> std::io::Result<()> {
-///     let handle = Builder::new()
-///         .name("my_task")
-///         .spawn(async { 6 * 7 })?;
-///     assert_eq!(handle.await.expect("the task failed"), 42);
-///     Ok(())
+///   let handle = Builder::new().name("my_task").spawn(async { 6 * 7 })?;
+///   assert_eq!(handle.await.expect("the task failed"), 42);
+///   Ok(())
 /// }
 /// ```
 #[derive(Default, Debug)]
