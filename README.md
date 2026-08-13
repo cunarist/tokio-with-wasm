@@ -6,7 +6,7 @@
 
 ![Example](https://github.com/user-attachments/assets/83825e10-0c99-4d9f-b17c-a5b66067348a)
 
-`tokio_with_wasm` is a Rust library that provides `tokio` for web browsers. It aims to offer the exact same `tokio` features to web applications, leveraging JavaScript web APIs.
+`tokio_with_wasm` is a Rust library that provides `tokio` for web browsers. It aims to offer the exact same `tokio` API to Rust web applications.
 
 This library is made up of JavaScript glue code that mimics the behavior of real `tokio`. `tokio_with_wasm` doesn't have its own runtime and adapts to the JavaScript event loop.
 
