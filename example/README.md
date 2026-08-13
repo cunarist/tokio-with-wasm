@@ -18,5 +18,5 @@ wasm-pack build . --target web -- -Z build-std=std,panic_abort
 To view in a browser:
 
 ```shell
-miniserve pkg --index index.html --header "Cross-Origin-Opener-Policy:same-origin" --header "Cross-Origin-Embedder-Policy:require-corp"
+miniserve pkg --index index.html --header "cross-origin-opener-policy:same-origin" --header "cross-origin-embedder-policy:require-corp"
 ```
