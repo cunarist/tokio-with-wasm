@@ -6,7 +6,7 @@ self.onmessage = event => {
   let initialised = import(event.data.glue_path)
     .then(async wasmBindings => {
       globalThis.wasmBindings = wasmBindings;
-      await wasmBindings.default(event.data);
+      globalThis.wasmExports = await wasmBindings.default(event.data);
       return wasmBindings;
     })
     .catch(err => {
@@ -23,6 +23,13 @@ self.onmessage = event => {
     // This will queue further commands up
     // until the module is fully initialised:
     const wasmBindings = await initialised;
+    if (event.data === null) {
+      // The pool lets this worker go. Its stack lives in the shared memory,
+      // so it is freed before the worker closes.
+      wasmExports.__wbindgen_thread_destroy?.();
+      close();
+      return;
+    }
     try {
       wasmBindings.task_worker_entry_point(event.data);
     } catch (err) {
