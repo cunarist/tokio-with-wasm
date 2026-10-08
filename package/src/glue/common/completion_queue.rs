@@ -7,7 +7,7 @@ use std::task::{Wake, Waker};
 ///
 /// Each spawned task gets a waker made by [`task_waker`] registered in its
 /// join channel. When the task completes, that waker pushes the task's tag
-/// here and wakes the consumer. This lets `JoinSet` and `JoinMap` hand out
+/// here and wakes the consumer. This lets `JoinSet` hand out
 /// results in true completion order and learn about completions without
 /// polling every stored handle.
 ///

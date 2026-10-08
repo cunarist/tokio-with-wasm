@@ -39,7 +39,7 @@ fs = [
   "web-sys/WritableStream",
 ]
 time = []
-rt = ["tokio/rt"]
+rt = ["tokio/rt", "dep:hashbrown"]
 rt-multi-thread = ["rt"]
 
 [lints.clippy]
@@ -48,7 +48,6 @@ expect_used = "deny"
 wildcard_imports = "deny"
 
 [dependencies]
-hashbrown = { version = "0.16", default-features = false }
 tokio_with_wasm_proc = "0.10.1"
 tokio = "1.x.x"
 # 0.2.96 is the first version with `thread_local_v2`.
@@ -67,6 +66,10 @@ web-sys = { version = "0.3.73", features = [
     'Url',
     'Performance',
 ] }
+
+# Only `JoinMap` uses it, which exists on the web alone.
+[target.'cfg(target_family = "wasm")'.dependencies]
+hashbrown = { version = "0.16", default-features = false, optional = true }
 
 [dev-dependencies]
 # The crate itself, so that the integration tests get its features.
