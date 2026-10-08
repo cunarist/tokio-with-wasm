@@ -6,6 +6,7 @@ rust-version = "1.85"
 license = "MIT"
 description = "Mimicking tokio functionalities on web browsers"
 repository = "https://github.com/cunarist/tokio-with-wasm"
+readme = "../README.md"
 
 [package.metadata.docs.rs]
 default-target = "wasm32-unknown-unknown"
