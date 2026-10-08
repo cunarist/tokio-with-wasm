@@ -11,6 +11,10 @@ use std::task::{Context, Poll};
 /// An interval will tick indefinitely. At any time, the [`Interval`] value can
 /// be dropped. This cancels the interval.
 ///
+/// Browsers throttle timers in background tabs, and by default the ticks
+/// missed meanwhile all arrive at once when the tab comes back. Loops that
+/// only care about the latest tick should use [`MissedTickBehavior::Skip`].
+///
 /// # Panics
 ///
 /// This function panics if `period` is zero.
