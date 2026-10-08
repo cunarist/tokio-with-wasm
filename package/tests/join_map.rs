@@ -13,7 +13,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use tokio_with_wasm::alias as tokio;
 use tokio_with_wasm::task::{JoinError, JoinMap};
-use tokio_with_wasm::time::{Duration, sleep};
+use tokio_with_wasm::time::{Duration, sleep, timeout};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -191,8 +191,9 @@ async fn shutdown_aborts_and_drains() {
       sleep(Duration::from_secs(10)).await;
     });
   }
-  map.shutdown().await;
-  assert!(map.is_empty());
+  // Without the abort, the drain would wait out the sleeps.
+  let drained = timeout(Duration::from_secs(2), map.shutdown()).await;
+  assert!(drained.is_ok() && map.is_empty());
 }
 
 #[wasm_bindgen_test]

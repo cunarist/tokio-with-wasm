@@ -47,6 +47,7 @@ async fn a_task_observes_its_own_id() -> Result<(), JoinError> {
 async fn a_blocking_task_observes_its_own_id() -> Result<(), JoinError> {
   let handle = spawn_blocking(tokio::task::try_id);
   let task_id = handle.id();
+  assert_ne!(spawn_blocking(|| {}).id(), task_id);
   assert_eq!(handle.await?, Some(task_id));
   Ok(())
 }
