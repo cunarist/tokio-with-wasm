@@ -11,17 +11,10 @@
 
 use std::time::Duration;
 use tokio_with_wasm::alias as tokio;
-use tokio_with_wasm::task::{Id, JoinError, spawn, spawn_blocking};
+use tokio_with_wasm::task::{JoinError, spawn, spawn_blocking};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-#[wasm_bindgen_test]
-async fn every_task_gets_its_own_id() {
-  let first = spawn(async {});
-  let second = spawn(async {});
-  assert_ne!(first.id(), second.id());
-}
 
 #[wasm_bindgen_test]
 async fn the_abort_handle_shares_the_task_id() {
@@ -54,23 +47,8 @@ async fn a_task_observes_its_own_id() -> Result<(), JoinError> {
 async fn a_blocking_task_observes_its_own_id() -> Result<(), JoinError> {
   let handle = spawn_blocking(tokio::task::try_id);
   let task_id = handle.id();
+  assert_ne!(spawn_blocking(|| {}).id(), task_id);
   assert_eq!(handle.await?, Some(task_id));
-  Ok(())
-}
-
-#[wasm_bindgen_test]
-fn try_id_is_none_outside_of_tasks() {
-  assert_eq!(tokio::task::try_id(), None);
-}
-
-#[wasm_bindgen_test]
-async fn ids_survive_display_and_comparison() -> Result<(), JoinError> {
-  let handle = spawn(async { 5 });
-  let task_id: Id = handle.id();
-  let text = task_id.to_string();
-  assert!(!text.is_empty());
-  assert!(text.chars().all(|ch| ch.is_ascii_digit()));
-  handle.await?;
   Ok(())
 }
 

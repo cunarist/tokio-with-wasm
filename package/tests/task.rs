@@ -65,12 +65,11 @@ async fn abort_cancels_a_pending_task() {
 
 #[wasm_bindgen_test]
 async fn abort_handle_cancels_remotely() {
-  let handle = spawn(async {
-    tokio::time::sleep(Duration::from_secs(10)).await;
-  });
-  let abort_handle = handle.abort_handle();
-  abort_handle.abort();
-  assert!(handle.await.is_err_and(|error| error.is_cancelled()));
+  let handle = spawn(std::future::pending::<()>());
+  yield_now().await;
+  handle.abort_handle().abort();
+  let joined = tokio::time::timeout(Duration::from_secs(1), handle).await;
+  assert!(joined.is_ok_and(|result| result.is_err_and(|e| e.is_cancelled())));
 }
 
 #[wasm_bindgen_test]

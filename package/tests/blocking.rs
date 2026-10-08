@@ -79,11 +79,18 @@ async fn abort_before_start_cancels_a_blocking_task() {
 
 #[wasm_bindgen_test]
 async fn a_worker_is_reused_between_tasks() -> Result<(), JoinError> {
-  // The first task creates a worker; after it finishes, the pool
-  // should hand the same worker to the next task instead of hanging.
-  for round in 0..3 {
-    let output = spawn_blocking(move || round).await?;
-    assert_eq!(output, round);
+  thread_local! {
+    static RUNS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+  }
+  // A worker that comes back to the pool is the next one handed out,
+  // so each task runs on the thread the previous one ran on.
+  let mut last = 0;
+  for _ in 0..3 {
+    let runs =
+      spawn_blocking(|| RUNS.with(|runs| runs.replace(runs.get() + 1) + 1))
+        .await?;
+    assert!(runs > last, "a fresh worker took the task");
+    last = runs;
     // Let the pool reclaim the worker.
     sleep(Duration::from_millis(50)).await;
   }

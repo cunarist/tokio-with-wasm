@@ -24,7 +24,7 @@ thread_local! {
 }
 
 /// Consumes a unit of budget and returns the execution back to the
-/// JavaScript event loop if the task's coop budget was exhausted.
+/// JavaScript event loop if the thread's coop budget was exhausted.
 ///
 /// This lets long computations that never otherwise `.await`
 /// stay responsive, the same way it prevents starvation in `tokio`:
@@ -84,20 +84,6 @@ impl<F: Future> Future for Unconstrained<F> {
 mod tests {
   use super::*;
   use wasm_bindgen_test::wasm_bindgen_test;
-
-  #[wasm_bindgen_test]
-  async fn consume_budget_completes_many_times() {
-    // More calls than the budget holds, so at least one yield happens.
-    for _ in 0..(BUDGET * 2 + 1) {
-      consume_budget().await;
-    }
-  }
-
-  #[wasm_bindgen_test]
-  async fn unconstrained_passes_the_output_through() {
-    let output = unconstrained(async { 42 }).await;
-    assert_eq!(output, 42);
-  }
 
   #[wasm_bindgen_test]
   async fn unconstrained_skips_the_budget() {

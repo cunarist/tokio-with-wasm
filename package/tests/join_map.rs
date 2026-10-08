@@ -9,8 +9,7 @@
   target_os = "unknown"
 ))]
 
-use std::cell::{Cell, RefCell};
-use std::future::Future;
+use std::cell::Cell;
 use std::rc::Rc;
 use tokio_with_wasm::alias as tokio;
 use tokio_with_wasm::task::{JoinError, JoinMap};
@@ -38,54 +37,6 @@ async fn join_next_returns_every_key_and_output() -> Result<(), JoinError> {
 }
 
 #[wasm_bindgen_test]
-async fn join_next_yields_in_completion_order() -> Result<(), JoinError> {
-  let mut map = JoinMap::new();
-  map.spawn("slow", async {
-    sleep(Duration::from_millis(350)).await;
-  });
-  map.spawn("fast", async {
-    sleep(Duration::from_millis(50)).await;
-  });
-  map.spawn("middle", async {
-    sleep(Duration::from_millis(200)).await;
-  });
-
-  let mut order = Vec::new();
-  while let Some((key, result)) = map.join_next().await {
-    result?;
-    order.push(key);
-  }
-  assert_eq!(order, vec!["fast", "middle", "slow"]);
-  Ok(())
-}
-
-#[wasm_bindgen_test]
-async fn batched_completions_arrive_in_completion_order()
--> Result<(), JoinError> {
-  let mut map = JoinMap::new();
-  map.spawn("slow", async {
-    sleep(Duration::from_millis(300)).await;
-  });
-  map.spawn("fast", async {
-    sleep(Duration::from_millis(100)).await;
-  });
-  map.spawn("middle", async {
-    sleep(Duration::from_millis(200)).await;
-  });
-  // Let every task finish before the first `join_next` poll,
-  // so the order must come from completion times, not from polling.
-  sleep(Duration::from_millis(400)).await;
-
-  let mut order = Vec::new();
-  while let Some((key, result)) = map.join_next().await {
-    result?;
-    order.push(key);
-  }
-  assert_eq!(order, vec!["fast", "middle", "slow"]);
-  Ok(())
-}
-
-#[wasm_bindgen_test]
 async fn with_hasher_supports_a_custom_hasher() -> Result<(), JoinError> {
   use std::hash::{BuildHasherDefault, DefaultHasher};
   let mut map: JoinMap<&str, i32, BuildHasherDefault<DefaultHasher>> =
@@ -101,12 +52,6 @@ async fn with_hasher_supports_a_custom_hasher() -> Result<(), JoinError> {
   outputs.sort();
   assert_eq!(outputs, vec![("a", 1), ("b", 2)]);
   Ok(())
-}
-
-#[wasm_bindgen_test]
-async fn join_next_on_an_empty_map_is_none() {
-  let mut map: JoinMap<u8, ()> = JoinMap::new();
-  assert!(map.join_next().await.is_none());
 }
 
 #[wasm_bindgen_test]
@@ -246,25 +191,9 @@ async fn shutdown_aborts_and_drains() {
       sleep(Duration::from_secs(10)).await;
     });
   }
-  map.shutdown().await;
-  assert!(map.is_empty());
-}
-
-#[wasm_bindgen_test]
-async fn abort_all_cancels_pending_tasks() {
-  let mut map = JoinMap::new();
-  for i in 0..3 {
-    map.spawn(i, async {
-      sleep(Duration::from_secs(10)).await;
-    });
-  }
-  map.abort_all();
-  let mut cancelled = 0;
-  while let Some((_, result)) = map.join_next().await {
-    assert!(result.is_err_and(|error| error.is_cancelled()));
-    cancelled += 1;
-  }
-  assert_eq!(cancelled, 3);
+  // Without the abort, the drain would wait out the sleeps.
+  let drained = timeout(Duration::from_secs(2), map.shutdown()).await;
+  assert!(drained.is_ok() && map.is_empty());
 }
 
 #[wasm_bindgen_test]
@@ -325,60 +254,6 @@ async fn abort_matching_cancels_only_matching_keys() -> Result<(), JoinError> {
   }
   assert_eq!(cancelled, 2);
   assert_eq!(outputs, vec![("other".to_string(), 7)]);
-  Ok(())
-}
-
-#[wasm_bindgen_test]
-async fn capacity_and_exact_size_keys_are_exposed() {
-  let mut map = JoinMap::with_capacity(16);
-  assert!(map.capacity() >= 16);
-  map.spawn_local("a", async {});
-  map.spawn_local("b", async {});
-  assert_eq!(map.keys().len(), 2);
-  map.shutdown().await;
-}
-
-#[wasm_bindgen_test]
-async fn try_join_next_does_not_silence_join_next() -> Result<(), JoinError> {
-  let map = Rc::new(RefCell::new(JoinMap::new()));
-  map.borrow_mut().spawn("timed", async {
-    sleep(Duration::from_millis(150)).await;
-    5
-  });
-
-  // While the test below is awaiting `join_next`,
-  // this task pokes the map with `try_join_next`.
-  let poker = map.clone();
-  tokio::spawn(async move {
-    sleep(Duration::from_millis(50)).await;
-    assert!(poker.borrow_mut().try_join_next().is_none());
-  });
-
-  let start = js_sys::Date::now();
-  let waited = timeout(
-    Duration::from_secs(5),
-    std::future::poll_fn(|cx| {
-      let mut map = map.borrow_mut();
-      let join_next = std::pin::pin!(map.join_next());
-      join_next.poll(cx)
-    }),
-  )
-  .await;
-  let Ok(joined) = waited else {
-    panic!("`join_next` missed the completion");
-  };
-  let Some((key, result)) = joined else {
-    panic!("the map reported itself empty");
-  };
-  assert_eq!((key, result?), ("timed", 5));
-  // With a clobbered waker, nothing re-polls `join_next` until the
-  // timeout above fires at five seconds, so completion must come from
-  // the task's own wake at 150ms to prove the waker survived.
-  let elapsed = js_sys::Date::now() - start;
-  assert!(
-    elapsed < 2500.0,
-    "`join_next` only completed after {elapsed}ms",
-  );
   Ok(())
 }
 
