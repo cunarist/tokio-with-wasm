@@ -289,11 +289,16 @@ impl File {
     Some((end - self.position) as usize)
   }
 
-  /// Lets go of what was read, or is being read, because the file or the
-  /// cursor has moved on from it.
+  /// Lets go of what was read ahead, because the file has moved on from it.
   fn forget_read_ahead(&mut self) {
     self.read_buffer = Vec::new();
     self.read_start = 0;
+    self.forget_reading();
+  }
+
+  /// Lets go of a read in flight, which was meant for an earlier cursor
+  /// or an earlier file.
+  fn forget_reading(&mut self) {
     if let Some(Work::Reading(_)) = self.work {
       self.work = None;
     }
@@ -301,15 +306,13 @@ impl File {
 
   /// Moves the cursor of an appending file to the end.
   ///
-  /// Its writes all go to the end, so while some are held back or a stream
-  /// of ours is open, the end is where they finish.
+  /// Its writes all go to the end, so while some are held back,
+  /// the end is where they finish.
   fn poll_at_end(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-    self.position = if !self.buffer.is_empty() {
-      self.buffer_start + self.buffer.len() as u64
-    } else if let Some(writer) = &self.writer {
-      writer.cursor
-    } else {
+    self.position = if self.buffer.is_empty() {
       ready!(self.poll_size(cx))?
+    } else {
+      self.buffer_start + self.buffer.len() as u64
     };
     Poll::Ready(Ok(()))
   }
@@ -503,7 +506,7 @@ impl AsyncSeek for File {
       },
     };
     if landed != this.position {
-      this.forget_read_ahead();
+      this.forget_reading();
       this.position = landed;
     }
     Poll::Ready(Ok(landed))
