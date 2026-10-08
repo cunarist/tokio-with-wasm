@@ -1,11 +1,10 @@
 //! Cooperative scheduling helpers, mirroring `tokio::task::coop`.
 //!
 //! Real `tokio` gives each task a poll budget that its resources consume.
-//! The JavaScript event loop has no such budget, so this module keeps a
-//! per-thread counter instead: after a task burns through the counter with
-//! [`consume_budget`] calls, one call yields to the event loop and the
-//! counter refills. That approximates how a budget-exhausted `tokio` task
-//! gets rescheduled without ever blocking the browser.
+//! The JavaScript event loop has no such budget, so this module keeps one
+//! counter per thread, shared by its tasks: every 128th [`consume_budget`]
+//! call yields to the event loop. That approximates how a budget-exhausted
+//! `tokio` task gets rescheduled.
 
 use crate::yield_now;
 use std::cell::Cell;
@@ -13,8 +12,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// How many [`consume_budget`] calls run between yields,
-/// matching the budget that `tokio` assigns to each task poll.
+/// How many [`consume_budget`] calls make one yield,
+/// the same number that `tokio` budgets for each task poll.
 const BUDGET: u32 = 128;
 
 thread_local! {
@@ -39,7 +38,7 @@ thread_local! {
 ///   let mut sum: i64 = 0;
 ///   while let Some(i) = input.next() {
 ///     sum += i;
-///     tokio::task::consume_budget().await
+///     tokio::task::coop::consume_budget().await
 ///   }
 ///   sum
 /// }
@@ -49,14 +48,9 @@ pub async fn consume_budget() {
     return;
   }
   let depleted = REMAINING_BUDGET.with(|cell| {
-    let remaining = cell.get();
-    if remaining == 0 {
-      cell.set(BUDGET);
-      true
-    } else {
-      cell.set(remaining - 1);
-      false
-    }
+    let remaining = cell.get() - 1;
+    cell.set(if remaining == 0 { BUDGET } else { remaining });
+    remaining == 0
   });
   if depleted {
     yield_now().await;

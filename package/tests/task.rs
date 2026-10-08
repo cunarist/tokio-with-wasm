@@ -51,12 +51,13 @@ async fn spawn_accepts_non_send_futures() -> Result<(), JoinError> {
 
 #[wasm_bindgen_test]
 async fn abort_cancels_a_pending_task() {
-  let handle = spawn(async {
-    tokio::time::sleep(Duration::from_secs(10)).await;
-  });
+  let handle = spawn(std::future::pending::<()>());
+  // The task is waiting by now, with nothing left to wake it but the abort.
+  yield_now().await;
   handle.abort();
-  let Err(error) = handle.await else {
-    panic!("the aborted task returned an output");
+  let joined = tokio::time::timeout(Duration::from_secs(1), handle).await;
+  let Ok(Err(error)) = joined else {
+    panic!("the aborted task did not finish as cancelled");
   };
   assert!(error.is_cancelled());
   assert!(!error.is_panic());

@@ -22,8 +22,8 @@ thread_local! {
 ///
 /// - Task IDs are unique relative to other *currently running* tasks.
 ///   When a task completes, the same ID may be used for another task.
-/// - Task IDs are *not* sequential, and do not indicate the order in which
-///   tasks are spawned, what runtime a task is spawned on, or any other data.
+/// - Task IDs are not guaranteed to be sequential, and do not indicate the
+///   order in which tasks are spawned or any other data.
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Id(NonZeroU64);
 
@@ -50,8 +50,6 @@ impl Display for Id {
 /// # Panics
 ///
 /// This function panics if called from outside a task.
-/// Please note that calls to `block_on` do not have task IDs, so the
-/// method will panic if called from within a call to `block_on`.
 pub fn id() -> Id {
   match try_id() {
     Some(id) => id,

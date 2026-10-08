@@ -10,11 +10,10 @@
   target_os = "unknown"
 ))]
 
+use std::cell::Cell;
 use std::rc::Rc;
-use tokio_with_wasm::alias as tokio;
-use tokio_with_wasm::task::{
-  Builder, JoinError, consume_budget, spawn_local, unconstrained, yield_now,
-};
+use tokio_with_wasm::task::coop::{consume_budget, unconstrained};
+use tokio_with_wasm::task::{Builder, JoinError, spawn_local, yield_now};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -66,29 +65,29 @@ async fn spawn_local_accepts_non_send_futures() -> Result<(), JoinError> {
 }
 
 #[wasm_bindgen_test]
-async fn consume_budget_completes_under_heavy_use() {
-  // Far more calls than one budget holds,
-  // so the loop yields to the event loop several times.
-  for _ in 0..1000 {
+async fn consume_budget_lets_other_tasks_run() {
+  let ran = Rc::new(Cell::new(false));
+  let flag = ran.clone();
+  spawn_local(async move { flag.set(true) });
+  // One budget's worth of calls has to yield once.
+  for _ in 0..128 {
     consume_budget().await;
   }
+  assert!(ran.get(), "the budget never ran out");
 }
 
 #[wasm_bindgen_test]
-async fn unconstrained_futures_pass_their_output_through() {
+async fn unconstrained_futures_never_yield() {
+  let ran = Rc::new(Cell::new(false));
+  let flag = ran.clone();
+  spawn_local(async move { flag.set(true) });
   let output = unconstrained(async {
-    consume_budget().await;
+    for _ in 0..1000 {
+      consume_budget().await;
+    }
     42
   })
   .await;
   assert_eq!(output, 42);
-}
-
-#[wasm_bindgen_test]
-async fn coop_module_paths_match_tokio() {
-  // The same items must be reachable through `task::coop`,
-  // like in recent `tokio` versions.
-  tokio::task::coop::consume_budget().await;
-  let output = tokio::task::coop::unconstrained(async { 1 }).await;
-  assert_eq!(output, 1);
+  assert!(!ran.get(), "an unconstrained future yielded");
 }
