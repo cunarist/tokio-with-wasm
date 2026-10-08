@@ -12,7 +12,7 @@ This library is made up of JavaScript glue code that mimics the behavior of real
 
 When using `spawn_blocking()`, the number of web workers is automatically adjusted to the number of parallel tasks. Refer to the docs for additional details.
 
-This library assumes that you're compiling your Rust project with `wasm-pack` and `wasm-bindgen`, which build for the `wasm32-unknown-unknown` and `wasm64-unknown-unknown` Rust targets. Note that this library only supports the `web` target of `wasm-bindgen`, not [others](https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
+This library assumes that you're compiling your Rust project with `wasm-pack` and `wasm-bindgen` 0.2.96 or newer, for the `wasm32-unknown-unknown` Rust target. It also compiles for `wasm64-unknown-unknown`, but `spawn_blocking` can't run there yet. Note that this library only supports the `web` target of `wasm-bindgen`, not [others](https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
 
 ## Features
 
@@ -155,7 +155,8 @@ Don't forget to specify the MIME type `application/wasm` for `.wasm` files in yo
 content security policy that forbids `blob:` workers, such as a browser
 extension's `script-src 'self'`, serve
 [`blocking_worker.js`](https://github.com/cunarist/tokio-with-wasm/blob/main/package/src/glue/only_web/blocking_worker.js)
-as your own file and point the pool at it:
+as your own file and point the pool at it. Copy the file from the release tag
+that matches your `tokio_with_wasm` version, and copy it again when you upgrade.
 
 ```rust
 tokio_with_wasm::only_web::set_worker_script_provider(|| Ok("/blocking_worker.js".into()));
