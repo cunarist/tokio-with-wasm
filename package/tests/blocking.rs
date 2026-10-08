@@ -47,11 +47,11 @@ async fn blocking_tasks_run_in_parallel() -> Result<(), JoinError> {
 #[wasm_bindgen_test]
 async fn panicking_blocking_task_reports_a_panic() {
   let handle = spawn_blocking(|| panic!("boom"));
-  let Err(error) = handle.await else {
-    panic!("the panicking task reported success");
-  };
-  assert!(error.is_panic());
-  assert!(!error.is_cancelled());
+  assert!(
+    handle
+      .await
+      .is_err_and(|error| error.is_panic() && !error.is_cancelled())
+  );
 }
 
 /// The worker that hosted a panic must not poison the pool:

@@ -169,9 +169,9 @@ impl WorkerPool {
     let worker = self.get_worker()?;
     let work = Box::new(task);
     let ptr = Box::into_raw(work);
-    // `usize`, not `u32`, so that the pointer survives on `wasm64`.
-    // It crosses JS as an `f64` there, which is exact below 2^53.
-    match worker.post_message(&JsValue::from(ptr as usize)) {
+    // An `f64` crosses JS the same way on every target and with every
+    // `wasm-bindgen` version, and holds `wasm64` pointers below 2^53 exactly.
+    match worker.post_message(&JsValue::from(ptr as usize as f64)) {
       Ok(()) => Ok(worker),
       Err(error) => {
         // Safety: the message never left this thread, so the worker
@@ -386,11 +386,11 @@ impl PoolState {
 /// worker, which is the only value the glue code ever passes here. The
 /// module is private, so nothing but that message can reach this function.
 #[wasm_bindgen]
-pub fn task_worker_entry_point(ptr: usize) -> Result<(), JsValue> {
+pub fn task_worker_entry_point(ptr: f64) -> Result<(), JsValue> {
   // Safety: the task was leaked by `Box::into_raw` for this message,
   // and each message is delivered to a single worker exactly once,
   // so ownership passes here and the box is dropped once.
-  let ptr = unsafe { Box::from_raw(ptr as *mut Task) };
+  let ptr = unsafe { Box::from_raw(ptr as usize as *mut Task) };
   let global = global().unchecked_into::<DedicatedWorkerGlobalScope>();
   (ptr.callable)();
   global.post_message(&JsValue::undefined())?;

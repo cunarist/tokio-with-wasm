@@ -38,12 +38,11 @@ wildcard_imports = "deny"
 hashbrown = { version = "0.16", default-features = false }
 tokio_with_wasm_proc = "0.10.1"
 tokio = "1.x.x"
-# 0.2.120 is the first version whose `usize` ABI
-# is pointer-sized on `wasm64` instead of `u32`.
-wasm-bindgen = "0.2.120"
-wasm-bindgen-futures = "0.4.45"
-js-sys = "0.3.70"
-web-sys = { version = "0.3.70", features = [
+# 0.2.96 is the first version with `thread_local_v2`.
+wasm-bindgen = "0.2.96"
+wasm-bindgen-futures = "0.4.46"
+js-sys = "0.3.73"
+web-sys = { version = "0.3.73", features = [
     'Worker',
     'WorkerOptions',
     'WorkerType',
@@ -72,4 +71,4 @@ web-sys = { version = "0.3.70", features = [
 # The crate itself, so that the integration tests get its features.
 tokio_with_wasm = { path = ".", features = ["full"] }
 wasm-bindgen-test = "0.3"
-js-sys = "0.3.70"
+js-sys = "0.3.73"
