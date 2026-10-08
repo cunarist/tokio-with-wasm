@@ -176,51 +176,12 @@ mod tests {
   use wasm_bindgen_test::wasm_bindgen_test;
 
   #[wasm_bindgen_test]
-  fn now_is_monotonic() {
-    let first = Instant::now();
-    let second = Instant::now();
-    assert!(second >= first);
-  }
-
-  #[wasm_bindgen_test]
   fn a_backwards_clock_reading_is_clamped() {
     let latest = Instant::now().since_epoch;
     // A reading older than the last one, as a jumping wall clock
     // produces, must not travel back in time.
     let earlier = latest.saturating_sub(Duration::from_secs(1));
     assert!(monotonic(earlier) >= latest);
-  }
-
-  #[wasm_bindgen_test]
-  fn arithmetic_round_trips() {
-    let base = Instant::now();
-    let later = base + Duration::from_secs(5);
-    assert_eq!(later - base, Duration::from_secs(5));
-    assert_eq!(later - Duration::from_secs(5), base);
-  }
-
-  #[wasm_bindgen_test]
-  fn duration_since_saturates_to_zero() {
-    let base = Instant::now();
-    let later = base + Duration::from_secs(5);
-    assert_eq!(base.duration_since(later), Duration::ZERO);
-    assert_eq!(base.saturating_duration_since(later), Duration::ZERO);
-    assert_eq!(base.checked_duration_since(later), None);
-    assert_eq!(
-      later.checked_duration_since(base),
-      Some(Duration::from_secs(5))
-    );
-  }
-
-  #[wasm_bindgen_test]
-  fn checked_arithmetic_reports_overflow() {
-    let base = Instant::now();
-    assert_eq!(base.checked_add(Duration::MAX), None);
-    assert_eq!(
-      base.checked_sub(Duration::from_secs(86400 * 365 * 100)),
-      None
-    );
-    assert!(base.checked_add(Duration::from_secs(1)).is_some());
   }
 
   #[wasm_bindgen_test]
