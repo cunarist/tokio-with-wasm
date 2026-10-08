@@ -65,10 +65,5 @@ impl<T, E: std::fmt::Debug> MacroOutcome for Result<T, E> {
 #[allow(unused_imports)]
 pub(crate) use common::*;
 
-// Module only available when compiling to WebAssembly.
-#[cfg(all(
-  target_family = "wasm",
-  target_vendor = "unknown",
-  target_os = "unknown"
-))]
+#[cfg(feature = "rt")]
 pub mod only_web;

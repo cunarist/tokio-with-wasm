@@ -1,60 +1,84 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::punctuated::Punctuated;
-use syn::{Expr, ItemFn, Lit, Meta, Path, Token, parse_macro_input};
+use syn::{Expr, ExprLit, ItemFn, Lit, Meta, Path, Token, parse_macro_input};
 
-/// Checks the attribute arguments that real `tokio` macros accept and
-/// returns the path that the expansion should reference this crate by.
-/// The runtime arguments configure a native runtime that doesn't exist
-/// on the web, so their values are ignored; `crate = "..."` renames the
-/// expansion path for dependencies renamed in `Cargo.toml`; unknown
-/// arguments are an error, so that typos don't silently pass on the web
-/// target only.
-fn check_macro_args(
-  args: &Punctuated<Meta, Token![,]>,
-) -> Result<Path, syn::Error> {
-  const IGNORED: &[&str] = &[
-    "flavor",
-    "worker_threads",
-    "start_paused",
-    "unhandled_panic",
-  ];
-  let mut crate_path: Path = syn::parse_quote!(tokio_with_wasm);
+/// Returns the path that the expansion should reference this crate by.
+/// The runtime arguments of the real `tokio` macros configure a native
+/// runtime that doesn't exist on the web, so they are accepted and ignored.
+/// `crate = "..."` renames the path for dependencies renamed in
+/// `Cargo.toml`. Unknown arguments are an error, so that typos don't
+/// silently pass on the web target only.
+fn crate_path(args: &Punctuated<Meta, Token![,]>) -> syn::Result<Path> {
+  let mut path = syn::parse_quote!(tokio_with_wasm);
   for meta in args {
-    let Some(ident) = meta.path().get_ident() else {
-      return Err(unknown_argument_error(meta));
-    };
-    if ident == "crate" {
-      let string = match meta {
-        Meta::NameValue(pair) => match &pair.value {
-          Expr::Lit(expr) => match &expr.lit {
-            Lit::Str(string) => Some(string),
-            _ => None,
-          },
-          _ => None,
-        },
-        _ => None,
-      };
-      let Some(string) = string else {
+    let ident = meta.path().get_ident().map(ToString::to_string);
+    match ident.as_deref() {
+      Some(
+        "flavor" | "worker_threads" | "start_paused" | "unhandled_panic",
+      ) => {}
+      Some("crate") => {
+        let value = &meta.require_name_value()?.value;
+        let Expr::Lit(ExprLit {
+          lit: Lit::Str(string),
+          ..
+        }) = value
+        else {
+          return Err(syn::Error::new_spanned(value, "expected a string"));
+        };
+        path = string.parse()?;
+      }
+      _ => {
         return Err(syn::Error::new_spanned(
           meta,
-          "`crate` expects a string literal, like `crate = \"my_alias\"`",
+          "unknown attribute argument; expected one of: `flavor`, \
+           `worker_threads`, `start_paused`, `unhandled_panic`, `crate`",
         ));
-      };
-      crate_path = string.parse()?;
-    } else if !IGNORED.contains(&ident.to_string().as_str()) {
-      return Err(unknown_argument_error(meta));
+      }
     }
   }
-  Ok(crate_path)
+  Ok(path)
 }
 
-fn unknown_argument_error(meta: &Meta) -> syn::Error {
-  syn::Error::new_spanned(
-    meta,
-    "unknown attribute argument; expected one of: `flavor`, \
-     `worker_threads`, `start_paused`, `unhandled_panic`, `crate`",
-  )
+/// Writes `main` or `test` around the given async function.
+fn expand(attr: TokenStream, item: TokenStream, test: bool) -> TokenStream {
+  let args = parse_macro_input!(
+    attr with Punctuated::<Meta, Token![,]>::parse_terminated
+  );
+  let crate_path = match crate_path(&args) {
+    Ok(crate_path) => crate_path,
+    Err(error) => return error.to_compile_error().into(),
+  };
+  let ItemFn {
+    attrs,
+    vis,
+    sig,
+    block,
+  } = parse_macro_input!(item as ItemFn);
+  let (name, inputs, output) = (&sig.ident, &sig.inputs, &sig.output);
+  let original = quote! { async fn original(#inputs) #output #block };
+  let handle = quote! { #crate_path::MacroOutcome::handle(original().await); };
+  let expanded = if test {
+    // An async test that the `wasm-bindgen-test` harness drives
+    quote! {
+      #(#attrs)*
+      #[::wasm_bindgen_test::wasm_bindgen_test]
+      #vis async fn #name() {
+        #original
+        #handle
+      }
+    }
+  } else {
+    // A non-async function that spawns the original one in a local task
+    quote! {
+      #(#attrs)*
+      #vis fn #name() {
+        #original
+        #crate_path::spawn_local(async { #handle });
+      }
+    }
+  };
+  expanded.into()
 }
 
 /// Attribute macro that mimics `tokio::main`.
@@ -71,40 +95,7 @@ fn unknown_argument_error(meta: &Meta) -> syn::Error {
 /// exits with an error.
 #[proc_macro_attribute]
 pub fn main(attr: TokenStream, item: TokenStream) -> TokenStream {
-  let args = parse_macro_input!(
-    attr with Punctuated::<Meta, Token![,]>::parse_terminated
-  );
-  let crate_path = match check_macro_args(&args) {
-    Ok(crate_path) => crate_path,
-    Err(error) => return error.to_compile_error().into(),
-  };
-
-  // Parse the input tokens as a function
-  let input_fn = parse_macro_input!(item as ItemFn);
-
-  // Extract function components
-  let attrs = &input_fn.attrs;
-  let vis = &input_fn.vis;
-  let fn_name = &input_fn.sig.ident;
-  let fn_args = &input_fn.sig.inputs;
-  let fn_block = &input_fn.block;
-  let return_type = &input_fn.sig.output;
-
-  // Generate a non-async function
-  // that calls the original function with `spawn_local`
-  let expanded = quote! {
-    #(#attrs)*
-    #vis fn #fn_name() {
-      async fn original(#fn_args) #return_type #fn_block
-
-      // Spawn the async function in a local task
-      #crate_path::spawn_local(async {
-        #crate_path::MacroOutcome::handle(original().await);
-      });
-    }
-  };
-
-  TokenStream::from(expanded)
+  expand(attr, item, false)
 }
 
 /// Attribute macro that mimics `tokio::test`.
@@ -118,35 +109,5 @@ pub fn main(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// completes, turning an `Err` into a test failure.
 #[proc_macro_attribute]
 pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
-  let args = parse_macro_input!(
-    attr with Punctuated::<Meta, Token![,]>::parse_terminated
-  );
-  let crate_path = match check_macro_args(&args) {
-    Ok(crate_path) => crate_path,
-    Err(error) => return error.to_compile_error().into(),
-  };
-
-  // Parse the input tokens as a function
-  let input_fn = parse_macro_input!(item as ItemFn);
-
-  // Extract function components
-  let attrs = &input_fn.attrs;
-  let vis = &input_fn.vis;
-  let fn_name = &input_fn.sig.ident;
-  let fn_args = &input_fn.sig.inputs;
-  let fn_block = &input_fn.block;
-  let return_type = &input_fn.sig.output;
-
-  // Generate an async test that the `wasm-bindgen-test` harness drives
-  let expanded = quote! {
-    #(#attrs)*
-    #[::wasm_bindgen_test::wasm_bindgen_test]
-    #vis async fn #fn_name() {
-      async fn original(#fn_args) #return_type #fn_block
-
-      #crate_path::MacroOutcome::handle(original().await);
-    }
-  };
-
-  TokenStream::from(expanded)
+  expand(attr, item, true)
 }

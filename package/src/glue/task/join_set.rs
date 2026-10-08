@@ -129,7 +129,6 @@ impl<T: 'static> JoinSet<T> {
   /// `JoinSet`.
   ///
   /// [`AbortHandle`]: crate::task::AbortHandle
-  #[track_caller]
   pub fn spawn<F>(&mut self, task: F) -> AbortHandle
   where
     F: Future<Output = T>,
@@ -149,7 +148,6 @@ impl<T: 'static> JoinSet<T> {
   /// against `tokio` compiles unchanged.
   ///
   /// [`AbortHandle`]: crate::task::AbortHandle
-  #[track_caller]
   pub fn spawn_local<F>(&mut self, task: F) -> AbortHandle
   where
     F: Future<Output = T>,
@@ -191,7 +189,6 @@ impl<T: 'static> JoinSet<T> {
   /// ```
   ///
   /// [`AbortHandle`]: crate::task::AbortHandle
-  #[track_caller]
   pub fn spawn_blocking<F>(&mut self, f: F) -> AbortHandle
   where
     F: FnOnce() -> T,

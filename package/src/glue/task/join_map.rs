@@ -183,7 +183,6 @@ where
   /// (see [`JoinHandle::abort`]).
   ///
   /// [`JoinHandle::abort`]: crate::task::JoinHandle::abort
-  #[track_caller]
   pub fn spawn<F>(&mut self, key: K, task: F)
   where
     F: Future<Output = V>,
@@ -198,7 +197,6 @@ where
   /// On the web there is no separate thread-local executor, so this is
   /// the same as [`spawn`](Self::spawn). It exists so that code written
   /// against `tokio-util` compiles unchanged.
-  #[track_caller]
   pub fn spawn_local<F>(&mut self, key: K, task: F)
   where
     F: Future<Output = V>,
@@ -238,7 +236,6 @@ where
   ///   }
   /// }
   /// ```
-  #[track_caller]
   pub fn spawn_blocking<F>(&mut self, key: K, f: F)
   where
     F: FnOnce() -> V,

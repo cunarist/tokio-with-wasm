@@ -538,16 +538,28 @@ impl<T> JoinHandle<T> {
 #[derive(Debug)]
 pub struct JoinError {
   task_id: Id,
-  cancelled: bool,
+  /// Whether the task panicked rather than being cancelled.
   panicked: bool,
 }
+
+impl Display for JoinError {
+  fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
+    let what = if self.panicked {
+      "panicked"
+    } else {
+      "was cancelled"
+    };
+    write!(fmt, "task {what}")
+  }
+}
+
+impl Error for JoinError {}
 
 impl JoinError {
   /// The task was aborted before it could finish.
   fn cancelled(task_id: Id) -> Self {
     JoinError {
       task_id,
-      cancelled: true,
       panicked: false,
     }
   }
@@ -557,30 +569,13 @@ impl JoinError {
   fn panicked(task_id: Id) -> Self {
     JoinError {
       task_id,
-      cancelled: false,
       panicked: true,
     }
   }
-}
 
-impl Display for JoinError {
-  fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
-    if self.cancelled {
-      fmt.write_str("task was cancelled")
-    } else if self.panicked {
-      fmt.write_str("task panicked")
-    } else {
-      fmt.write_str("task failed to execute to completion")
-    }
-  }
-}
-
-impl Error for JoinError {}
-
-impl JoinError {
   /// Returns whether the error was caused by the task being cancelled.
   pub fn is_cancelled(&self) -> bool {
-    self.cancelled
+    !self.panicked
   }
 
   /// Returns whether the error was caused by the task panicking.

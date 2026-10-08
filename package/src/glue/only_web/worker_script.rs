@@ -35,7 +35,6 @@ thread_local! {
 ///
 /// set_worker_script_provider(|| Ok(String::from("/blocking_worker.js")));
 /// ```
-#[inline(always)]
 pub fn set_worker_script_provider(provider: fn() -> Result<String, JsValue>) {
   WORKER_SCRIPT_PROVIDER.with(|p| {
     *p.borrow_mut() = provider;
