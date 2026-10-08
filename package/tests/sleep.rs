@@ -12,7 +12,10 @@
   target_os = "unknown"
 ))]
 
+use js_sys::{Array, Function, Reflect, global};
+use std::future::Future;
 use std::pin::pin;
+use std::task::{Context, Waker};
 use tokio_with_wasm::time::{Duration, Instant, sleep, sleep_until};
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -103,4 +106,24 @@ async fn very_long_sleeps_do_not_fire_early() {
       .await;
   assert!(output.is_err(), "the year-long sleep completed");
   quick_nap.await;
+}
+
+#[wasm_bindgen_test]
+async fn a_dropped_sleep_clears_its_timer() {
+  // Records every timer that gets cleared, then puts the original back.
+  let spy = Function::new_no_args(
+    "const clear = globalThis.clearTimeout;
+     globalThis.cleared = [];
+     globalThis.clearTimeout = id => { cleared.push(id); clear(id); };
+     return clear;",
+  );
+  let original = spy.call0(&global()).unwrap_or_default();
+  {
+    let mut sleeping = Box::pin(sleep(Duration::from_secs(3600)));
+    let mut context = Context::from_waker(Waker::noop());
+    assert!(sleeping.as_mut().poll(&mut context).is_pending());
+  }
+  let cleared = Reflect::get(&global(), &"cleared".into()).unwrap_or_default();
+  let _ = Reflect::set(&global(), &"clearTimeout".into(), &original);
+  assert_eq!(Array::from(&cleared).length(), 1, "the timer is still set");
 }

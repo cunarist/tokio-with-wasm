@@ -52,7 +52,7 @@ extern "C" {
 #[wasm_bindgen]
 extern "C" {
   #[wasm_bindgen(js_namespace = globalThis, js_name = setTimeout)]
-  pub fn set_timeout(callback: &Function, milliseconds: f64);
+  pub fn set_timeout(callback: &Function, milliseconds: f64) -> JsValue;
 }
 
 #[cfg(any(feature = "rt", feature = "time"))]

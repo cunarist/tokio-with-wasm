@@ -70,9 +70,10 @@ async fn delay_reschedules_from_the_late_tick() {
   let late = ticker.tick().await; // Overdue, delivered right away.
   let next = ticker.tick().await;
   // The next tick runs a full period after the late one was consumed,
-  // so its deadline lies at least a period past the missed deadline.
+  // so it lies more than a period past the missed deadline.
+  // `Burst` would put it exactly one period past.
   assert!(
-    next - late >= period,
+    next - late > period,
     "the delayed tick was not pushed back: {:?}",
     next - late
   );
@@ -91,7 +92,8 @@ async fn skip_stays_on_the_original_grid() {
   // The skipped schedule stays on multiples of the period from `start`.
   let offset = (next - start).as_millis() % period.as_millis();
   assert_eq!(offset, 0, "the tick left the grid: {next:?}");
-  assert!(next > late, "the next tick did not move forward");
+  // `Burst` would deliver the missed tick one period past the late one.
+  assert!(next - late > period, "the missed tick was not skipped");
 }
 
 #[wasm_bindgen_test]

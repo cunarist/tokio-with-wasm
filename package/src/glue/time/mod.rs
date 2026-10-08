@@ -16,7 +16,8 @@ use crate::{LogError, set_timeout};
 use js_sys::Promise;
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, ready};
+use wasm_bindgen::prelude::{JsValue, wasm_bindgen};
 use wasm_bindgen_futures::JsFuture;
 
 // Re-exported to match `tokio::time`, where `Duration` is available too.
@@ -37,17 +38,41 @@ const MAX_TIMER_MILLIS: f64 = 2_147_483_647.0;
 #[cfg(test)]
 const MAX_TIMER_MILLIS: f64 = 50.0;
 
-/// Resolves after `duration` through one JavaScript timer.
-async fn time_future(duration: Duration) {
-  // Rounded up, so that the timer never fires before the deadline
-  // and forces an extra timer round for well-known durations.
-  let milliseconds = (duration.as_secs_f64() * 1000.0)
-    .ceil()
-    .min(MAX_TIMER_MILLIS);
-  let promise = Promise::new(&mut |resolve, _reject| {
-    set_timeout(&resolve, milliseconds);
-  });
-  JsFuture::from(promise).await.log_error("TIME_FUTURE");
+#[wasm_bindgen]
+extern "C" {
+  #[wasm_bindgen(js_namespace = globalThis, js_name = clearTimeout)]
+  fn clear_timeout(id: &JsValue);
+}
+
+/// One JavaScript timer, cleared when dropped so that it does not outlive
+/// the sleep that set it.
+struct Timer {
+  id: JsValue,
+  fired: JsFuture,
+}
+
+impl Timer {
+  fn new(duration: Duration) -> Timer {
+    // Rounded up, so that the timer never fires before the deadline
+    // and forces an extra timer round for well-known durations.
+    let milliseconds = (duration.as_secs_f64() * 1000.0)
+      .ceil()
+      .min(MAX_TIMER_MILLIS);
+    let mut id = JsValue::UNDEFINED;
+    let promise = Promise::new(&mut |resolve, _reject| {
+      id = set_timeout(&resolve, milliseconds);
+    });
+    Timer {
+      id,
+      fired: JsFuture::from(promise),
+    }
+  }
+}
+
+impl Drop for Timer {
+  fn drop(&mut self) {
+    clear_timeout(&self.id);
+  }
 }
 
 /// Waits until `duration` has elapsed.
@@ -79,7 +104,7 @@ pub struct Sleep {
   deadline: Instant,
   /// The pending JavaScript timer, created lazily on the first poll.
   /// [`None`] before the first poll and after a reset.
-  timer: Option<Pin<Box<dyn Future<Output = ()>>>>,
+  timer: Option<Timer>,
 }
 
 impl Sleep {
@@ -126,21 +151,13 @@ impl Future for Sleep {
         this.timer = None;
         return Poll::Ready(());
       }
-      if this.timer.is_none() {
-        let remaining = this.deadline.saturating_duration_since(now);
-        this.timer = Some(Box::pin(time_future(remaining)));
-      }
-      let Some(timer) = this.timer.as_mut() else {
-        // The timer was just stored above.
-        return Poll::Pending;
-      };
-      match timer.as_mut().poll(cx) {
-        // The timer fired, but web timers only count whole milliseconds
-        // and cap out at 32 bits, so the deadline check above decides
-        // whether to complete or to arm the next timer.
-        Poll::Ready(()) => this.timer = None,
-        Poll::Pending => return Poll::Pending,
-      }
+      let remaining = this.deadline.saturating_duration_since(now);
+      let timer = this.timer.get_or_insert_with(|| Timer::new(remaining));
+      ready!(Pin::new(&mut timer.fired).poll(cx)).log_error("TIME_FUTURE");
+      // The timer fired, but web timers only count whole milliseconds
+      // and cap out at 32 bits, so the deadline check above decides
+      // whether to complete or to arm the next timer.
+      this.timer = None;
     }
   }
 }
