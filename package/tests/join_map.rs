@@ -129,6 +129,41 @@ async fn spawning_a_known_key_replaces_the_task() -> Result<(), JoinError> {
   Ok(())
 }
 
+/// Equal by number alone, so that a replacement shows which key it kept.
+struct Tagged(u8, &'static str);
+
+impl PartialEq for Tagged {
+  fn eq(&self, other: &Self) -> bool {
+    self.0 == other.0
+  }
+}
+
+impl Eq for Tagged {}
+
+impl std::hash::Hash for Tagged {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    self.0.hash(state);
+  }
+}
+
+#[wasm_bindgen_test]
+async fn replacing_a_finished_task_keeps_the_new_key() -> Result<(), JoinError>
+{
+  let mut map = JoinMap::new();
+  map.spawn(Tagged(1, "old"), async { tokio::task::id() });
+  // The first task finishes without being joined.
+  sleep(Duration::from_millis(10)).await;
+  map.spawn(Tagged(1, "new"), async { tokio::task::id() });
+
+  let Some((key, result)) = map.join_next().await else {
+    panic!("the replacing task never finished");
+  };
+  assert_eq!(key.1, "new");
+  assert!(!map.contains_task(&result?));
+  assert!(map.join_next().await.is_none());
+  Ok(())
+}
+
 #[wasm_bindgen_test]
 async fn keys_and_contains_key_see_pending_tasks() {
   let mut map = JoinMap::new();

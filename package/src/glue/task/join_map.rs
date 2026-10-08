@@ -3,17 +3,16 @@
 //! This module provides the [`JoinMap`] type, a collection which stores a set
 //! of spawned tasks and lets each of them be identified, aborted and awaited
 //! by a key. See the documentation for the [`JoinMap`] type for details.
-use crate::{CompletionQueue, JoinError, JoinHandle, spawn, spawn_blocking};
+use crate::task::{AbortHandle, Id, JoinError, JoinSet};
 use hashbrown::HashTable;
 use hashbrown::hash_table::Entry;
 use std::borrow::Borrow;
+use std::collections::HashMap;
 use std::collections::hash_map::RandomState;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::hash::{BuildHasher, Hash};
 use std::iter::FusedIterator;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 /// A collection of tasks spawned in JavaScript, associated with keys.
 ///
@@ -79,33 +78,13 @@ use std::task::{Context, Poll};
 /// [`AbortHandle`]: crate::task::AbortHandle
 /// [`alias`]: crate::alias
 pub struct JoinMap<K, V, S = RandomState> {
-  /// Tasks that have not been joined yet, addressed by key hash.
-  table: HashTable<MapEntry<K, V>>,
-  /// Builds the hashes for `table`.
+  /// The key of every task that has not been joined yet,
+  /// addressed by the hash of the key.
+  tasks: HashTable<(K, AbortHandle)>,
+  /// The key hash of every task, to find its key once it completes.
+  hashes: HashMap<Id, u64>,
   hasher: S,
-  /// Completed task tags, in the order they completed.
-  queue: CompletionQueue<TaskTag>,
-  /// The serial number for the next spawned task.
-  next_serial: u64,
-}
-
-/// One stored task with its key.
-struct MapEntry<K, V> {
-  key: K,
-  /// The key's hash, kept for lookups that only have the tag.
-  key_hash: u64,
-  /// Distinguishes this task from earlier tasks under the same key.
-  serial: u64,
-  handle: JoinHandle<V>,
-}
-
-/// Identifies one spawned task in the completion queue.
-/// The key hash locates the table bucket; the serial number tells a live
-/// task apart from a replaced or detached one with the same key.
-#[derive(Clone, Copy)]
-struct TaskTag {
-  key_hash: u64,
-  serial: u64,
+  set: JoinSet<V>,
 }
 
 impl<K, V> JoinMap<K, V> {
@@ -130,33 +109,33 @@ impl<K, V, S> JoinMap<K, V, S> {
   /// using `hash_builder` to hash the keys.
   pub fn with_capacity_and_hasher(capacity: usize, hash_builder: S) -> Self {
     Self {
-      table: HashTable::with_capacity(capacity),
+      tasks: HashTable::with_capacity(capacity),
+      hashes: HashMap::with_capacity(capacity),
       hasher: hash_builder,
-      queue: CompletionQueue::new(),
-      next_serial: 0,
+      set: JoinSet::new(),
     }
   }
 
   /// Returns the number of tasks the map can hold without reallocating.
   pub fn capacity(&self) -> usize {
-    self.table.capacity()
+    self.tasks.capacity()
   }
 
   /// Returns the number of tasks currently in the `JoinMap`.
   pub fn len(&self) -> usize {
-    self.table.len()
+    self.tasks.len()
   }
 
   /// Returns whether the `JoinMap` is empty.
   pub fn is_empty(&self) -> bool {
-    self.table.is_empty()
+    self.tasks.is_empty()
   }
 
   /// Returns an iterator over the keys of the tasks in the `JoinMap`.
   ///
   /// The order is unspecified and changes as tasks complete.
   pub fn keys(&self) -> impl ExactSizeIterator<Item = &K> + FusedIterator {
-    self.table.iter().map(|entry| &entry.key)
+    self.tasks.iter().map(|(key, _)| key)
   }
 
   /// Aborts all tasks on this `JoinMap`.
@@ -165,9 +144,7 @@ impl<K, V, S> JoinMap<K, V, S> {
   /// to complete cancellation, you should call `join_next` in a loop until
   /// the `JoinMap` is empty.
   pub fn abort_all(&mut self) {
-    for entry in self.table.iter() {
-      entry.handle.abort();
-    }
+    self.set.abort_all();
   }
 
   /// Removes all tasks from this `JoinMap` without aborting them.
@@ -175,7 +152,14 @@ impl<K, V, S> JoinMap<K, V, S> {
   /// The tasks removed by this call will continue to run in the background
   /// even if the `JoinMap` is dropped.
   pub fn detach_all(&mut self) {
-    self.table.clear();
+    self.set.detach_all();
+    self.tasks.clear();
+    self.hashes.clear();
+  }
+
+  /// Returns whether the `JoinMap` holds the task with this ID.
+  pub fn contains_task(&self, task_id: &Id) -> bool {
+    self.hashes.contains_key(task_id)
   }
 }
 
@@ -205,8 +189,8 @@ where
     F: Future<Output = V>,
     F: 'static,
   {
-    let join_handle = spawn(task);
-    self.store(key, join_handle);
+    let abort = self.set.spawn(task);
+    self.store(key, abort);
   }
 
   /// Spawns the provided task on the `JoinMap` and stores it under `key`.
@@ -261,39 +245,30 @@ where
     F: Send + 'static,
     V: Send,
   {
-    let join_handle = spawn_blocking(f);
-    self.store(key, join_handle);
+    let abort = self.set.spawn_blocking(f);
+    self.store(key, abort);
   }
 
-  /// Stores a spawned task's handle under `key`, aborting and replacing
-  /// the previous task for that key if there was one, and hooks the task's
-  /// completion into the completion queue.
-  fn store(&mut self, key: K, join_handle: JoinHandle<V>) {
-    let key_hash = self.hasher.hash_one(&key);
-    let serial = self.next_serial;
-    self.next_serial += 1;
-    join_handle
-      .register_waker(self.queue.task_waker(TaskTag { key_hash, serial }));
-
-    let entry = self.table.entry(
-      key_hash,
-      |stored| stored.key == key,
-      |stored| stored.key_hash,
+  /// Stores a spawned task under `key`, aborting and replacing the
+  /// previous task for that key if there was one.
+  fn store(&mut self, key: K, abort: AbortHandle) {
+    let hash = self.hasher.hash_one(&key);
+    self.hashes.insert(abort.id(), hash);
+    let hashes = &self.hashes;
+    let entry = self.tasks.entry(
+      hash,
+      |(stored, _)| *stored == key,
+      |(_, stored)| hashes[&stored.id()],
     );
     match entry {
       Entry::Occupied(mut occupied) => {
-        let stored = occupied.get_mut();
-        stored.handle.abort();
-        stored.handle = join_handle;
-        stored.serial = serial;
+        let (_, replaced) = std::mem::replace(occupied.get_mut(), (key, abort));
+        replaced.abort();
+        // Once it completes, the replaced task finds no key and is skipped.
+        self.hashes.remove(&replaced.id());
       }
       Entry::Vacant(vacant) => {
-        vacant.insert(MapEntry {
-          key,
-          key_hash,
-          serial,
-          handle: join_handle,
-        });
+        vacant.insert((key, abort));
       }
     }
   }
@@ -304,10 +279,10 @@ where
     K: Borrow<Q>,
     Q: Hash + Eq + ?Sized,
   {
-    let key_hash = self.hasher.hash_one(key);
+    let hash = self.hasher.hash_one(key);
     self
-      .table
-      .find(key_hash, |stored| stored.key.borrow() == key)
+      .tasks
+      .find(hash, |(stored, _)| stored.borrow() == key)
       .is_some()
   }
 
@@ -325,17 +300,9 @@ where
     K: Borrow<Q>,
     Q: Hash + Eq + ?Sized,
   {
-    let key_hash = self.hasher.hash_one(key);
-    let found = self
-      .table
-      .find(key_hash, |stored| stored.key.borrow() == key);
-    match found {
-      Some(stored) => {
-        stored.handle.abort();
-        true
-      }
-      None => false,
-    }
+    let hash = self.hasher.hash_one(key);
+    let found = self.tasks.find(hash, |(stored, _)| stored.borrow() == key);
+    found.map(|(_, abort)| abort.abort()).is_some()
   }
 
   /// Aborts every task whose key matches the predicate.
@@ -343,21 +310,27 @@ where
   /// Like [`abort`](Self::abort), the aborted tasks stay in the `JoinMap`
   /// until they are joined.
   pub fn abort_matching(&mut self, mut predicate: impl FnMut(&K) -> bool) {
-    for entry in self.table.iter() {
-      if predicate(&entry.key) {
-        entry.handle.abort();
+    for (key, abort) in self.tasks.iter() {
+      if predicate(key) {
+        abort.abort();
       }
     }
   }
 
   /// Reserves capacity for at least `additional` more tasks.
   pub fn reserve(&mut self, additional: usize) {
-    self.table.reserve(additional, |stored| stored.key_hash);
+    let hashes = &self.hashes;
+    self
+      .tasks
+      .reserve(additional, |(_, abort)| hashes[&abort.id()]);
+    self.hashes.reserve(additional);
   }
 
   /// Shrinks the capacity of the map as much as possible.
   pub fn shrink_to_fit(&mut self) {
-    self.table.shrink_to_fit(|stored| stored.key_hash);
+    let hashes = &self.hashes;
+    self.tasks.shrink_to_fit(|(_, abort)| hashes[&abort.id()]);
+    self.hashes.shrink_to_fit();
   }
 
   /// Waits until one of the tasks in the map completes and returns its key
@@ -371,7 +344,12 @@ where
   /// `tokio::select!` statement and some other branch completes first, it is
   /// guaranteed that no tasks were removed from this `JoinMap`.
   pub async fn join_next(&mut self) -> Option<(K, Result<V, JoinError>)> {
-    std::future::poll_fn(|cx| self.poll_join_next(cx)).await
+    loop {
+      let joined = self.set.join_next_with_id().await?;
+      if let Some(entry) = self.take(joined) {
+        return Some(entry);
+      }
+    }
   }
 
   /// Tries to join one of the tasks in the map that has completed and return
@@ -379,12 +357,10 @@ where
   ///
   /// Returns `None` if there are no completed tasks, or if the map is empty.
   pub fn try_join_next(&mut self) -> Option<(K, Result<V, JoinError>)> {
-    while let Some(tag) = self.queue.pop() {
-      // A tag can be stale if its task was replaced or detached earlier.
-      let Some(entry) = self.take(tag) else {
-        continue;
-      };
-      return Some(entry);
+    while let Some(joined) = self.set.try_join_next_with_id() {
+      if let Some(entry) = self.take(joined) {
+        return Some(entry);
+      }
     }
     None
   }
@@ -404,56 +380,20 @@ where
     while self.join_next().await.is_some() {}
   }
 
-  /// Polls for one of the tasks in the map to complete.
-  ///
-  /// When this returns `Poll::Pending`, the `Waker` in the provided
-  /// `Context` is scheduled to receive a wakeup when a task in the
-  /// `JoinMap` completes; only the `Waker` from the most recent call is
-  /// scheduled. This method is private because `tokio-util`'s `JoinMap`
-  /// exposes no polling API; use [`join_next`](Self::join_next) instead.
-  fn poll_join_next(
+  /// Removes a joined task, returning its key with its output.
+  /// Returns `None` for a task that was replaced under its key.
+  fn take(
     &mut self,
-    cx: &mut Context<'_>,
-  ) -> Poll<Option<(K, Result<V, JoinError>)>> {
-    loop {
-      let Some(tag) = self.queue.pop_or_register(cx.waker()) else {
-        if self.table.is_empty() {
-          return Poll::Ready(None);
-        }
-        return Poll::Pending;
-      };
-      // A tag can be stale if its task was replaced or detached earlier.
-      let Some(entry) = self.take(tag) else {
-        continue;
-      };
-      return Poll::Ready(Some(entry));
-    }
-  }
-
-  /// Removes the task identified by `tag` and takes out its result.
-  /// Returns `None` for a stale tag whose task is no longer stored.
-  fn take(&mut self, tag: TaskTag) -> Option<(K, Result<V, JoinError>)> {
-    let found = self
-      .table
-      .find_entry(tag.key_hash, |stored| stored.serial == tag.serial);
-    let Ok(occupied) = found else {
-      return None;
+    joined: Result<(Id, V), JoinError>,
+  ) -> Option<(K, Result<V, JoinError>)> {
+    let (id, result) = match joined {
+      Ok((id, output)) => (id, Ok(output)),
+      Err(error) => (error.id(), Err(error)),
     };
-    let (mut stored, _) = occupied.remove();
-
-    // The task queued its tag on completion, so its result is stored;
-    // this poll with a no-op waker just takes the result out.
-    let mut cx = Context::from_waker(std::task::Waker::noop());
-    let Poll::Ready(result) = Pin::new(&mut stored.handle).poll(&mut cx) else {
-      unreachable!("a queued task's result was missing");
-    };
-    Some((stored.key, result))
-  }
-}
-
-impl<K, V, S> Drop for JoinMap<K, V, S> {
-  fn drop(&mut self) {
-    self.abort_all();
+    let hash = self.hashes.remove(&id)?;
+    let found = self.tasks.find_entry(hash, |(_, abort)| abort.id() == id);
+    let ((key, _), _) = found.ok()?.remove();
+    Some((key, result))
   }
 }
 
