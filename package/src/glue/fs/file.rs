@@ -306,13 +306,20 @@ impl File {
 
   /// Moves the cursor of an appending file to the end.
   ///
-  /// Its writes all go to the end, so while some are held back,
-  /// the end is where they finish.
+  /// Its writes all go to the end, so while some are held back or a stream
+  /// of ours is open, the end is where they finish.
   fn poll_at_end(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-    self.position = if self.buffer.is_empty() {
-      ready!(self.poll_size(cx))?
-    } else {
-      self.buffer_start + self.buffer.len() as u64
+    if !self.buffer.is_empty() {
+      self.position = self.buffer_start + self.buffer.len() as u64;
+      return Poll::Ready(Ok(()));
+    }
+    // A push in flight holds the stream, which is kept open.
+    if let Some(Work::Pushing(_)) = self.work {
+      ready!(self.poll_pushed(cx))?;
+    }
+    self.position = match &self.writer {
+      Some(writer) => writer.cursor,
+      None => ready!(self.poll_size(cx))?,
     };
     Poll::Ready(Ok(()))
   }

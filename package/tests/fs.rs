@@ -12,6 +12,7 @@
   target_os = "unknown"
 ))]
 
+use js_sys::{Function, Reflect, global};
 use std::future::Future;
 use std::io::{ErrorKind, SeekFrom};
 use std::path::PathBuf;
@@ -19,6 +20,7 @@ use std::task::{Context, Waker};
 use tokio_with_wasm::fs;
 use tokio_with_wasm::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio_with_wasm::time::{Duration, sleep};
+use wasm_bindgen::JsCast;
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -518,6 +520,44 @@ async fn appending_starts_at_the_end() {
   assert_eq!(
     ok(fs::read_to_string(&path).await, "read"),
     "first\nsecond\nthird\n"
+  );
+}
+
+#[wasm_bindgen_test]
+async fn appending_keeps_one_stream_open() {
+  let directory = scratch("appending_stream").await;
+  let path = directory.join("log.bin");
+  ok(fs::write(&path, b"").await, "write");
+  let mut file = ok(
+    fs::File::options().append(true).open(&path).await,
+    "open for appending",
+  );
+
+  // Opening a stream copies the whole file, so one per chunk would make
+  // appending quadratic. This counts the streams that get opened.
+  let spy = Function::new_no_args(
+    "const proto = FileSystemFileHandle.prototype;
+     const open = proto.createWritable;
+     globalThis.opened = 0;
+     proto.createWritable = function (...args) {
+       opened += 1;
+       return open.apply(this, args);
+     };
+     return () => { proto.createWritable = open; };",
+  );
+  let restore = spy.call0(&global()).unwrap_or_default();
+  let chunk = pattern(1 << 20);
+  for _ in 0..4 {
+    ok(file.write_all(&chunk).await, "write");
+  }
+  ok(file.flush().await, "flush");
+  let _ = restore.unchecked_into::<Function>().call0(&global());
+
+  let opened = Reflect::get(&global(), &"opened".into()).unwrap_or_default();
+  assert_eq!(opened.as_f64(), Some(1.0), "streams were reopened");
+  assert_eq!(
+    ok(fs::metadata(&path).await, "read metadata").len(),
+    4 << 20
   );
 }
 
