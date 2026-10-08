@@ -18,6 +18,8 @@
 //!   `navigator.storage.persist()` has been granted.
 //! - Nothing outside the page can see these files. Handing one to the user
 //!   means the page has to offer it as a download.
+//! - Writing needs `createWritable`, which Safari only has from version 26.
+//!   Where it is missing, writes fail with `ErrorKind::Unsupported`.
 
 mod dir;
 mod error;
@@ -89,7 +91,18 @@ pub async fn rename(
 ) -> io::Result<()> {
   let from = from.as_ref();
   let to = to.as_ref();
-  if metadata_at(from).await?.is_dir() {
+  let is_dir = metadata_at(from).await?.is_dir();
+  let (from_names, to_names) = (split_path(from)?, split_path(to)?);
+  if from_names == to_names {
+    return Ok(());
+  }
+  if is_dir {
+    if to_names.starts_with(&from_names) {
+      return Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "a directory cannot be moved into itself",
+      ));
+    }
     copy_directory(from.to_owned(), to.to_owned()).await?;
     remove_dir_all(from).await
   } else {

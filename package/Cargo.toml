@@ -24,7 +24,20 @@ full = ["fs", "io-util", "macros", "sync", "time", "rt", "rt-multi-thread"]
 io-util = ["tokio/io-util"]
 macros = ["tokio/macros"]
 sync = ["tokio/sync"]
-fs = []
+fs = [
+  "web-sys/File",
+  "web-sys/StorageManager",
+  "web-sys/FileSystemHandle",
+  "web-sys/FileSystemHandleKind",
+  "web-sys/FileSystemFileHandle",
+  "web-sys/FileSystemDirectoryHandle",
+  "web-sys/FileSystemGetFileOptions",
+  "web-sys/FileSystemGetDirectoryOptions",
+  "web-sys/FileSystemRemoveOptions",
+  "web-sys/FileSystemCreateWritableOptions",
+  "web-sys/FileSystemWritableFileStream",
+  "web-sys/WritableStream",
+]
 time = []
 rt = ["tokio/rt"]
 rt-multi-thread = ["rt"]
@@ -53,18 +66,6 @@ web-sys = { version = "0.3.73", features = [
     "BlobPropertyBag",
     'Url',
     'Performance',
-    'File',
-    'StorageManager',
-    'FileSystemHandle',
-    'FileSystemHandleKind',
-    'FileSystemFileHandle',
-    'FileSystemDirectoryHandle',
-    'FileSystemGetFileOptions',
-    'FileSystemGetDirectoryOptions',
-    'FileSystemRemoveOptions',
-    'FileSystemCreateWritableOptions',
-    'FileSystemWritableFileStream',
-    'WritableStream',
 ] }
 
 [dev-dependencies]
