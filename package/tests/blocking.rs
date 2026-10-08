@@ -10,8 +10,11 @@
   target_os = "unknown"
 ))]
 
+use js_sys::SharedArrayBuffer;
+use js_sys::WebAssembly::Memory;
 use tokio_with_wasm::task::{JoinError, JoinSet, spawn_blocking};
 use tokio_with_wasm::time::{Duration, sleep};
+use wasm_bindgen::{JsCast, memory};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -97,16 +100,36 @@ async fn spawning_inside_a_worker_is_reported_as_a_panic() {
   assert!(handle.await.is_err_and(|error| error.is_panic()));
 }
 
-/// A worker is culled after ten idle seconds. The pool's management
-/// timer stops with it, so this also proves that the timer starts
-/// again for the task spawned afterwards.
+/// Workers are culled after ten idle seconds. The pool's management
+/// timer stops with them, so this also proves that the timer starts
+/// again for the tasks spawned afterwards, and that the culled workers
+/// gave their stacks back for the new ones to reuse.
 #[wasm_bindgen_test]
-async fn an_idle_worker_is_culled_and_the_pool_recovers()
--> Result<(), JoinError> {
-  spawn_blocking(|| 1).await?;
+async fn idle_workers_are_culled_and_the_pool_recovers() {
+  async fn run_four() -> f64 {
+    let handles: Vec<_> = (0..4)
+      .map(|_| {
+        spawn_blocking(|| std::thread::sleep(Duration::from_millis(100)))
+      })
+      .collect();
+    for handle in handles {
+      assert!(handle.await.is_ok());
+    }
+    let memory = memory().unchecked_into::<Memory>();
+    memory
+      .buffer()
+      .unchecked_into::<SharedArrayBuffer>()
+      .byte_length() as f64
+  }
+  let before = run_four().await;
   sleep(Duration::from_millis(10_500)).await;
-  assert_eq!(spawn_blocking(|| 2).await?, 2);
-  Ok(())
+  let grown = run_four().await - before;
+  // Four leaked stacks would take eight megabytes. The allocator may still
+  // grow by one stack while it settles, depending on what ran before.
+  assert!(
+    grown < 4_194_304.0,
+    "the culled workers leaked {grown} bytes"
+  );
 }
 
 #[wasm_bindgen_test]

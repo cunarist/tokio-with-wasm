@@ -38,6 +38,11 @@ async fn a_custom_worker_script_is_used() -> Result<(), JoinError> {
   let failed = spawn_blocking(|| 5).await;
   assert!(failed.is_err_and(|error| error.is_panic()));
 
+  // A worker that cannot even be created never ran the task.
+  set_worker_script_provider(|| Err("no script".into()));
+  let failed = spawn_blocking(|| 5).await;
+  assert!(failed.is_err_and(|error| error.is_cancelled()));
+
   // With the default provider restored, the pool must recover:
   // the failed worker's slot was given back.
   set_worker_script_provider(get_worker_script);

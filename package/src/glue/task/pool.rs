@@ -1,6 +1,6 @@
 use crate::only_web::{PATH_PROVIDER, WORKER_SCRIPT_PROVIDER};
 use crate::{LogError, now};
-use js_sys::{JsString, Object, Reflect, global};
+use js_sys::{Object, Reflect, global};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -45,10 +45,11 @@ struct Task {
 
 /// A task waiting for a web worker, together with the handler that reports
 /// the failure if the task never gets to run or dies halfway through.
+/// It is told whether the task was handed to a worker and so may have run.
 /// The handler stays on this thread, so it doesn't have to be `Send`.
 struct QueuedTask {
   task: Task,
-  on_failure: Box<dyn FnOnce()>,
+  on_failure: Box<dyn FnOnce(bool)>,
 }
 
 impl Default for WorkerPool {
@@ -106,6 +107,12 @@ impl WorkerPool {
     let url = script_provider()?;
     let path_provider = PATH_PROVIDER.with(|p| *p.borrow());
     let glue_path = path_provider()?;
+    // The glue path and the module/memory let the worker instantiate the
+    // wasm module. Later it receives messages about code to run on it.
+    let worker_init = Object::new();
+    Reflect::set(&worker_init, &"glue_path".into(), &glue_path.into())?;
+    Reflect::set(&worker_init, &"module_or_path".into(), &module())?;
+    Reflect::set(&worker_init, &"memory".into(), &memory())?;
     let options = WorkerOptions::new();
     options.set_type(WorkerType::Module);
     let worker = Worker::new_with_options(&url, &options).map_err(|error| {
@@ -119,20 +126,10 @@ impl WorkerPool {
            `tokio_with_wasm::only_web::set_worker_script_provider`."
       ))
     })?;
-
-    // With a worker spun up send it the glue path and the module/memory so
-    // it can start instantiating the wasm module. Later it might receive
-    // further messages about code to run on the wasm module.
-    let worker_init = Object::new();
-    Reflect::set(
-      &worker_init,
-      &JsString::from("glue_path"),
-      &JsValue::from(glue_path),
-    )?;
-    Reflect::set(&worker_init, &JsString::from("module_or_path"), &module())?;
-    Reflect::set(&worker_init, &JsString::from("memory"), &memory())?;
-    worker.post_message(&worker_init)?;
-
+    if let Err(error) = worker.post_message(&worker_init) {
+      worker.terminate();
+      return Err(error);
+    }
     Ok(worker)
   }
 
@@ -205,7 +202,11 @@ impl WorkerPool {
   /// which happens when the task inside it panics. It is dropped from the
   /// pool and `on_failure` is called, so that the task's `JoinHandle` gets
   /// an answer instead of waiting forever.
-  fn reclaim_on_message(&self, worker: Worker, on_failure: Box<dyn FnOnce()>) {
+  fn reclaim_on_message(
+    &self,
+    worker: Worker,
+    on_failure: Box<dyn FnOnce(bool)>,
+  ) {
     let pool_state = Rc::downgrade(&self.pool_state);
     let worker2 = worker.clone();
     let reclaim_slot = Rc::new(RefCell::new(None));
@@ -241,7 +242,7 @@ impl WorkerPool {
         pool_state.discard_worker();
       }
       if let Some(on_failure) = on_failure.borrow_mut().take() {
-        on_failure();
+        on_failure(true);
       }
       *slot2.borrow_mut() = None;
     });
@@ -270,7 +271,7 @@ impl WorkerPool {
       Ok(worker) => worker,
       Err(error) => {
         error.log_error("RUN_TASK");
-        on_failure();
+        on_failure(false);
         return;
       }
     };
@@ -285,7 +286,11 @@ impl WorkerPool {
       let passed_time = current_timestamp - deactivated_time;
       let is_active = passed_time < 10000.0; // 10 seconds
       if !is_active {
-        managed_worker.worker.terminate();
+        // `null` asks the worker to free its stack and close itself,
+        // which `terminate` would leave allocated in the shared memory.
+        if managed_worker.worker.post_message(&JsValue::NULL).is_err() {
+          managed_worker.worker.terminate();
+        }
         self.pool_state.discard_worker();
       }
       is_active
@@ -336,7 +341,7 @@ impl WorkerPool {
   pub fn queue_task(
     &self,
     callable: impl FnOnce() + Send + 'static,
-    on_failure: impl FnOnce() + 'static,
+    on_failure: impl FnOnce(bool) + 'static,
   ) {
     let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
     queued_tasks.push_back(QueuedTask {
@@ -383,15 +388,22 @@ impl PoolState {
 /// Entry point invoked by JavaScript in a worker.
 ///
 /// The `ptr` must be the one that [`WorkerPool::execute`] posted to this
-/// worker, which is the only value the glue code ever passes here. The
-/// module is private, so nothing but that message can reach this function.
+/// worker. The function is exported to JavaScript only for the worker
+/// script, so nothing else may call it.
 #[wasm_bindgen]
 pub fn task_worker_entry_point(ptr: f64) -> Result<(), JsValue> {
+  let global = global().unchecked_into::<DedicatedWorkerGlobalScope>();
+  // A worker script copied from an older version passes on the `null`
+  // that closes the worker, which arrives here as zero. It still closes,
+  // leaving its stack behind as `terminate` used to.
+  if ptr == 0.0 {
+    global.close();
+    return Ok(());
+  }
   // Safety: the task was leaked by `Box::into_raw` for this message,
   // and each message is delivered to a single worker exactly once,
   // so ownership passes here and the box is dropped once.
   let ptr = unsafe { Box::from_raw(ptr as usize as *mut Task) };
-  let global = global().unchecked_into::<DedicatedWorkerGlobalScope>();
   (ptr.callable)();
   global.post_message(&JsValue::undefined())?;
   Ok(())
