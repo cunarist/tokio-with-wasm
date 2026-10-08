@@ -47,6 +47,29 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets --features full --target wasm64-unknown-unknown -- -D warnings
 
+  # What users build: stable or the minimum Rust version, no shared memory,
+  # and any single feature. Running from outside the repository keeps
+  # `rust-toolchain.toml` and `.cargo/config.toml` out of it.
+  consumer:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain: [stable, "1.85"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --target wasm32-unknown-unknown
+      - working-directory: ${{ runner.temp }}
+        run: |
+          for target in wasm32-unknown-unknown x86_64-unknown-linux-gnu; do
+            for features in "" fs io-util macros rt rt-multi-thread sync time full; do
+              cargo +${{ matrix.toolchain }} check \
+                --manifest-path "$GITHUB_WORKSPACE/package/Cargo.toml" \
+                --target $target ${features:+--features $features}
+            done
+          done
+        env:
+          RUSTFLAGS: -D warnings
+
   # The same code paths compile to plain `tokio` on native platforms.
   native:
     runs-on: ubuntu-latest

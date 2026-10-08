@@ -1,7 +1,8 @@
 # The web worker build recompiles `std` with shared memory,
 # which needs a nightly compiler and the `rust-src` component.
 # See `.cargo/config.toml` for the compiler flags.
+# The date is pinned so that a new nightly cannot break CI unannounced.
 [toolchain]
-channel = "nightly"
+channel = "nightly-2026-10-08"
 components = ["rust-src", "clippy", "rustfmt"]
 targets = ["wasm32-unknown-unknown"]
