@@ -12,6 +12,7 @@
   target_os = "unknown"
 ))]
 
+use js_sys::{Function, Reflect, global};
 use std::future::Future;
 use std::io::{ErrorKind, SeekFrom};
 use std::path::PathBuf;
@@ -19,6 +20,7 @@ use std::task::{Context, Waker};
 use tokio_with_wasm::fs;
 use tokio_with_wasm::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio_with_wasm::time::{Duration, sleep};
+use wasm_bindgen::JsCast;
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -263,6 +265,9 @@ async fn renames_a_file() {
   ok(fs::rename(&from, &to).await, "rename");
   assert_eq!(ok(fs::read_to_string(&to).await, "read"), "moved");
   assert!(!ok(fs::try_exists(&from).await, "look"));
+
+  ok(fs::rename(&to, &to).await, "rename onto itself");
+  assert_eq!(ok(fs::read_to_string(&to).await, "read"), "moved");
 }
 
 #[wasm_bindgen_test]
@@ -284,6 +289,16 @@ async fn renames_a_directory_and_everything_under_it() {
     "low"
   );
   assert!(!ok(fs::try_exists(&from).await, "look"));
+
+  ok(fs::rename(&to, &to).await, "rename onto itself");
+  assert_eq!(
+    kind(fs::rename(&to, to.join("deep/inner")).await),
+    ErrorKind::InvalidInput
+  );
+  assert_eq!(
+    ok(fs::read_to_string(to.join("deep/low.txt")).await, "read"),
+    "low"
+  );
 }
 
 #[wasm_bindgen_test]
@@ -337,6 +352,53 @@ async fn dropping_a_file_still_lands_the_writes() {
     sleep(Duration::from_millis(10)).await;
   }
   assert_eq!(ok(fs::read_to_string(&path).await, "read"), "left behind");
+}
+
+#[wasm_bindgen_test]
+async fn dropping_a_file_mid_push_still_lands_the_writes() {
+  let directory = scratch("dropped_push").await;
+  let path = directory.join("dropped.bin");
+  let block = vec![9u8; 2 * 1024 * 1024];
+
+  let mut file = ok(fs::File::create(&path).await, "create");
+  ok(file.write_all(&block).await, "write");
+  {
+    // The first poll opens the stream and the second, once it is open,
+    // starts pushing the buffer, which no poll can finish at once.
+    let mut flushing = Box::pin(file.flush());
+    let mut context = Context::from_waker(Waker::noop());
+    assert!(flushing.as_mut().poll(&mut context).is_pending());
+    sleep(Duration::from_millis(100)).await;
+    assert!(flushing.as_mut().poll(&mut context).is_pending());
+  }
+  drop(file);
+
+  for _ in 0..200 {
+    if !ok(fs::metadata(&path).await, "read metadata").is_empty() {
+      break;
+    }
+    sleep(Duration::from_millis(10)).await;
+  }
+  assert_eq!(ok(fs::read(&path).await, "read").len(), block.len());
+}
+
+#[wasm_bindgen_test]
+async fn a_cancelled_read_does_not_answer_a_later_one() {
+  let directory = scratch("cancelled_read").await;
+  let path = directory.join("cancelled.txt");
+  ok(fs::write(&path, b"0123456789").await, "write");
+
+  let mut file = ok(fs::File::open(&path).await, "open");
+  {
+    let mut head = [0u8; 2];
+    let mut reading = Box::pin(file.read(&mut head));
+    let mut context = Context::from_waker(Waker::noop());
+    assert!(reading.as_mut().poll(&mut context).is_pending());
+  }
+  ok(file.seek(SeekFrom::Start(5)).await, "seek");
+  let mut rest = String::new();
+  ok(file.read_to_string(&mut rest).await, "read");
+  assert_eq!(rest, "56789");
 }
 
 #[wasm_bindgen_test]
@@ -450,11 +512,52 @@ async fn appending_starts_at_the_end() {
     "open for appending",
   );
   ok(file.write_all(b"second\n").await, "write");
+  // Appending ignores the cursor, held back bytes or not.
+  ok(file.seek(SeekFrom::Start(0)).await, "seek");
+  ok(file.write_all(b"third\n").await, "write");
   ok(file.flush().await, "flush");
 
   assert_eq!(
     ok(fs::read_to_string(&path).await, "read"),
-    "first\nsecond\n"
+    "first\nsecond\nthird\n"
+  );
+}
+
+#[wasm_bindgen_test]
+async fn appending_keeps_one_stream_open() {
+  let directory = scratch("appending_stream").await;
+  let path = directory.join("log.bin");
+  ok(fs::write(&path, b"").await, "write");
+  let mut file = ok(
+    fs::File::options().append(true).open(&path).await,
+    "open for appending",
+  );
+
+  // Opening a stream copies the whole file, so one per chunk would make
+  // appending quadratic. This counts the streams that get opened.
+  let spy = Function::new_no_args(
+    "const proto = FileSystemFileHandle.prototype;
+     const open = proto.createWritable;
+     globalThis.opened = 0;
+     proto.createWritable = function (...args) {
+       opened += 1;
+       return open.apply(this, args);
+     };
+     return () => { proto.createWritable = open; };",
+  );
+  let restore = spy.call0(&global()).unwrap_or_default();
+  let chunk = pattern(1 << 20);
+  for _ in 0..4 {
+    ok(file.write_all(&chunk).await, "write");
+  }
+  ok(file.flush().await, "flush");
+  let _ = restore.unchecked_into::<Function>().call0(&global());
+
+  let opened = Reflect::get(&global(), &"opened".into()).unwrap_or_default();
+  assert_eq!(opened.as_f64(), Some(1.0), "streams were reopened");
+  assert_eq!(
+    ok(fs::metadata(&path).await, "read metadata").len(),
+    4 << 20
   );
 }
 
@@ -480,6 +583,21 @@ async fn creating_a_new_file_over_an_old_one_does_not_work() {
     Err(failure) => assert_eq!(failure.kind(), ErrorKind::AlreadyExists),
     Ok(_) => panic!("the file is already there"),
   }
+
+  ok(
+    fs::create_dir(directory.join("taken")).await,
+    "create a directory",
+  );
+  assert_eq!(
+    kind(
+      fs::File::options()
+        .write(true)
+        .create_new(true)
+        .open(directory.join("taken"))
+        .await
+    ),
+    ErrorKind::AlreadyExists
+  );
 }
 
 #[wasm_bindgen_test]

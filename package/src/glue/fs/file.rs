@@ -1,10 +1,10 @@
 //! Files in the origin private file system.
 
-use super::dir::{Metadata, file_metadata};
+use super::dir::{Metadata, file_metadata, metadata_at};
 use super::error::{Wanted, await_call, await_js, cast};
 use super::handle::file_at;
 use crate::error;
-use js_sys::Uint8Array;
+use js_sys::{Reflect, Uint8Array};
 use std::future::{Future, poll_fn};
 use std::io::{self, SeekFrom};
 use std::path::Path;
@@ -293,29 +293,53 @@ impl File {
   fn forget_read_ahead(&mut self) {
     self.read_buffer = Vec::new();
     self.read_start = 0;
+    self.forget_reading();
   }
 
-  /// Moves the cursor to the end of the file as it stands right now.
+  /// Lets go of a read in flight, which was meant for an earlier cursor
+  /// or an earlier file.
+  fn forget_reading(&mut self) {
+    if let Some(Work::Reading(_)) = self.work {
+      self.work = None;
+    }
+  }
+
+  /// Moves the cursor of an appending file to the end.
   ///
-  /// The end can only have moved while no stream of ours was open, because
-  /// a stream carries its own copy of the file until it closes.
+  /// Its writes all go to the end, so while some are held back or a stream
+  /// of ours is open, the end is where they finish.
   fn poll_at_end(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    if !self.buffer.is_empty() {
+      self.position = self.buffer_start + self.buffer.len() as u64;
+      return Poll::Ready(Ok(()));
+    }
+    // A push in flight holds the stream, which is kept open.
+    if let Some(Work::Pushing(_)) = self.work {
+      ready!(self.poll_pushed(cx))?;
+    }
+    self.position = match &self.writer {
+      Some(writer) => writer.cursor,
+      None => ready!(self.poll_size(cx))?,
+    };
+    Poll::Ready(Ok(()))
+  }
+
+  /// Measures the file, once every held back byte is in it.
+  fn poll_size(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
     loop {
       match self.work.take() {
         Some(Work::Sizing(future)) => {
-          let size =
-            ready!(poll_started(&mut self.work, future, Work::Sizing, cx))?;
-          self.position = size;
-          return Poll::Ready(Ok(()));
+          return poll_started(&mut self.work, future, Work::Sizing, cx);
         }
         Some(other) => {
           self.work = Some(other);
-          ready!(self.poll_settled(cx))?;
+          ready!(self.poll_closed(cx))?;
         }
-        None => {
+        None if self.buffer.is_empty() && self.writer.is_none() => {
           let sizing = size_of(self.handle.clone());
           self.work = Some(Work::Sizing(Box::pin(sizing)));
         }
+        None => ready!(self.poll_closed(cx))?,
       }
     }
   }
@@ -420,10 +444,8 @@ impl AsyncWrite for File {
         "the file was not opened for writing",
       )));
     }
-    // An appending file writes to the end as it stands, the way `O_APPEND`
-    // does. Only the start of a run has to look it up: once bytes are held
-    // back, the end is wherever they finish.
-    if this.appending && this.buffer.is_empty() && this.writer.is_none() {
+    // An appending file writes to the end, the way `O_APPEND` does.
+    if this.appending {
       ready!(this.poll_at_end(cx))?;
     }
     // Bytes that do not carry on from the ones already held back cannot
@@ -479,54 +501,29 @@ impl AsyncSeek for File {
     cx: &mut Context<'_>,
   ) -> Poll<io::Result<u64>> {
     let this = self.get_mut();
-    loop {
-      match this.seek.take() {
-        None => return Poll::Ready(Ok(this.position)),
-        Some(Seek::Settled(offset)) => {
-          this.position = offset;
-          return Poll::Ready(Ok(offset));
-        }
-        Some(Seek::FromEnd(offset)) => {
+    let landed = match this.seek.take() {
+      None => return Poll::Ready(Ok(this.position)),
+      Some(Seek::Settled(offset)) => offset,
+      Some(Seek::FromEnd(offset)) => match this.poll_size(cx) {
+        Poll::Pending => {
           this.seek = Some(Seek::FromEnd(offset));
-          match this.work.take() {
-            Some(Work::Sizing(future)) => {
-              let sized =
-                ready!(poll_started(&mut this.work, future, Work::Sizing, cx))
-                  .and_then(|size| shifted(size, offset));
-              match sized {
-                Ok(landed) => this.seek = Some(Seek::Settled(landed)),
-                Err(failure) => {
-                  // Either failure ends the seek; leaving it pending would
-                  // make every later `poll_complete` fail the same way.
-                  this.seek = None;
-                  return Poll::Ready(Err(failure));
-                }
-              }
-            }
-            Some(other) => {
-              this.work = Some(other);
-              ready!(this.poll_closed(cx))?;
-            }
-            None => {
-              // The end has to account for held back bytes,
-              // so they reach the file before it is measured.
-              if this.buffer.is_empty() && this.writer.is_none() {
-                let sizing = size_of(this.handle.clone());
-                this.work = Some(Work::Sizing(Box::pin(sizing)));
-              } else {
-                ready!(this.poll_closed(cx))?;
-              }
-            }
-          }
+          return Poll::Pending;
         }
-      }
+        Poll::Ready(size) => shifted(size?, offset)?,
+      },
+    };
+    if landed != this.position {
+      this.forget_reading();
+      this.position = landed;
     }
+    Poll::Ready(Ok(landed))
   }
 }
 
 impl Drop for File {
   fn drop(&mut self) {
-    if self.buffer.is_empty() && self.writer.is_none() {
+    let pushing = matches!(self.work, Some(Work::Pushing(_)));
+    if self.buffer.is_empty() && self.writer.is_none() && !pushing {
       return;
     }
     // Nothing can be awaited here, so the last bytes are handed to the
@@ -535,12 +532,17 @@ impl Drop for File {
     let start = self.buffer_start;
     let bytes = std::mem::take(&mut self.buffer);
     let writer = self.writer.take();
+    let work = self.work.take();
     spawn_local(async move {
       let landing = async move {
-        let mut writer = match writer {
-          Some(writer) => writer,
-          None => Writer {
-            stream: open_writer(handle, true).await?,
+        let mut writer = match (work, writer) {
+          (Some(Work::Pushing(pushing)), _) => pushing.await?,
+          (_, Some(writer)) => writer,
+          (work, None) => Writer {
+            stream: match work {
+              Some(Work::Opening(opening)) => opening.await?,
+              _ => open_writer(handle, true).await?,
+            },
             cursor: 0,
           },
         };
@@ -600,6 +602,12 @@ async fn open_writer(
   handle: FileSystemFileHandle,
   keep: bool,
 ) -> io::Result<FileSystemWritableFileStream> {
+  if !Reflect::has(&handle, &"createWritable".into()).unwrap_or(false) {
+    return Err(io::Error::new(
+      io::ErrorKind::Unsupported,
+      "this browser cannot write to files",
+    ));
+  }
   let options = FileSystemCreateWritableOptions::new();
   options.set_keep_existing_data(keep);
   cast(
@@ -768,7 +776,7 @@ impl OpenOptions {
       ));
     }
 
-    if self.create_new && file_at(path, false).await.is_ok() {
+    if self.create_new && metadata_at(path).await.is_ok() {
       return Err(io::Error::new(
         io::ErrorKind::AlreadyExists,
         "the file is already there",
