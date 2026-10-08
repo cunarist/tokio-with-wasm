@@ -45,8 +45,7 @@ struct Task {
 
 /// A task waiting for a web worker, together with the handler that reports
 /// the failure if the task never gets to run or dies halfway through.
-/// It is told whether the task reached a worker, where a failure is
-/// reported as a panic.
+/// It is told whether the task was handed to a worker and so may have run.
 /// The handler stays on this thread, so it doesn't have to be `Send`.
 struct QueuedTask {
   task: Task,
@@ -393,16 +392,18 @@ impl PoolState {
 /// script, so nothing else may call it.
 #[wasm_bindgen]
 pub fn task_worker_entry_point(ptr: f64) -> Result<(), JsValue> {
+  let global = global().unchecked_into::<DedicatedWorkerGlobalScope>();
   // A worker script copied from an older version passes on the `null`
-  // that closes the worker, which arrives here as zero.
+  // that closes the worker, which arrives here as zero. It still closes,
+  // leaving its stack behind as `terminate` used to.
   if ptr == 0.0 {
+    global.close();
     return Ok(());
   }
   // Safety: the task was leaked by `Box::into_raw` for this message,
   // and each message is delivered to a single worker exactly once,
   // so ownership passes here and the box is dropped once.
   let ptr = unsafe { Box::from_raw(ptr as usize as *mut Task) };
-  let global = global().unchecked_into::<DedicatedWorkerGlobalScope>();
   (ptr.callable)();
   global.post_message(&JsValue::undefined())?;
   Ok(())

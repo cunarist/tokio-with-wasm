@@ -332,9 +332,9 @@ where
       },
       // Called when the web worker cannot run the task or dies while
       // running it. Without this, the `JoinHandle` would never resolve.
-      move |panicked| {
+      move |started| {
         failure_flags.finish();
-        failure_sender.send(Err(if panicked {
+        failure_sender.send(Err(if started {
           JoinError::panicked(task_id)
         } else {
           JoinError::cancelled(task_id)
