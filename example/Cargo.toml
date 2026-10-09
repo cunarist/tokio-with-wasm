@@ -2,6 +2,7 @@
 name = "example"
 version = "0.1.0"
 edition = "2021"
+publish = false
 license = "MIT"
 description = "Example usage of `tokio_with_wasm` crate"
 repository = "https://github.com/cunarist/tokio-with-wasm"

@@ -23,7 +23,7 @@ full = ["fs", "io-util", "macros", "sync", "time", "rt", "rt-multi-thread"]
 # their native counterparts come from your own dependency on `tokio`,
 # which needs the same features enabled (see the README).
 io-util = ["tokio/io-util"]
-macros = ["tokio/macros"]
+macros = ["tokio/macros", "dep:tokio_with_wasm_proc"]
 sync = ["tokio/sync"]
 fs = [
   "web-sys/File",
@@ -52,8 +52,8 @@ wildcard_imports = "deny"
 tokio = "1.x.x"
 
 # Native builds only alias `tokio`, so the glue's dependencies are wasm-only.
-[target.'cfg(target_family = "wasm")'.dependencies]
-tokio_with_wasm_proc = "0.10.1"
+[target.'cfg(all(target_family = "wasm", target_vendor = "unknown", target_os = "unknown"))'.dependencies]
+tokio_with_wasm_proc = { version = "0.10.1", optional = true }
 # 0.2.96 is the first version with `thread_local_v2`.
 wasm-bindgen = "0.2.96"
 wasm-bindgen-futures = "0.4.46"

@@ -22,19 +22,11 @@ pub use tokio as alias;
   target_vendor = "unknown",
   target_os = "unknown"
 ))]
-pub use crate as alias;
-
-#[cfg(all(
-  target_family = "wasm",
-  target_vendor = "unknown",
-  target_os = "unknown"
-))]
 mod glue;
 
-#[allow(unused_imports)]
 #[cfg(all(
   target_family = "wasm",
   target_vendor = "unknown",
   target_os = "unknown"
 ))]
-pub use glue::*;
+pub use {crate as alias, glue::*};

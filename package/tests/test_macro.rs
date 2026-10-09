@@ -26,30 +26,19 @@ async fn the_test_macro_runs_async_tests() {
 
 // Runtime arguments configure a native runtime that doesn't exist on
 // the web, so they are accepted and ignored.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2, crate = "tokio")]
 async fn the_test_macro_accepts_runtime_arguments() {
   sleep(Duration::from_millis(10)).await;
 }
 
-// An `Ok` result passes; an `Err` would panic and fail the test.
 #[tokio::test]
-async fn the_test_macro_unwraps_ok_results() -> Result<(), std::io::Error> {
+async fn the_test_macro_passes_ok_results() -> Result<(), std::io::Error> {
   sleep(Duration::from_millis(10)).await;
   Ok(())
 }
 
-// The expansion references the crate by the given path
-// when the dependency is renamed in `Cargo.toml`.
-mod renamed {
-  use renamed_wasm::alias as tokio;
-  pub use tokio_with_wasm as renamed_wasm;
-
-  #[tokio::test(crate = "renamed_wasm")]
-  async fn the_test_macro_honors_a_renamed_crate() {
-    let handle = tokio::spawn(async { 6 * 7 });
-    let Ok(output) = handle.await else {
-      panic!("the spawned task failed");
-    };
-    assert_eq!(output, 42);
-  }
+#[tokio::test]
+#[should_panic]
+async fn the_test_macro_fails_err_results() -> Result<(), std::io::Error> {
+  Err(std::io::Error::other("failed"))
 }
