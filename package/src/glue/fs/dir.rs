@@ -1,22 +1,21 @@
 //! Reading directories, and what the entries in them say about themselves.
 
-use super::error::{Wanted, await_js, cast, to_io_error};
-use super::handle::{Entry, directory_at, entry_in};
+use super::error::to_io_error;
+use super::handle::{directory_at, directory_in, file_in, snapshot};
 use super::path::split_path;
-use js_sys::{AsyncIterator, Reflect};
+use js_sys::{AsyncIterator, IteratorNext};
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use wasm_bindgen::JsValue;
+use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::JsFuture;
 use web_sys::{
   FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemHandle,
   FileSystemHandleKind,
 };
 
 /// What an entry in the origin private file system is.
-///
-/// There are no symbolic links to be had, so `is_symlink` is always false.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FileType {
   is_directory: bool,
@@ -33,18 +32,13 @@ impl FileType {
     self.is_directory
   }
 
-  /// Always returns false,
-  /// because the origin private file system has no symbolic links.
+  /// Always false.
   pub fn is_symlink(&self) -> bool {
     false
   }
 }
 
-/// What is known about an entry in the origin private file system.
-///
-/// `tokio` also hands out permissions here. There are none to hand out on
-/// the web, where every entry belongs to the origin that wrote it, so
-/// `permissions` is missing rather than lying about what it returns.
+/// What is known about an entry. There is no `permissions` on the web.
 #[derive(Clone, Copy, Debug)]
 pub struct Metadata {
   file_type: FileType,
@@ -68,8 +62,7 @@ impl Metadata {
     self.file_type.is_dir()
   }
 
-  /// Always returns false,
-  /// because the origin private file system has no symbolic links.
+  /// Always false.
   pub fn is_symlink(&self) -> bool {
     false
   }
@@ -84,10 +77,7 @@ impl Metadata {
     self.length == 0
   }
 
-  /// Returns when the file was last written to.
-  ///
-  /// Directories carry no timestamp of their own,
-  /// so asking one is an error rather than a made up time.
+  /// Returns when the file was last written to. Directories have no time.
   pub fn modified(&self) -> io::Result<SystemTime> {
     self.modified.ok_or_else(|| {
       io::Error::new(
@@ -98,38 +88,33 @@ impl Metadata {
   }
 }
 
-/// Reads the size and timestamp that a file handle points at.
 pub async fn file_metadata(
   handle: &FileSystemFileHandle,
 ) -> io::Result<Metadata> {
-  let file =
-    cast::<web_sys::File>(await_js(handle.get_file(), Wanted::File).await?)?;
+  let file = snapshot(handle).await?;
   Ok(Metadata {
     file_type: FileType {
       is_directory: false,
     },
     length: file.size() as u64,
-    // `lastModified` counts milliseconds from the same epoch that
-    // `SystemTime` does, so no clock has to be read to convert it.
     modified: Some(
       UNIX_EPOCH + Duration::from_millis(file.last_modified() as u64),
     ),
   })
 }
 
-/// Describes a directory, which has nothing to report but its kind.
-pub fn directory_metadata() -> Metadata {
-  Metadata {
-    file_type: FileType { is_directory: true },
-    length: 0,
-    modified: None,
-  }
-}
+const DIRECTORY: Metadata = Metadata {
+  file_type: FileType { is_directory: true },
+  length: 0,
+  modified: None,
+};
 
 /// A stream over the entries of a directory,
 /// returned by [`read_dir`](super::read_dir).
 pub struct ReadDir {
   entries: AsyncIterator,
+  /// Kept across a cancelled call, so no entry is lost.
+  step: Option<JsFuture>,
   directory: PathBuf,
 }
 
@@ -141,31 +126,22 @@ impl ReadDir {
   ) -> Self {
     ReadDir {
       entries: handle.values(),
+      step: None,
       directory,
     }
   }
 
   /// Returns the next entry, or `None` once the directory is exhausted.
-  ///
-  /// The directory is walked as it is asked for, so an entry written
-  /// after the walk started may or may not show up, the same way it may
-  /// or may not in `tokio`.
   pub async fn next_entry(&mut self) -> io::Result<Option<DirEntry>> {
-    let step = self
-      .entries
-      .next()
-      .map_err(|value| to_io_error(value, Wanted::Either))?;
-    let step = await_js(step, Wanted::Either).await?;
-    let done = Reflect::get(&step, &JsValue::from_str("done"))
-      .map_err(|value| to_io_error(value, Wanted::Either))?
-      .is_truthy();
-    if done {
-      return Ok(None);
-    }
-    let value = Reflect::get(&step, &JsValue::from_str("value"))
-      .map_err(|value| to_io_error(value, Wanted::Either))?;
-    Ok(Some(DirEntry {
-      handle: cast::<FileSystemHandle>(value)?,
+    let step = match self.step.take() {
+      Some(step) => step,
+      None => self.entries.next().map_err(to_io_error)?.into(),
+    };
+    let step = self.step.insert(step).await;
+    self.step = None;
+    let step: IteratorNext = step.map_err(to_io_error)?.unchecked_into();
+    Ok((!step.done()).then(|| DirEntry {
+      handle: step.value().unchecked_into(),
       directory: self.directory.clone(),
     }))
   }
@@ -198,23 +174,23 @@ impl DirEntry {
   /// Returns what is known about the entry.
   pub async fn metadata(&self) -> io::Result<Metadata> {
     if self.handle.kind() == FileSystemHandleKind::Directory {
-      return Ok(directory_metadata());
+      return Ok(DIRECTORY);
     }
-    let handle = cast::<FileSystemFileHandle>(JsValue::from(&self.handle))?;
-    file_metadata(&handle).await
+    file_metadata(self.handle.unchecked_ref()).await
   }
 }
 
 /// Reports what lives at `path`, whichever kind of entry that is.
 pub async fn metadata_at(path: &Path) -> io::Result<Metadata> {
   let names = split_path(path)?;
-  // The root is a directory that no lookup returns, so answer for it here.
   let Some((name, directories)) = names.split_last() else {
-    return Ok(directory_metadata());
+    return Ok(DIRECTORY);
   };
   let parent = directory_at(directories, false).await?;
-  match entry_in(&parent, name).await? {
-    Entry::File(handle) => file_metadata(&handle).await,
-    Entry::Directory => Ok(directory_metadata()),
+  // Asking for both kinds avoids relying on how browsers name the failure.
+  match file_in(&parent, name, false).await {
+    Ok(handle) => file_metadata(&handle).await,
+    Err(failure) if failure.kind() == io::ErrorKind::NotFound => Err(failure),
+    Err(_) => directory_in(&parent, name, false).await.map(|_| DIRECTORY),
   }
 }

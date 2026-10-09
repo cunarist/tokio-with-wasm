@@ -1,18 +1,11 @@
 //! Path handling for the origin private file system.
-//!
-//! The origin private file system holds one root per origin and has no
-//! symbolic links, so a path is nothing but the list of names that lead
-//! from that root to an entry. A leading slash is accepted and ignored,
-//! because there is no second root to be absolute against.
 
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
 /// Splits a path into the names that lead from the root to an entry.
 ///
-/// `..` is resolved here rather than passed on. That is safe because the
-/// origin private file system has no symbolic links, so no name can lead
-/// somewhere other than where it reads.
+/// `..` is resolved here, which is safe because there are no symbolic links.
 pub fn split_path(path: &Path) -> io::Result<Vec<String>> {
   let mut names = Vec::new();
   for component in path.components() {
@@ -38,8 +31,7 @@ pub fn split_path(path: &Path) -> io::Result<Vec<String>> {
       Component::Prefix(_) => {
         return Err(io::Error::new(
           io::ErrorKind::InvalidInput,
-          "path carries a drive prefix, \
-           which the origin private file system has no room for",
+          "path carries a drive prefix",
         ));
       }
     }
@@ -47,8 +39,7 @@ pub fn split_path(path: &Path) -> io::Result<Vec<String>> {
   Ok(names)
 }
 
-/// Splits a path into the directories that lead to an entry
-/// and the name of the entry itself.
+/// Splits a path into the directories leading to an entry and its name.
 pub fn split_parent(path: &Path) -> io::Result<(Vec<String>, String)> {
   let mut names = split_path(path)?;
   match names.pop() {
@@ -60,7 +51,7 @@ pub fn split_parent(path: &Path) -> io::Result<(Vec<String>, String)> {
   }
 }
 
-/// Joins names back into the one form that names an entry.
+/// Joins names back into the one spelling of their path.
 pub fn join_names(names: &[String]) -> PathBuf {
   let mut path = PathBuf::from("/");
   path.extend(names);
