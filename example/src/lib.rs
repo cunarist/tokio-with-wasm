@@ -1,5 +1,4 @@
 mod entry;
-mod fractal;
 mod measure;
 mod output;
 mod render;

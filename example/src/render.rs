@@ -1,37 +1,48 @@
-//! The fractal rendering entry point called from JavaScript.
-//! Rust only computes pixels here; the page's JavaScript owns
-//! the canvas, the animation loop, and the frame statistics.
+//! Mandelbrot frames for the page, rendered on web workers.
 
-use crate::fractal;
 use tokio::task::spawn_blocking;
 use tokio_with_wasm::alias as tokio;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-/// The square frame's side length in pixels.
-/// The `<canvas>` element in `index.html` matches this size.
+/// Matches the `<canvas>` size in `index.html`.
 const SIDE: u32 = 320;
-/// How many strips a frame is split into,
-/// which is also how many web workers render in parallel.
+/// Each strip of a frame renders on its own web worker.
 const STRIPS: u32 = 8;
+const MAX_ITERATIONS: u32 = 500;
+/// The "seahorse valley", where the page zooms in.
+const CENTER: (f64, f64) = (-0.743_643_887_037_151, 0.131_825_904_205_330);
 
-/// Renders one full frame as RGBA pixels, with every strip
-/// computed on its own web worker through `spawn_blocking`.
-/// The returned buffer is copied to the JavaScript side,
-/// so it can feed `ImageData` directly.
+/// Renders one frame as RGBA pixels.
 #[wasm_bindgen]
 pub async fn render_fractal_frame(scale: f64) -> Vec<u8> {
-  let strip_height = SIDE / STRIPS;
-  let mut strips = Vec::with_capacity(STRIPS as usize);
-  for index in 0..STRIPS {
-    let y_start = index * strip_height;
-    strips.push(spawn_blocking(move || {
-      fractal::render_strip(SIDE, SIDE, y_start, strip_height, scale)
-    }));
-  }
+  let rows = SIDE / STRIPS;
+  let strips: Vec<_> = (0..STRIPS)
+    .map(|i| spawn_blocking(move || render_strip(i * rows, rows, scale)))
+    .collect();
   let mut pixels = Vec::with_capacity((SIDE * SIDE * 4) as usize);
   for strip in strips {
-    let rendered = strip.await.expect("a fractal strip failed to render");
-    pixels.extend_from_slice(&rendered);
+    pixels.extend(strip.await.unwrap());
+  }
+  pixels
+}
+
+fn render_strip(top: u32, rows: u32, scale: f64) -> Vec<u8> {
+  let mut pixels = Vec::with_capacity((SIDE * rows * 4) as usize);
+  for py in top..top + rows {
+    for px in 0..SIDE {
+      let cx = CENTER.0 + (px as f64 / SIDE as f64 - 0.5) * scale;
+      let cy = CENTER.1 + (py as f64 / SIDE as f64 - 0.5) * scale;
+      let (mut x, mut y, mut i) = (0.0, 0.0, 0);
+      while x * x + y * y <= 4.0 && i < MAX_ITERATIONS {
+        (x, y) = (x * x - y * y + cx, 2.0 * x * y + cy);
+        i += 1;
+      }
+      let shade = (i % 64 * 4) as u8;
+      pixels.extend(match i {
+        MAX_ITERATIONS => [0, 0, 0, 255],
+        _ => [shade, shade / 2, 255 - shade, 255],
+      });
+    }
   }
   pixels
 }

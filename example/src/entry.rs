@@ -1,8 +1,7 @@
 use crate::{Dropper, print_fit};
-use chrono::Utc;
 use std::time::Duration;
 use tokio::task::{JoinSet, spawn, spawn_blocking, yield_now};
-use tokio::time::{interval, sleep};
+use tokio::time::{Instant, interval, sleep};
 use tokio_with_wasm::alias as tokio;
 
 #[tokio::main(flavor = "current_thread")]
@@ -50,9 +49,9 @@ async fn test_interval() {
 }
 
 fn calculate_cpu_bound() {
-  let start = Utc::now().timestamp_millis();
+  let start = Instant::now();
   let mut _sum = 0.0;
-  while Utc::now().timestamp_millis() - start < 10 {
+  while start.elapsed() < Duration::from_millis(10) {
     for i in 0..10_000 {
       _sum += (i as f64).sqrt().sin().cos();
     }
