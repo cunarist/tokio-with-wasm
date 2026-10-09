@@ -32,7 +32,7 @@ async fn entry() {
 
 // Runtime arguments configure a native runtime that doesn't exist on
 // the web, so they are accepted and ignored.
-#[tokio::main(flavor = "current_thread", worker_threads = 4)]
+#[tokio::main(flavor = "current_thread", worker_threads = 4, name = "entry")]
 async fn entry_with_args() {
   RAN_WITH_ARGS.with(|ran| ran.set(true));
 }
