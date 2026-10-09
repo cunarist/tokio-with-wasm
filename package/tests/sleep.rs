@@ -12,11 +12,13 @@
   target_os = "unknown"
 ))]
 
+use js_sys::WebAssembly::Memory;
 use js_sys::{Array, Function, Reflect, global};
 use std::future::Future;
 use std::pin::pin;
 use std::task::{Context, Waker};
 use tokio_with_wasm::time::{Duration, Instant, sleep, sleep_until};
+use wasm_bindgen::JsCast;
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -126,4 +128,35 @@ async fn a_dropped_sleep_clears_its_timer() {
   let cleared = Reflect::get(&global(), &"cleared".into()).unwrap_or_default();
   let _ = Reflect::set(&global(), &"clearTimeout".into(), &original);
   assert_eq!(Array::from(&cleared).length(), 1, "the timer is still set");
+}
+
+/// Like `tokio`, a reset wakes the task waiting on the old deadline.
+#[wasm_bindgen_test]
+async fn reset_keeps_the_waiting_task_awake() {
+  let start = Instant::now();
+  let mut sleeping = pin!(sleep(Duration::from_secs(3600)));
+  let mut is_reset = false;
+  let waiting = std::future::poll_fn(|cx| {
+    let poll = sleeping.as_mut().poll(cx);
+    if !is_reset {
+      is_reset = true;
+      sleeping.as_mut().reset(start + Duration::from_millis(50));
+    }
+    poll
+  });
+  let _ = tokio_with_wasm::time::timeout(Duration::from_secs(1), waiting).await;
+  let elapsed = start.elapsed();
+  assert!(elapsed < Duration::from_millis(500), "woke at {elapsed:?}");
+}
+
+#[wasm_bindgen_test]
+async fn cancelled_sleeps_do_not_leak() {
+  let pages = || wasm_bindgen::memory().unchecked_into::<Memory>().grow(0);
+  let before = pages();
+  for _ in 0..50_000 {
+    let _ = pin!(sleep(Duration::from_secs(3600)))
+      .poll(&mut Context::from_waker(Waker::noop()));
+  }
+  let grown = pages() - before;
+  assert!(grown < 16, "leaked {grown} pages of 64 KiB");
 }

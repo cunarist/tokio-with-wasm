@@ -68,7 +68,6 @@ web-sys = { version = "0.3.73", features = [
     'Blob',
     "BlobPropertyBag",
     'Url',
-    'Performance',
 ] }
 # Only `JoinMap` uses it.
 hashbrown = { version = "0.16", default-features = false, optional = true }

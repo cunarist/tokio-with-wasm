@@ -28,11 +28,8 @@ pub mod futures {
   pub use tokio::task::futures::TaskLocalFuture;
 }
 
-use crate::{
-  LogError, OnceReceiver, is_main_thread, once_channel, set_timeout,
-};
+use crate::{LogError, OnceReceiver, Timer, is_main_thread, once_channel};
 use flags::TaskFlags;
-use js_sys::Promise;
 use pool::WorkerPool;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
@@ -41,7 +38,7 @@ use std::pin::{Pin, pin};
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 // Renamed so that it doesn't collide with `task::spawn_local`.
-use wasm_bindgen_futures::{JsFuture, spawn_local as spawn_promise};
+use wasm_bindgen_futures::spawn_local as spawn_promise;
 
 thread_local! {
     static WORKER_POOL: WorkerPool = WorkerPool::new();
@@ -64,10 +61,7 @@ async fn manage_pool() {
     if !is_needed {
       break;
     }
-    let promise = Promise::new(&mut |resolve, _reject| {
-      set_timeout(&resolve, 100.0);
-    });
-    JsFuture::from(promise).await.log_error("MANAGE_POOL");
+    Timer::new(100.0).await;
   }
 }
 
@@ -361,10 +355,7 @@ where
 /// Meanwhile, any other pending tasks will be scheduled
 /// by the JavaScript runtime.
 pub async fn yield_now() {
-  let promise = Promise::new(&mut |resolve, _reject| {
-    set_timeout(&resolve, 0.0);
-  });
-  JsFuture::from(promise).await.log_error("YIELD_NOW");
+  Timer::new(0.0).await;
 }
 
 /// An owned permission to join on a task (awaiting its termination).
