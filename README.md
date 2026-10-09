@@ -1,4 +1,4 @@
-# About this library
+# tokio_with_wasm
 
 [![Crates.io](https://img.shields.io/crates/v/tokio_with_wasm.svg)](https://crates.io/crates/tokio_with_wasm)
 [![Documentation](https://docs.rs/tokio_with_wasm/badge.svg)](https://docs.rs/tokio_with_wasm)
@@ -10,29 +10,15 @@
 
 This library is made up of JavaScript glue code that mimics the behavior of real `tokio`. `tokio_with_wasm` doesn't have its own runtime and adapts to the JavaScript event loop.
 
-When using `spawn_blocking()`, the number of web workers is automatically adjusted to the number of parallel tasks. Refer to the docs for additional details.
-
 This library assumes that you're compiling your Rust project with `wasm-pack` and `wasm-bindgen` 0.2.96 or newer, for the `wasm32-unknown-unknown` Rust target. It also compiles for `wasm64-unknown-unknown`, but `spawn_blocking` can't run there yet. Note that this library only supports the `web` target of `wasm-bindgen`, not [others](https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
 
 ## Features
 
-- **Familiar API**: If you're familiar with `tokio`, you'll feel right at home with `tokio_with_wasm`. It provides similar functionality and follows the same patterns for spawning and managing asynchronous tasks.
-
-- **Web worker integration**: `tokio_with_wasm` adapts to the JavaScript environment by utilizing web APIs under the hood. This means you can write Rust code that runs concurrently and efficiently in web applications.
-
-- **Spawn async and blocking tasks**: You can spawn both asynchronous and blocking tasks. Asynchronous tasks allow you to perform non-blocking operations, while blocking tasks are suitable for compute-heavy or synchronous tasks.
+- **Async and blocking tasks**: `spawn` runs async tasks on the JavaScript event loop, while `spawn_blocking` runs compute-heavy or synchronous code in parallel on web workers. The number of web workers adjusts to the number of parallel tasks.
 
 - **File system**: `fs` reads and writes files in the [OPFS](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system), the store every browser keeps on disk for one origin.
 
 > `net`, `process`, and `signal` have no counterpart on the web, so they are missing from the web build. Using them is a compile error, not a runtime failure.
-
-## Use cases
-
-- **Single-page apps**: heavy computation without freezing the UI.
-- **Browser extensions**: parallel Rust under Manifest V3's strict security policy.
-- **In-browser tools**: parsing, encoding, and image processing on real threads.
-- **Games and simulations**: physics and AI on workers while the main thread renders.
-- **Local inference**: ML models on a worker while the page stays responsive.
 
 # Usage
 
@@ -44,8 +30,7 @@ tokio = { version = "0.0.0", features = ["macros", "sync", "time", "rt"] }
 tokio_with_wasm = { version = "0.0.0", features = ["macros", "sync", "time", "rt"] }
 ```
 
-Keep the feature lists of the two dependencies in sync. `tokio`'s features
-serve native platforms, and `tokio_with_wasm`'s features enable the web glue.
+Keep the feature lists of the two dependencies in sync. `tokio`'s features serve native platforms, and `tokio_with_wasm`'s features enable the web glue.
 
 Here's a simple example of using `tokio_with_wasm` that works on both native platforms and web browsers:
 
@@ -106,31 +91,11 @@ Stick to the `Result` enum whenever possible.
 
 On `wasm32-unknown-unknown`, there's currently [no way](https://wasm-bindgen.github.io/wasm-bindgen/api/wasm_bindgen_futures/fn.future_to_promise.html#panics) to catch and unwind panics like on native platforms. Panics will eventually lead to leaked JavaScript `Promise`s.
 
-A panic inside `spawn_blocking` takes down the web worker that runs it. The
-`JoinHandle` resolves to a `JoinError` whose `is_panic` is `true`, but the panic
-payload is lost and the worker's share of the shared memory is never reclaimed.
+A panic inside `spawn_blocking` takes down the web worker that runs it. The `JoinHandle` resolves to a `JoinError` whose `is_panic` is `true`, but the panic payload is lost and the worker's share of the shared memory is never reclaimed.
 
 ### Threads are actually web workers
 
-If you're using Web Workers (threads) by calling `spawn_blocking`, you need to set specific Rust compiler flags. Also, you must use the `nightly` toolchain and include certain Rust standard library components in the compilation.
-
-- `target-feature` flags
-  - `+atomics`
-  - `+bulk-memory`
-  - `+mutable-globals`
-- `link-arg` flags
-  - `--shared-memory`
-  - `--max-memory=1073741824`
-  - `--import-memory`
-  - `--export=__wasm_init_tls`
-  - `--export=__tls_size`
-  - `--export=__tls_align`
-  - `--export=__tls_base`
-- `build-std` components
-  - `std`
-  - `panic_abort`
-
-Here's a full example command:
+If you're using web workers (threads) by calling `spawn_blocking`, you need the `nightly` toolchain, specific Rust compiler flags, and a `std` rebuilt from source with them. Here's a full example command (this repository's [`.cargo/config.toml`](https://github.com/cunarist/tokio-with-wasm/blob/main/.cargo/config.toml) sets the same options):
 
 ```shell
 export RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--shared-memory -C link-arg=--max-memory=1073741824 -C link-arg=--import-memory -C link-arg=--export=__wasm_init_tls -C link-arg=--export=__tls_size -C link-arg=--export=__tls_align -C link-arg=--export=__tls_base"
@@ -151,12 +116,7 @@ Don't forget to specify the MIME type `application/wasm` for `.wasm` files in yo
 
 ### Adapt to a strict CSP
 
-`spawn_blocking` runs its web workers from a `blob:` script by default. Under a
-content security policy that forbids `blob:` workers, such as a browser
-extension's `script-src 'self'`, serve
-[`blocking_worker.js`](https://github.com/cunarist/tokio-with-wasm/blob/main/package/src/glue/only_web/blocking_worker.js)
-as your own file and point the pool at it. Copy the file from the release tag
-that matches your `tokio_with_wasm` version, and copy it again when you upgrade.
+`spawn_blocking` runs its web workers from a `blob:` script by default. Under a content security policy that forbids `blob:` workers, such as a browser extension's `script-src 'self'`, serve [`blocking_worker.js`](https://github.com/cunarist/tokio-with-wasm/blob/main/package/src/glue/only_web/blocking_worker.js) as your own file and point the pool at it. Copy the file from the release tag that matches your `tokio_with_wasm` version, and copy it again when you upgrade.
 
 ```rust
 tokio_with_wasm::only_web::set_worker_script_provider(|| Ok("/blocking_worker.js".into()));
@@ -185,9 +145,7 @@ There are situations where you cannot use native Rust code directly on the web. 
 - https://wasm-bindgen.github.io/wasm-bindgen/reference/attributes/on-js-imports/js_name.html
 - https://wasm-bindgen.github.io/wasm-bindgen/reference/attributes/on-js-imports/js_namespace.html
 
-Rust code can be called in a **web worker**. Therefore, we cannot access the global `window` JavaScript object
-as we can on the main thread of JavaScript. Refer to the link below to check which web APIs are available in a web worker.
-You'll be surprised by the various capabilities of modern JavaScript.
+Rust code can be called in a **web worker**. Therefore, we cannot access the global `window` JavaScript object as we can on the main thread of JavaScript. Refer to the link below to check which web APIs are available in a web worker. You'll be surprised by the various capabilities of modern JavaScript.
 
 - https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Functions_and_classes_available_to_workers
 

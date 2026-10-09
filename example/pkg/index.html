@@ -6,13 +6,18 @@
     <link rel="icon" href="data:," />
     <title>WASM Example</title>
     <script type="module" src="./script.js"></script>
-    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      body {
+        background: hsl(0, 0%, 10%);
+        color: hsl(0, 0%, 100%);
+        font-family: monospace;
+        padding: 2em;
+      }
+    </style>
   </head>
   <body>
     <h1>WASM Example</h1>
-    <div id="stage">
-      <canvas id="fractal" width="320" height="320"></canvas>
-      <p id="stats">webview 0fps, fractal 0fps</p>
-    </div>
+    <canvas id="fractal" width="320" height="320"></canvas>
+    <p id="stats">main thread 0fps</p>
   </body>
 </html>

@@ -8,8 +8,7 @@ pub mod printing {
 
   #[wasm_bindgen]
   extern "C" {
-    /// Defined in `index.html`; appends a paragraph to the page.
-    /// The DOM stays JavaScript's job.
+    /// Defined in `pkg/script.js`; appends a paragraph to the page.
     #[wasm_bindgen(js_namespace = globalThis, js_name = appendLog)]
     fn append_log(message: &str);
   }
