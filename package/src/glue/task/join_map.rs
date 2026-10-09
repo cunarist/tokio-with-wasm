@@ -386,8 +386,16 @@ where
 
 impl<K: Debug, V, S> Debug for JoinMap<K, V, S> {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-    let tasks = self.tasks.iter().map(|(key, abort)| (key, abort.id()));
-    f.debug_map().entries(tasks).finish()
+    struct Tasks<'a, K>(&'a HashTable<(K, AbortHandle)>);
+    impl<K: Debug> Debug for Tasks<'_, K> {
+      fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let tasks = self.0.iter().map(|(key, abort)| (key, abort.id()));
+        f.debug_map().entries(tasks).finish()
+      }
+    }
+    f.debug_struct("JoinMap")
+      .field("tasks", &Tasks(&self.tasks))
+      .finish()
   }
 }
 

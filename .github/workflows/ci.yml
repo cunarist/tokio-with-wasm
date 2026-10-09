@@ -54,7 +54,7 @@ jobs:
       - run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --target wasm32-unknown-unknown
       - working-directory: ${{ runner.temp }}
         run: |
-          for features in "" fs io-util macros rt rt-multi-thread sync time full; do
+          for features in "" fs io-util join-map macros rt rt-multi-thread sync time tracing full; do
             cargo +${{ matrix.toolchain }} check \
               --manifest-path "$GITHUB_WORKSPACE/package/Cargo.toml" \
               --target wasm32-unknown-unknown ${features:+--features $features}

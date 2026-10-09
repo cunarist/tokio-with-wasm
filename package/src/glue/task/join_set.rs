@@ -89,7 +89,7 @@ impl<T> JoinSet<T> {
   pub fn detach_all(&mut self) {
     self.tasks.clear();
     // The detached tasks keep queueing into the old queue instead.
-    self.queue = CompletionQueue::new();
+    self.queue.clear();
   }
 
   fn store(&mut self, join_handle: JoinHandle<T>) {
@@ -367,6 +367,7 @@ impl<T> Default for JoinSet<T> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::test_util::CountingWaker;
   use crate::yield_now;
   use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -377,5 +378,22 @@ mod tests {
     set.detach_all();
     yield_now().await;
     assert!(set.queue.pop().is_none());
+  }
+
+  #[wasm_bindgen_test]
+  async fn detaching_keeps_the_waiting_consumer() {
+    let mut set = JoinSet::new();
+    set.spawn(std::future::pending::<()>());
+    let counter = CountingWaker::new();
+    let waker = counter.waker();
+    assert!(
+      set
+        .poll_join_next(&mut Context::from_waker(&waker))
+        .is_pending()
+    );
+    set.detach_all();
+    set.spawn(async {});
+    yield_now().await;
+    assert_eq!(counter.count(), 1);
   }
 }

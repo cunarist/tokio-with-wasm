@@ -32,6 +32,13 @@ impl CompletionQueue {
     }
   }
 
+  /// Forgets every task queued or spawned so far, keeping the consumer.
+  pub fn clear(&mut self) {
+    let consumer = lock(&self.core).consumer.take();
+    *self = Self::new();
+    lock(&self.core).consumer = consumer;
+  }
+
   pub fn pop(&self) -> Option<Id> {
     lock(&self.core).ready.pop_front()
   }
