@@ -30,10 +30,16 @@ pub use tokio::task_local;
 #[cfg(feature = "macros")]
 pub use tokio_with_wasm_proc::{main, test};
 
-// Lets `#[tokio::main]` panic on `Err` like a native `main` exits with one.
+// What `#[tokio::main]` expands to. It needs `rt`, like `tokio`'s, and
+// panics on `Err` like a native `main` exits with one.
 #[doc(hidden)]
 #[cfg(feature = "macros")]
 pub mod macros {
+  // Not `task::spawn_local`, which is main-thread only: `start` functions
+  // may run on worker threads too.
+  #[cfg(feature = "rt")]
+  pub use wasm_bindgen_futures::spawn_local;
+
   pub trait Outcome {
     fn handle(self);
   }

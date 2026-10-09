@@ -50,12 +50,18 @@ pub fn main(attr: TokenStream, item: TokenStream) -> TokenStream {
     sig,
     block,
   } = parse_macro_input!(item as ItemFn);
+  if sig.asyncness.is_none() || !sig.inputs.is_empty() {
+    let message = "the main function must be async and take no arguments";
+    return syn::Error::new_spanned(sig, message)
+      .to_compile_error()
+      .into();
+  }
   let (name, output) = (&sig.ident, &sig.output);
   quote! {
     #(#attrs)*
     #vis fn #name() {
       async fn original() #output #block
-      #crate_path::task::spawn_local(async {
+      #crate_path::macros::spawn_local(async {
         #crate_path::macros::Outcome::handle(original().await)
       });
     }
