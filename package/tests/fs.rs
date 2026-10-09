@@ -68,7 +68,6 @@ fn cancel(future: impl Future) {
   assert!(Box::pin(future).as_mut().poll(&mut context).is_pending());
 }
 
-/// Reads the kind off a call that was supposed to fail.
 /// Waits for a commit handed to the event loop, which signals nothing.
 async fn wait_for_size(path: &Path, size: u64) {
   for _ in 0..200 {
@@ -79,6 +78,7 @@ async fn wait_for_size(path: &Path, size: u64) {
   }
 }
 
+/// Reads the kind off a call that was supposed to fail.
 fn kind<T>(result: std::io::Result<T>) -> ErrorKind {
   match result {
     Ok(_) => panic!("the call was supposed to fail"),
