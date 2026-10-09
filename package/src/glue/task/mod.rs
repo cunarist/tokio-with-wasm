@@ -4,19 +4,25 @@
 //! this module leverages web workers to execute tasks in parallel,
 //! making it ideal for high-performance web applications.
 
+#[cfg(all(tokio_unstable, feature = "tracing"))]
 mod builder;
+mod completion_queue;
 pub mod coop;
 mod flags;
 mod id;
+#[cfg(feature = "join-map")]
 mod join_map;
 mod join_set;
 mod pool;
 
+#[cfg(all(tokio_unstable, feature = "tracing"))]
 pub use builder::Builder;
+#[doc(hidden)]
 pub use coop::{Unconstrained, consume_budget, unconstrained};
 pub use id::{Id, id, try_id};
-pub use join_map::*;
-pub use join_set::*;
+#[cfg(feature = "join-map")]
+pub use join_map::{JoinMap, JoinMapKeys};
+pub use join_set::JoinSet;
 /// A key for task-local data, usable through the re-exported
 /// `task_local!` macro from real `tokio`. The macro's machinery
 /// does not depend on the `tokio` runtime, so it works on the web as is.
@@ -153,37 +159,10 @@ fn assert_main_thread(name: &str, code: &str) {
 ///
 /// # Using `!Send` values from a task
 ///
-/// The task supplied to `spawn` is not required to implement `Send`.
-/// This is different from multi-threaded native async runtimes,
-/// because JavaScript environment is inherently single-threaded.
-///
-/// For example, this will work:
-///
-/// ```no_run
-/// use std::rc::Rc;
-/// use tokio_with_wasm::alias as tokio;
-///
-/// fn use_rc(rc: Rc<()>) {
-///   // Do stuff w/ rc
-///   drop(rc);
-/// }
-///
-/// async fn work() {
-///   let _ = tokio::spawn(async {
-///     // Force the `Rc` to stay in a scope with no `.await`
-///     {
-///       let rc = Rc::new(());
-///       use_rc(rc.clone());
-///     }
-///
-///     tokio::task::yield_now().await;
-///   })
-///   .await;
-/// }
-/// ```
-///
-/// This will work too, unlike multi-threaded native runtimes
-/// where `!Send` values cannot live across `.await`:
+/// The task supplied to `spawn` is not required to implement `Send`,
+/// because the JavaScript environment is single-threaded.
+/// Unlike on multi-threaded native runtimes,
+/// `!Send` values can even live across `.await`:
 ///
 /// ```no_run
 /// use std::rc::Rc;
@@ -222,7 +201,10 @@ where
       // abort arriving mid-poll wakes the task
       // and is seen at the next poll.
       if task_flags.cancelled_or_register(cx.waker()) {
-        return Poll::Ready(Err(JoinError::cancelled(task_id)));
+        return Poll::Ready(Err(JoinError {
+          task_id,
+          panicked: false,
+        }));
       }
       // The scope makes `task::id` report this task's identifier
       // while the future is being polled.
@@ -235,9 +217,8 @@ where
     join_sender.send(result);
   });
   JoinHandle {
-    task_id,
     join_receiver,
-    flags,
+    abort: AbortHandle { task_id, flags },
   }
 }
 
@@ -317,7 +298,10 @@ where
       move || {
         if task_flags.is_cancelled() {
           task_flags.finish();
-          join_sender.send(Err(JoinError::cancelled(task_id)));
+          join_sender.send(Err(JoinError {
+            task_id,
+            panicked: false,
+          }));
           return;
         }
         let returned = id::scope(task_id, callable);
@@ -328,10 +312,9 @@ where
       // running it. Without this, the `JoinHandle` would never resolve.
       move |started| {
         failure_flags.finish();
-        failure_sender.send(Err(if started {
-          JoinError::panicked(task_id)
-        } else {
-          JoinError::cancelled(task_id)
+        failure_sender.send(Err(JoinError {
+          task_id,
+          panicked: started,
         }));
       },
     );
@@ -340,9 +323,8 @@ where
     }
   });
   JoinHandle {
-    task_id,
     join_receiver,
-    flags,
+    abort: AbortHandle { task_id, flags },
   }
 }
 
@@ -417,11 +399,8 @@ pub async fn yield_now() {
 /// }
 /// ```
 pub struct JoinHandle<T> {
-  task_id: Id,
   join_receiver: OnceReceiver<Result<T, JoinError>>,
-  /// Cancellation and completion state,
-  /// shared with the task and with every [`AbortHandle`].
-  flags: Arc<TaskFlags>,
+  abort: AbortHandle,
 }
 
 impl<T> Future for JoinHandle<T> {
@@ -451,11 +430,7 @@ impl<T> JoinHandle<T> {
   /// already completed at the time it was cancelled, but most likely it
   /// will fail with a cancelled `JoinError`.
   ///
-  /// Be aware that tasks spawned using [`spawn_blocking`] cannot be aborted
-  /// because they are not async. If you call `abort` on a `spawn_blocking`
-  /// task, then this *will not have any effect*, and the task will continue
-  /// running normally. The exception is if the task has not started running
-  /// yet; in that case, calling `abort` may prevent the task from starting.
+  /// See [`AbortHandle`] for why `spawn_blocking` tasks may not stop.
   ///
   /// ```no_run
   /// use tokio::time;
@@ -484,7 +459,7 @@ impl<T> JoinHandle<T> {
   /// }
   /// ```
   pub fn abort(&self) {
-    self.flags.cancel();
+    self.abort.abort();
   }
 
   /// Checks if the task associated with this `JoinHandle` has finished.
@@ -504,16 +479,13 @@ impl<T> JoinHandle<T> {
 
   /// Returns a new `AbortHandle` that can be used to remotely abort this task.
   pub fn abort_handle(&self) -> AbortHandle {
-    AbortHandle {
-      task_id: self.task_id,
-      flags: self.flags.clone(),
-    }
+    self.abort.clone()
   }
 
   /// Returns a task ID that uniquely identifies this task relative to other
   /// currently spawned tasks.
   pub fn id(&self) -> Id {
-    self.task_id
+    self.abort.task_id
   }
 
   /// Stores `waker` to be woken when the task completes,
@@ -547,23 +519,6 @@ impl Display for JoinError {
 impl Error for JoinError {}
 
 impl JoinError {
-  /// The task was aborted before it could finish.
-  fn cancelled(task_id: Id) -> Self {
-    JoinError {
-      task_id,
-      panicked: false,
-    }
-  }
-
-  /// The web worker running the task died,
-  /// which is what a panic looks like on the web.
-  fn panicked(task_id: Id) -> Self {
-    JoinError {
-      task_id,
-      panicked: true,
-    }
-  }
-
   /// Returns whether the error was caused by the task being cancelled.
   pub fn is_cancelled(&self) -> bool {
     !self.panicked
@@ -621,28 +576,16 @@ impl AbortHandle {
   ///
   /// If the task was already cancelled, such as by [`JoinHandle::abort`],
   /// this method will do nothing.
-  ///
-  /// Be aware that tasks spawned using [`spawn_blocking`] cannot be aborted
-  /// because they are not async. If you call `abort` on a `spawn_blocking`
-  /// task, then this *will not have any effect*, and the task will continue
-  /// running normally. The exception is if the task has not started running
-  /// yet; in that case, calling `abort` may prevent the task from starting.
   pub fn abort(&self) {
     self.flags.cancel();
   }
 
-  /// Checks if the task associated with this `AbortHandle` has finished.
-  ///
-  /// Please note that this method can return `false` even if `abort` has
-  /// been called on the task. This is because the cancellation process may
-  /// take some time, and this method does not return `true` until it has
-  /// completed.
+  /// Like [`JoinHandle::is_finished`].
   pub fn is_finished(&self) -> bool {
     self.flags.is_finished()
   }
 
-  /// Returns a task ID that uniquely identifies this task relative to other
-  /// currently spawned tasks.
+  /// Like [`JoinHandle::id`].
   pub fn id(&self) -> Id {
     self.task_id
   }

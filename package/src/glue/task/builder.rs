@@ -3,13 +3,12 @@
 use crate::task::{JoinHandle, spawn, spawn_blocking};
 use std::future::Future;
 use std::io;
+use std::marker::PhantomData;
 
 /// Factory which is used to configure the properties of a new task.
 ///
-/// This mirrors `tokio::task::Builder`, which real `tokio` only exposes
-/// under the `tokio_unstable` compiler flag. The task name only exists for
-/// `tokio`'s `tracing` instrumentation; the web glue has no equivalent, so
-/// the name is accepted and dropped.
+/// Like in `tokio`, this needs the `tracing` feature and `--cfg tokio_unstable`.
+/// The web has no `tracing` instrumentation, so the task name is dropped.
 ///
 /// # Examples
 ///
@@ -25,7 +24,7 @@ use std::io;
 /// ```
 #[derive(Default, Debug)]
 pub struct Builder<'a> {
-  name: Option<&'a str>,
+  name: PhantomData<&'a str>,
 }
 
 impl<'a> Builder<'a> {
@@ -35,8 +34,8 @@ impl<'a> Builder<'a> {
   }
 
   /// Assigns a name to the task which will be spawned.
-  pub fn name(&self, name: &'a str) -> Self {
-    Self { name: Some(name) }
+  pub fn name(&self, _name: &'a str) -> Self {
+    Self::default()
   }
 
   /// Spawns a task with this builder's settings on the JavaScript
@@ -46,8 +45,6 @@ impl<'a> Builder<'a> {
     F: Future<Output = T> + 'static,
     T: 'static,
   {
-    // The name has no `tracing` consumer on the web.
-    let _ = self.name;
     Ok(spawn(future))
   }
 
@@ -70,7 +67,6 @@ impl<'a> Builder<'a> {
     C: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
   {
-    let _ = self.name;
     Ok(spawn_blocking(callable))
   }
 }

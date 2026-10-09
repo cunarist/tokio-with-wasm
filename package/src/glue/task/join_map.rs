@@ -13,6 +13,7 @@ use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::hash::{BuildHasher, Hash};
 use std::iter::FusedIterator;
+use std::marker::PhantomData;
 
 /// A collection of tasks spawned in JavaScript, associated with keys.
 ///
@@ -22,13 +23,12 @@ use std::iter::FusedIterator;
 /// in the order they complete.
 ///
 /// All of the tasks must have the same key type `K` and return type `V`.
-/// Like in `tokio-util`, keys must be `Hash + Eq`.
 ///
 /// When the `JoinMap` is dropped, all tasks in it are immediately aborted.
 ///
-/// The counterpart of this type on native platforms lives in `tokio-util`,
-/// not in `tokio`, so [`alias`] does not cover it. Portable code picks the
-/// type per target, with the same gate this crate uses:
+/// The native counterpart lives in `tokio-util` behind its `join-map`
+/// feature, so [`alias`] does not cover it. Portable code picks the type per
+/// target, with the same gate this crate uses:
 ///
 /// ```ignore
 /// #[cfg(all(
@@ -78,12 +78,10 @@ use std::iter::FusedIterator;
 /// [`AbortHandle`]: crate::task::AbortHandle
 /// [`alias`]: crate::alias
 pub struct JoinMap<K, V, S = RandomState> {
-  /// The key of every task that has not been joined yet,
-  /// addressed by the hash of the key.
   tasks: HashTable<(K, AbortHandle)>,
   /// The key hash of every task, to find its key once it completes.
-  hashes: HashMap<Id, u64>,
-  hasher: S,
+  /// Its hasher also hashes the keys.
+  hashes: HashMap<Id, u64, S>,
   set: JoinSet<V>,
 }
 
@@ -110,8 +108,7 @@ impl<K, V, S> JoinMap<K, V, S> {
   pub fn with_capacity_and_hasher(capacity: usize, hash_builder: S) -> Self {
     Self {
       tasks: HashTable::with_capacity(capacity),
-      hashes: HashMap::with_capacity(capacity),
-      hasher: hash_builder,
+      hashes: HashMap::with_capacity_and_hasher(capacity, hash_builder),
       set: JoinSet::new(),
     }
   }
@@ -130,14 +127,9 @@ impl<K, V, S> JoinMap<K, V, S> {
   pub fn is_empty(&self) -> bool {
     self.tasks.is_empty()
   }
+}
 
-  /// Returns an iterator over the keys of the tasks in the `JoinMap`.
-  ///
-  /// The order is unspecified and changes as tasks complete.
-  pub fn keys(&self) -> impl ExactSizeIterator<Item = &K> + FusedIterator {
-    self.tasks.iter().map(|(key, _)| key)
-  }
-
+impl<K, V: 'static, S> JoinMap<K, V, S> {
   /// Aborts all tasks on this `JoinMap`.
   ///
   /// This does not remove the tasks from the `JoinMap`. To wait for the tasks
@@ -156,11 +148,6 @@ impl<K, V, S> JoinMap<K, V, S> {
     self.tasks.clear();
     self.hashes.clear();
   }
-
-  /// Returns whether the `JoinMap` holds the task with this ID.
-  pub fn contains_task(&self, task_id: &Id) -> bool {
-    self.hashes.contains_key(task_id)
-  }
 }
 
 impl<K, V, S> JoinMap<K, V, S>
@@ -176,13 +163,8 @@ where
   /// `JoinMap`.
   ///
   /// If a task previously existed in the `JoinMap` for this key, that task
-  /// is aborted and dropped; its output is never returned. Note that
-  /// aborting cannot interrupt code that is already running: the previous
-  /// task stops at its next `.await`, and a blocking task that has already
-  /// started on a worker runs to completion in the background
-  /// (see [`JoinHandle::abort`]).
-  ///
-  /// [`JoinHandle::abort`]: crate::task::JoinHandle::abort
+  /// is aborted and dropped; its output is never returned
+  /// (see [`AbortHandle`] for how far aborting reaches).
   pub fn spawn<F>(&mut self, key: K, task: F)
   where
     F: Future<Output = V>,
@@ -192,11 +174,7 @@ where
     self.store(key, abort);
   }
 
-  /// Spawns the provided task on the `JoinMap` and stores it under `key`.
-  ///
-  /// On the web there is no separate thread-local executor, so this is
-  /// the same as [`spawn`](Self::spawn). It exists so that code written
-  /// against `tokio-util` compiles unchanged.
+  /// Like [`spawn`](Self::spawn), as every task runs on the current thread.
   pub fn spawn_local<F>(&mut self, key: K, task: F)
   where
     F: Future<Output = V>,
@@ -205,15 +183,7 @@ where
     self.spawn(key, task);
   }
 
-  /// Spawns the blocking code on the blocking threadpool, stored under `key`.
-  ///
-  /// If a task previously existed in the `JoinMap` for this key, that task
-  /// is aborted and dropped; its output is never returned. A blocking task
-  /// that has already started on a worker cannot be interrupted and runs to
-  /// completion in the background; only its output is discarded
-  /// (see [`JoinHandle::abort`]).
-  ///
-  /// [`JoinHandle::abort`]: crate::task::JoinHandle::abort
+  /// Like [`spawn`](Self::spawn), but runs blocking code on a web worker.
   ///
   /// # Examples
   ///
@@ -249,13 +219,13 @@ where
   /// Stores a spawned task under `key`, aborting and replacing the
   /// previous task for that key if there was one.
   fn store(&mut self, key: K, abort: AbortHandle) {
-    let hash = self.hasher.hash_one(&key);
-    self.hashes.insert(abort.id(), hash);
-    let hashes = &self.hashes;
+    let hasher = self.hashes.hasher();
+    let hash = hasher.hash_one(&key);
+    let id = abort.id();
     let entry = self.tasks.entry(
       hash,
       |(stored, _)| *stored == key,
-      |(_, stored)| hashes[&stored.id()],
+      |(stored, _)| hasher.hash_one(stored),
     );
     match entry {
       Entry::Occupied(mut occupied) => {
@@ -268,6 +238,16 @@ where
         vacant.insert((key, abort));
       }
     }
+    self.hashes.insert(id, hash);
+  }
+
+  /// Returns an iterator over the keys of the tasks in the `JoinMap`,
+  /// including tasks that completed but were not joined yet.
+  pub fn keys(&self) -> JoinMapKeys<'_, K, V> {
+    JoinMapKeys {
+      iter: self.tasks.iter(),
+      _value: PhantomData,
+    }
   }
 
   /// Returns whether the `JoinMap` holds a task for `key`.
@@ -276,30 +256,33 @@ where
     K: Borrow<Q>,
     Q: Hash + Eq + ?Sized,
   {
-    let hash = self.hasher.hash_one(key);
-    self
-      .tasks
-      .find(hash, |(stored, _)| stored.borrow() == key)
-      .is_some()
+    self.find(key).is_some()
+  }
+
+  /// Returns whether the `JoinMap` holds the task with this ID.
+  pub fn contains_task(&self, task_id: &Id) -> bool {
+    self.hashes.contains_key(task_id)
+  }
+
+  fn find<Q>(&self, key: &Q) -> Option<&(K, AbortHandle)>
+  where
+    K: Borrow<Q>,
+    Q: Hash + Eq + ?Sized,
+  {
+    let hash = self.hashes.hasher().hash_one(key);
+    self.tasks.find(hash, |(stored, _)| stored.borrow() == key)
   }
 
   /// Aborts the task stored under `key`.
   ///
   /// Returns whether a task was found for that key. The task stays in the
-  /// `JoinMap` until it is joined. A task aborted in time reports a
-  /// cancelled [`JoinError`]; a task that had already finished, or a
-  /// blocking task that had already started on a worker, still yields its
-  /// output as usual (see [`JoinHandle::abort`]).
-  ///
-  /// [`JoinHandle::abort`]: crate::task::JoinHandle::abort
+  /// `JoinMap` until it is joined, like with [`AbortHandle::abort`].
   pub fn abort<Q>(&mut self, key: &Q) -> bool
   where
     K: Borrow<Q>,
     Q: Hash + Eq + ?Sized,
   {
-    let hash = self.hasher.hash_one(key);
-    let found = self.tasks.find(hash, |(stored, _)| stored.borrow() == key);
-    found.map(|(_, abort)| abort.abort()).is_some()
+    self.find(key).map(|(_, abort)| abort.abort()).is_some()
   }
 
   /// Aborts every task whose key matches the predicate.
@@ -316,18 +299,25 @@ where
 
   /// Reserves capacity for at least `additional` more tasks.
   pub fn reserve(&mut self, additional: usize) {
-    let hashes = &self.hashes;
+    let hasher = self.hashes.hasher();
     self
       .tasks
-      .reserve(additional, |(_, abort)| hashes[&abort.id()]);
+      .reserve(additional, |(key, _)| hasher.hash_one(key));
     self.hashes.reserve(additional);
   }
 
   /// Shrinks the capacity of the map as much as possible.
   pub fn shrink_to_fit(&mut self) {
-    let hashes = &self.hashes;
-    self.tasks.shrink_to_fit(|(_, abort)| hashes[&abort.id()]);
-    self.hashes.shrink_to_fit();
+    self.shrink_to(0);
+  }
+
+  /// Shrinks the capacity of the map, keeping at least `min_capacity`.
+  pub fn shrink_to(&mut self, min_capacity: usize) {
+    self.hashes.shrink_to(min_capacity);
+    let hasher = self.hashes.hasher();
+    self
+      .tasks
+      .shrink_to(min_capacity, |(key, _)| hasher.hash_one(key));
   }
 
   /// Waits until one of the tasks in the map completes and returns its key
@@ -394,14 +384,46 @@ where
   }
 }
 
-impl<K, V, S> Debug for JoinMap<K, V, S> {
+impl<K: Debug, V, S> Debug for JoinMap<K, V, S> {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-    f.debug_struct("JoinMap").field("len", &self.len()).finish()
+    struct Tasks<'a, K>(&'a HashTable<(K, AbortHandle)>);
+    impl<K: Debug> Debug for Tasks<'_, K> {
+      fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let tasks = self.0.iter().map(|(key, abort)| (key, abort.id()));
+        f.debug_map().entries(tasks).finish()
+      }
+    }
+    f.debug_struct("JoinMap")
+      .field("tasks", &Tasks(&self.tasks))
+      .finish()
   }
 }
 
-impl<K, V, S: Default> Default for JoinMap<K, V, S> {
+impl<K, V> Default for JoinMap<K, V> {
   fn default() -> Self {
-    Self::with_hasher(S::default())
+    Self::new()
   }
 }
+
+/// An iterator over the keys of a [`JoinMap`].
+#[derive(Debug, Clone)]
+pub struct JoinMapKeys<'a, K, V> {
+  iter: hashbrown::hash_table::Iter<'a, (K, AbortHandle)>,
+  _value: PhantomData<&'a V>,
+}
+
+impl<'a, K, V> Iterator for JoinMapKeys<'a, K, V> {
+  type Item = &'a K;
+
+  fn next(&mut self) -> Option<&'a K> {
+    self.iter.next().map(|(key, _)| key)
+  }
+
+  fn size_hint(&self) -> (usize, Option<usize>) {
+    self.iter.size_hint()
+  }
+}
+
+impl<K, V> ExactSizeIterator for JoinMapKeys<'_, K, V> {}
+
+impl<K, V> FusedIterator for JoinMapKeys<'_, K, V> {}

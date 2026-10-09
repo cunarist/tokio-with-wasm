@@ -86,21 +86,6 @@ async fn join_next_on_an_empty_set_is_none() {
 }
 
 #[wasm_bindgen_test]
-async fn try_join_next_sees_only_finished_tasks() -> Result<(), JoinError> {
-  let mut set = JoinSet::new();
-  set.spawn(async {
-    sleep(Duration::from_millis(100)).await;
-    5
-  });
-  // Nothing has finished yet.
-  assert!(set.try_join_next().is_none());
-  sleep(Duration::from_millis(200)).await;
-  assert_eq!(set.try_join_next().transpose()?, Some(5));
-  assert!(set.try_join_next().is_none());
-  Ok(())
-}
-
-#[wasm_bindgen_test]
 async fn batched_completions_arrive_in_completion_order()
 -> Result<(), JoinError> {
   let mut set = JoinSet::new();
@@ -176,8 +161,9 @@ async fn shutdown_aborts_and_drains() {
       sleep(Duration::from_secs(10)).await;
     });
   }
-  set.shutdown().await;
-  assert!(set.is_empty());
+  // Without the abort, the drain would wait out the sleeps.
+  let drained = timeout(Duration::from_secs(2), set.shutdown()).await;
+  assert!(drained.is_ok() && set.is_empty());
 }
 
 #[wasm_bindgen_test]

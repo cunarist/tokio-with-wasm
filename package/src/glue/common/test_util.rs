@@ -33,8 +33,4 @@ impl Wake for CountingWaker {
   fn wake(self: Arc<Self>) {
     self.count.fetch_add(1, Ordering::SeqCst);
   }
-
-  fn wake_by_ref(self: &Arc<Self>) {
-    self.count.fetch_add(1, Ordering::SeqCst);
-  }
 }

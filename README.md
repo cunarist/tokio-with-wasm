@@ -30,7 +30,7 @@ tokio = { version = "0.0.0", features = ["macros", "sync", "time", "rt"] }
 tokio_with_wasm = { version = "0.0.0", features = ["macros", "sync", "time", "rt"] }
 ```
 
-Keep the feature lists of the two dependencies in sync. `tokio`'s features serve native platforms, and `tokio_with_wasm`'s features enable the web glue.
+Keep the feature lists of the two dependencies in sync. `tokio`'s features serve native platforms, and `tokio_with_wasm`'s features enable the web glue. As in `tokio-util`, `join-map` adds `task::JoinMap`; as in `tokio`, `tracing` with `--cfg tokio_unstable` adds `task::Builder`.
 
 Here's a simple example of using `tokio_with_wasm` that works on both native platforms and web browsers:
 

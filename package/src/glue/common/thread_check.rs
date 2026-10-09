@@ -1,5 +1,4 @@
-use js_sys::global;
-use std::cell::LazyCell;
+use js_sys::{Reflect, global};
 use wasm_bindgen::JsValue;
 
 /// The name of a JS object
@@ -7,15 +6,10 @@ use wasm_bindgen::JsValue;
 pub static BLOCKING_KEY: &str = "isBlockingTokioThread";
 
 thread_local! {
-  pub static IS_MAIN_THREAD: LazyCell<bool> = LazyCell::new(|| {
-    let global_obj = global();
-    let is_blocking_thread =
-      js_sys::Reflect::has(&global_obj, &JsValue::from_str(BLOCKING_KEY))
-        .unwrap_or(false);
-    !is_blocking_thread
-  });
+  static IS_MAIN_THREAD: bool =
+    !Reflect::has(&global(), &JsValue::from_str(BLOCKING_KEY)).unwrap_or(false);
 }
 
 pub fn is_main_thread() -> bool {
-  IS_MAIN_THREAD.with(|cell| **cell)
+  IS_MAIN_THREAD.with(|is_main| *is_main)
 }

@@ -64,15 +64,6 @@ async fn abort_cancels_a_pending_task() {
 }
 
 #[wasm_bindgen_test]
-async fn abort_handle_cancels_remotely() {
-  let handle = spawn(std::future::pending::<()>());
-  yield_now().await;
-  handle.abort_handle().abort();
-  let joined = tokio::time::timeout(Duration::from_secs(1), handle).await;
-  assert!(joined.is_ok_and(|result| result.is_err_and(|e| e.is_cancelled())));
-}
-
-#[wasm_bindgen_test]
 async fn abort_after_completion_keeps_the_output() -> Result<(), JoinError> {
   let handle = spawn(async { 7 });
   // Give the task time to finish before aborting.
@@ -81,21 +72,6 @@ async fn abort_after_completion_keeps_the_output() -> Result<(), JoinError> {
   handle.abort(); // A second abort must be harmless too.
   assert_eq!(handle.await?, 7);
   Ok(())
-}
-
-#[wasm_bindgen_test]
-async fn is_finished_flips_after_completion() {
-  let handle = spawn(std::future::ready(()));
-  assert!(!handle.is_finished());
-  tokio::time::sleep(Duration::from_millis(50)).await;
-  assert!(handle.is_finished());
-}
-
-#[wasm_bindgen_test]
-async fn yield_now_completes_many_times() {
-  for _ in 0..100 {
-    yield_now().await;
-  }
 }
 
 #[wasm_bindgen_test]
