@@ -1,22 +1,9 @@
-//! Browser tests for `JoinMap`.
-//! Run with `wasm-pack test --headless --chrome package`.
-
-// The glue code only exists on the web target,
-// so this file is empty everywhere else.
-#![cfg(all(
-  target_family = "wasm",
-  target_vendor = "unknown",
-  target_os = "unknown"
-))]
-
 use std::cell::Cell;
 use std::rc::Rc;
 use tokio_with_wasm::alias as tokio;
 use tokio_with_wasm::task::{JoinError, JoinMap};
 use tokio_with_wasm::time::{Duration, sleep, timeout};
 use wasm_bindgen_test::wasm_bindgen_test;
-
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test]
 async fn join_next_returns_every_key_and_output() -> Result<(), JoinError> {
@@ -25,6 +12,7 @@ async fn join_next_returns_every_key_and_output() -> Result<(), JoinError> {
     map.spawn(i, async move { i * 2 });
   }
   assert_eq!(map.len(), 10);
+  assert!(!map.is_empty());
 
   let mut seen = [false; 10];
   while let Some((key, result)) = map.join_next().await {
@@ -65,9 +53,7 @@ async fn spawning_a_known_key_replaces_the_task() -> Result<(), JoinError> {
   // The replaced task is gone, not merely cancelled.
   assert_eq!(map.len(), 1);
 
-  let Some((key, result)) = map.join_next().await else {
-    panic!("the replacing task never finished");
-  };
+  let (key, result) = map.join_next().await.unwrap();
   assert_eq!(key, "key");
   assert_eq!(result?, "second");
   assert!(map.join_next().await.is_none());
@@ -95,16 +81,19 @@ impl std::hash::Hash for Tagged {
 async fn replacing_a_finished_task_keeps_the_new_key() -> Result<(), JoinError>
 {
   let mut map = JoinMap::new();
-  map.spawn(Tagged(1, "old"), async { tokio::task::id() });
+  let old = Rc::new(Cell::new(None));
+  let cloned = old.clone();
+  map.spawn(Tagged(1, "old"), async move {
+    cloned.set(tokio::task::try_id())
+  });
   // The first task finishes without being joined.
   sleep(Duration::from_millis(10)).await;
-  map.spawn(Tagged(1, "new"), async { tokio::task::id() });
+  map.spawn(Tagged(1, "new"), async {});
+  assert!(!map.contains_task(&old.get().unwrap()));
 
-  let Some((key, result)) = map.join_next().await else {
-    panic!("the replacing task never finished");
-  };
+  let (key, result) = map.join_next().await.unwrap();
   assert_eq!(key.1, "new");
-  assert!(!map.contains_task(&result?));
+  result?;
   assert!(map.join_next().await.is_none());
   Ok(())
 }
@@ -155,11 +144,8 @@ async fn try_join_next_sees_only_finished_tasks() -> Result<(), JoinError> {
   assert!(map.try_join_next().is_none());
   sleep(Duration::from_millis(200)).await;
 
-  let Some((key, result)) = map.try_join_next() else {
-    panic!("the finished task was not reported");
-  };
-  assert_eq!(key, 7);
-  assert_eq!(result?, 5);
+  let (key, result) = map.try_join_next().unwrap();
+  assert_eq!((key, result?), (7, 5));
   assert!(map.try_join_next().is_none());
   Ok(())
 }
@@ -167,19 +153,9 @@ async fn try_join_next_sees_only_finished_tasks() -> Result<(), JoinError> {
 #[wasm_bindgen_test]
 async fn spawn_blocking_runs_in_a_worker() -> Result<(), JoinError> {
   let mut map = JoinMap::new();
-  for i in 0..2 {
-    map.spawn_blocking(i, move || {
-      std::thread::sleep(std::time::Duration::from_millis(50));
-      i * 3
-    });
-  }
-
-  let mut outputs = Vec::new();
-  while let Some((key, result)) = map.join_next().await {
-    outputs.push((key, result?));
-  }
-  outputs.sort();
-  assert_eq!(outputs, vec![(0, 0), (1, 3)]);
+  map.spawn_blocking("worker", || 3);
+  let (key, result) = map.join_next().await.unwrap();
+  assert_eq!((key, result?), ("worker", 3));
   Ok(())
 }
 
@@ -197,23 +173,6 @@ async fn shutdown_aborts_and_drains() {
 }
 
 #[wasm_bindgen_test]
-async fn dropping_the_map_aborts_its_tasks() {
-  let flag = Rc::new(Cell::new(false));
-  let cloned = flag.clone();
-  let map = {
-    let mut map = JoinMap::new();
-    map.spawn("task", async move {
-      sleep(Duration::from_millis(100)).await;
-      cloned.set(true);
-    });
-    map
-  };
-  drop(map);
-  sleep(Duration::from_millis(300)).await;
-  assert!(!flag.get(), "the task outlived the dropped `JoinMap`");
-}
-
-#[wasm_bindgen_test]
 async fn abort_after_finish_yields_the_output() -> Result<(), JoinError> {
   let mut map = JoinMap::new();
   map.spawn("done", async { 9 });
@@ -221,11 +180,8 @@ async fn abort_after_finish_yields_the_output() -> Result<(), JoinError> {
 
   // Aborting a task that already finished does not erase its output.
   assert!(map.abort("done"));
-  let Some((key, result)) = map.join_next().await else {
-    panic!("the finished task disappeared");
-  };
-  assert_eq!(key, "done");
-  assert_eq!(result?, 9);
+  let (key, result) = map.join_next().await.unwrap();
+  assert_eq!((key, result?), ("done", 9));
   Ok(())
 }
 

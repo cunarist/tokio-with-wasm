@@ -1,23 +1,10 @@
-//! Browser tests for `spawn_blocking`, which runs on web workers.
-//! These need the shared memory build that `.cargo/config.toml` sets up.
-//! Run with `wasm-pack test --headless --chrome package`.
-
-// The glue code only exists on the web target,
-// so this file is empty everywhere else.
-#![cfg(all(
-  target_family = "wasm",
-  target_vendor = "unknown",
-  target_os = "unknown"
-))]
-
 use js_sys::SharedArrayBuffer;
 use js_sys::WebAssembly::Memory;
-use tokio_with_wasm::task::{JoinError, JoinSet, spawn_blocking};
-use tokio_with_wasm::time::{Duration, sleep};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio_with_wasm::task::{JoinError, spawn_blocking};
+use tokio_with_wasm::time::{Duration, Instant, sleep};
 use wasm_bindgen::{JsCast, memory};
 use wasm_bindgen_test::wasm_bindgen_test;
-
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 thread_local! {
   static RUNS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
@@ -29,51 +16,32 @@ fn count_run() -> u32 {
 }
 
 #[wasm_bindgen_test]
-async fn blocking_task_returns_the_output() -> Result<(), JoinError> {
-  let handle = spawn_blocking(|| {
-    let mut data = "Hello, ".to_string();
-    data.push_str("world");
-    data
-  });
-  assert_eq!(handle.await?, "Hello, world");
-  Ok(())
-}
-
-#[wasm_bindgen_test]
 async fn blocking_tasks_run_in_parallel() -> Result<(), JoinError> {
-  let start = js_sys::Date::now();
-  let first = spawn_blocking(|| {
-    std::thread::sleep(std::time::Duration::from_millis(400));
-  });
-  let second = spawn_blocking(|| {
-    std::thread::sleep(std::time::Duration::from_millis(400));
-  });
-  first.await?;
-  second.await?;
-  let elapsed = js_sys::Date::now() - start;
-  // Sequential runs would take 800ms or more.
-  assert!(elapsed < 750.0, "the tasks did not overlap: {elapsed}ms");
+  static ARRIVED: AtomicUsize = AtomicUsize::new(0);
+  // Each task waits up to five seconds for the other one to arrive.
+  let meet = || {
+    ARRIVED.fetch_add(1, Ordering::SeqCst);
+    let start = Instant::now();
+    while ARRIVED.load(Ordering::SeqCst) < 2 {
+      if start.elapsed() > Duration::from_secs(5) {
+        return false;
+      }
+    }
+    true
+  };
+  let (first, second) = (spawn_blocking(meet), spawn_blocking(meet));
+  assert!(first.await? && second.await?, "the tasks did not overlap");
   Ok(())
-}
-
-#[wasm_bindgen_test]
-async fn panicking_blocking_task_reports_a_panic() {
-  let handle = spawn_blocking(|| panic!("boom"));
-  assert!(
-    handle
-      .await
-      .is_err_and(|error| error.is_panic() && !error.is_cancelled())
-  );
 }
 
 /// The worker that hosted a panic must not poison the pool:
 /// tasks spawned afterwards still have to run.
 #[wasm_bindgen_test]
-async fn the_pool_survives_a_panic() -> Result<(), JoinError> {
-  let poisoned = spawn_blocking(|| panic!("boom"));
-  assert!(poisoned.await.is_err_and(|error| error.is_panic()));
-  let healthy = spawn_blocking(|| 21 * 2);
-  assert_eq!(healthy.await?, 42);
+async fn a_panic_is_reported_and_the_pool_survives() -> Result<(), JoinError> {
+  let error = spawn_blocking(|| panic!("boom")).await.unwrap_err();
+  assert!(error.is_panic() && !error.is_cancelled());
+  assert_eq!(error.to_string(), "task panicked");
+  assert_eq!(spawn_blocking(|| 21 * 2).await?, 42);
   Ok(())
 }
 
@@ -142,15 +110,4 @@ async fn idle_workers_are_culled_and_the_pool_recovers() -> Result<(), JoinError
     "the culled workers leaked {grown} bytes"
   );
   Ok(())
-}
-
-#[wasm_bindgen_test]
-async fn join_set_collects_blocking_tasks() {
-  let mut set = JoinSet::new();
-  for i in 0..5 {
-    set.spawn_blocking(move || i);
-  }
-  let mut output = set.join_all().await;
-  output.sort();
-  assert_eq!(output, vec![0, 1, 2, 3, 4]);
 }

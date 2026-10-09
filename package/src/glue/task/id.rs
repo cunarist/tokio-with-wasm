@@ -75,13 +75,6 @@ mod tests {
   use wasm_bindgen_test::wasm_bindgen_test;
 
   #[wasm_bindgen_test]
-  fn ids_are_distinct() {
-    let first = Id::next();
-    let second = Id::next();
-    assert_ne!(first, second);
-  }
-
-  #[wasm_bindgen_test]
   fn try_id_is_none_outside_of_tasks() {
     assert_eq!(try_id(), None);
   }

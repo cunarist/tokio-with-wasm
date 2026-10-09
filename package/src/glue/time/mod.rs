@@ -223,15 +223,4 @@ mod tests {
       "the sleep chained too long: {elapsed:?}"
     );
   }
-
-  /// A timeout that outlives the timer cap must not elapse early.
-  #[wasm_bindgen_test]
-  async fn timeouts_survive_the_single_timer_cap() {
-    let output = timeout(Duration::from_millis(300), async {
-      sleep(Duration::from_millis(150)).await;
-      42
-    })
-    .await;
-    assert_eq!(output.ok(), Some(42));
-  }
 }

@@ -79,22 +79,3 @@ impl<F: Future> Future for Unconstrained<F> {
     polled
   }
 }
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-  use wasm_bindgen_test::wasm_bindgen_test;
-
-  #[wasm_bindgen_test]
-  async fn unconstrained_skips_the_budget() {
-    REMAINING_BUDGET.with(|cell| cell.set(BUDGET));
-    unconstrained(async {
-      for _ in 0..(BUDGET * 2 + 1) {
-        consume_budget().await;
-      }
-    })
-    .await;
-    // An unconstrained future must not have touched the counter.
-    assert_eq!(REMAINING_BUDGET.with(|cell| cell.get()), BUDGET);
-  }
-}

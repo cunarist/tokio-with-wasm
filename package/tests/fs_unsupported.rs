@@ -1,12 +1,7 @@
-//! Browser tests for `fs` on an engine that cannot write to files,
-//! such as Safari before version 26.
-//! Run with `wasm-pack test --headless --chrome package`.
-//!
-//! This is a file of its own, because it takes the writing API away
-//! from the whole page.
+//! Browser test for `fs` on an engine that cannot write to files, such as
+//! Safari before version 26, in a page of its own: it takes the writing
+//! API away from the whole page.
 
-// The glue code only exists on the web target,
-// so this file is empty everywhere else.
 #![cfg(all(
   target_family = "wasm",
   target_vendor = "unknown",
