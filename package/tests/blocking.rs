@@ -77,20 +77,6 @@ async fn the_pool_survives_a_panic() -> Result<(), JoinError> {
   Ok(())
 }
 
-/// An idle worker can start the task before `abort` lands,
-/// so this tries until one attempt is cancelled.
-#[wasm_bindgen_test]
-async fn abort_before_start_cancels_a_blocking_task() {
-  for _ in 0..20 {
-    let handle = spawn_blocking(|| 5);
-    handle.abort();
-    if handle.await.is_err_and(|error| error.is_cancelled()) {
-      return;
-    }
-  }
-  panic!("aborting never cancelled the task");
-}
-
 #[wasm_bindgen_test]
 async fn a_worker_is_reused_between_tasks() -> Result<(), JoinError> {
   // A worker that comes back to the pool is the next one handed out,

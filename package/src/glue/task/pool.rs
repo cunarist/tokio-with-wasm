@@ -143,8 +143,8 @@ impl WorkerPool {
   /// Reports whether the periodic management task still has something to do.
   /// Called by the management task itself, which stops when this is `false`.
   pub fn keep_managing(&self) -> bool {
-    let is_needed =
-      self.workers_count.get() > 0 || !self.queued_tasks.borrow().is_empty();
+    // Tasks only queue up while every worker is busy.
+    let is_needed = self.workers_count.get() > 0;
     // Nothing can arrive before the caller returns, as nothing yields.
     self.is_managed.set(is_needed);
     is_needed
@@ -208,6 +208,7 @@ mod tests {
   use super::MAX_WORKERS;
   use crate::now;
   use crate::task::{JoinError, spawn_blocking};
+  use std::time::Duration;
   use wasm_bindgen_test::wasm_bindgen_test;
 
   /// Queued tasks go to workers as they turn idle,
@@ -228,5 +229,20 @@ mod tests {
       "queued tasks waited for ticks: {elapsed}ms"
     );
     Ok(())
+  }
+
+  #[wasm_bindgen_test]
+  async fn abort_before_start_cancels_a_queued_task() {
+    let busy: Vec<_> = (0..MAX_WORKERS)
+      .map(|_| {
+        spawn_blocking(|| std::thread::sleep(Duration::from_millis(200)))
+      })
+      .collect();
+    let queued = spawn_blocking(|| 5);
+    queued.abort();
+    assert!(queued.await.is_err_and(|error| error.is_cancelled()));
+    for handle in busy {
+      assert!(handle.await.is_ok());
+    }
   }
 }

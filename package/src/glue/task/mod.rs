@@ -60,7 +60,6 @@ async fn manage_pool() {
   loop {
     let is_needed = WORKER_POOL.with(|worker_pool| {
       worker_pool.remove_inactive_workers();
-      worker_pool.flush_queued_tasks();
       worker_pool.keep_managing()
     });
     if !is_needed {
