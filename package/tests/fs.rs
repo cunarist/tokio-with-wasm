@@ -62,6 +62,12 @@ fn ok<T>(result: std::io::Result<T>, what: &str) -> T {
   }
 }
 
+/// Polls a future once and drops it unfinished.
+fn cancel(future: impl Future) {
+  let mut context = Context::from_waker(Waker::noop());
+  assert!(Box::pin(future).as_mut().poll(&mut context).is_pending());
+}
+
 /// Reads the kind off a call that was supposed to fail.
 fn kind<T>(result: std::io::Result<T>) -> ErrorKind {
   match result {
@@ -75,19 +81,10 @@ async fn writes_and_reads_a_file_back() {
   let directory = scratch("writes_and_reads").await;
   let path = directory.join("greeting.txt");
 
-  ok(fs::write(&path, b"hello").await, "write");
+  ok(fs::write(&path, b"the long first draft").await, "write");
+  ok(fs::write(&path, b"hello").await, "write again");
   assert_eq!(ok(fs::read(&path).await, "read"), b"hello");
   assert_eq!(ok(fs::read_to_string(&path).await, "read text"), "hello");
-}
-
-#[wasm_bindgen_test]
-async fn writing_again_replaces_everything() {
-  let directory = scratch("writing_again").await;
-  let path = directory.join("notes.txt");
-
-  ok(fs::write(&path, b"the long first draft").await, "write");
-  ok(fs::write(&path, b"short").await, "write again");
-  assert_eq!(ok(fs::read_to_string(&path).await, "read"), "short");
 }
 
 #[wasm_bindgen_test]
@@ -108,15 +105,6 @@ async fn a_path_cannot_lead_out_of_the_root() {
   match failure {
     Err(failure) => assert_eq!(failure.kind(), ErrorKind::InvalidInput),
     Ok(_) => panic!("reading outside the root should not work"),
-  }
-}
-
-#[wasm_bindgen_test]
-async fn reading_a_missing_file_reports_not_found() {
-  let directory = scratch("missing_file").await;
-  match fs::read(directory.join("nothing.txt")).await {
-    Err(failure) => assert_eq!(failure.kind(), ErrorKind::NotFound),
-    Ok(_) => panic!("there is nothing to read"),
   }
 }
 
@@ -145,47 +133,37 @@ async fn tells_whether_an_entry_is_there() {
   assert!(!ok(fs::try_exists(&path).await, "look"));
   ok(fs::write(&path, b"x").await, "write");
   assert!(ok(fs::try_exists(&path).await, "look again"));
+  assert!(ok(fs::try_exists(&directory).await, "look at a directory"));
 }
 
 #[wasm_bindgen_test]
 async fn lists_what_a_directory_holds() {
   let directory = scratch("read_dir").await;
   ok(fs::write(directory.join("a.txt"), b"a").await, "write");
-  ok(fs::write(directory.join("b.txt"), b"b").await, "write");
+  ok(fs::write(directory.join("b.txt"), b"bb").await, "write");
   ok(fs::create_dir(directory.join("inner")).await, "create");
 
   let mut found = Vec::new();
   let mut entries = ok(fs::read_dir(&directory).await, "read the directory");
+  // A cancelled step must not lose an entry.
+  cancel(entries.next_entry());
   while let Some(entry) = ok(entries.next_entry().await, "step") {
+    let name = entry.file_name().to_string_lossy().into_owned();
+    assert_eq!(entry.path(), PathBuf::from("/read_dir").join(&name));
     let kind = ok(entry.file_type().await, "read the kind");
-    found.push((
-      entry.file_name().to_string_lossy().into_owned(),
-      kind.is_dir(),
-    ));
+    let length = ok(entry.metadata().await, "read metadata").len();
+    found.push((name, kind.is_dir(), length));
   }
   found.sort();
 
   assert_eq!(
     found,
     [
-      ("a.txt".to_owned(), false),
-      ("b.txt".to_owned(), false),
-      ("inner".to_owned(), true),
+      ("a.txt".to_owned(), false, 1),
+      ("b.txt".to_owned(), false, 2),
+      ("inner".to_owned(), true, 0),
     ]
   );
-}
-
-#[wasm_bindgen_test]
-async fn an_entry_knows_the_path_that_leads_to_it() {
-  let directory = scratch("entry_path").await;
-  ok(fs::write(directory.join("only.txt"), b"x").await, "write");
-
-  let mut entries = ok(fs::read_dir(&directory).await, "read the directory");
-  let entry = match ok(entries.next_entry().await, "step") {
-    Some(entry) => entry,
-    None => panic!("the directory should hold one entry"),
-  };
-  assert_eq!(entry.path(), PathBuf::from("/entry_path/only.txt"));
 }
 
 #[wasm_bindgen_test]
@@ -197,6 +175,9 @@ async fn creating_a_directory_twice_reports_it_is_there() {
     Err(failure) => assert_eq!(failure.kind(), ErrorKind::AlreadyExists),
     Ok(()) => panic!("the directory is already there"),
   }
+  let file = directory.join("taken");
+  ok(fs::write(&file, b"x").await, "write");
+  assert_eq!(kind(fs::create_dir(&file).await), ErrorKind::AlreadyExists);
 }
 
 #[wasm_bindgen_test]
@@ -211,48 +192,6 @@ async fn removes_files_and_directories() {
   ok(fs::create_dir(&empty).await, "create");
   ok(fs::remove_dir(&empty).await, "remove the directory");
   assert!(!ok(fs::try_exists(&empty).await, "look"));
-}
-
-#[wasm_bindgen_test]
-async fn a_directory_that_holds_something_needs_removing_in_full() {
-  let directory = scratch("remove_full").await;
-  let nested = directory.join("nested");
-  ok(fs::create_dir(&nested).await, "create");
-  ok(fs::write(nested.join("kept.txt"), b"x").await, "write");
-
-  assert_eq!(
-    kind(fs::remove_dir(&nested).await),
-    ErrorKind::DirectoryNotEmpty
-  );
-  ok(fs::remove_dir_all(&nested).await, "remove everything");
-  assert!(!ok(fs::try_exists(&nested).await, "look"));
-}
-
-#[wasm_bindgen_test]
-async fn removing_a_file_as_a_directory_does_not_work() {
-  let directory = scratch("remove_wrong_kind").await;
-  let file = directory.join("file.txt");
-  ok(fs::write(&file, b"x").await, "write");
-
-  assert_eq!(kind(fs::remove_dir(&file).await), ErrorKind::NotADirectory);
-  assert_eq!(
-    kind(fs::remove_file(&directory).await),
-    ErrorKind::IsADirectory
-  );
-  assert!(ok(fs::try_exists(&file).await, "look"));
-}
-
-#[wasm_bindgen_test]
-async fn copies_a_file() {
-  let directory = scratch("copying").await;
-  let from = directory.join("from.txt");
-  let to = directory.join("to.txt");
-  ok(fs::write(&from, b"carried over").await, "write");
-
-  let length = ok(fs::copy(&from, &to).await, "copy");
-  assert_eq!(length, 12);
-  assert_eq!(ok(fs::read_to_string(&to).await, "read"), "carried over");
-  assert!(ok(fs::try_exists(&from).await, "look"));
 }
 
 #[wasm_bindgen_test]
@@ -295,6 +234,11 @@ async fn renames_a_directory_and_everything_under_it() {
     kind(fs::rename(&to, to.join("deep/inner")).await),
     ErrorKind::InvalidInput
   );
+  ok(fs::create_dir(&from).await, "create");
+  assert_eq!(
+    kind(fs::rename(&from, &to).await),
+    ErrorKind::DirectoryNotEmpty
+  );
   assert_eq!(
     ok(fs::read_to_string(to.join("deep/low.txt")).await, "read"),
     "low"
@@ -325,6 +269,7 @@ async fn spells_a_path_one_way() {
 async fn writes_through_an_open_file() {
   let directory = scratch("open_write").await;
   let path = directory.join("streamed.txt");
+  ok(fs::write(&path, b"the older and longer one").await, "write");
 
   let mut file = ok(fs::File::create(&path).await, "create");
   ok(file.write_all(b"first ").await, "write");
@@ -388,29 +333,23 @@ async fn a_cancelled_read_does_not_answer_a_later_one() {
   let path = directory.join("cancelled.txt");
   ok(fs::write(&path, b"0123456789").await, "write");
 
-  let mut file = ok(fs::File::open(&path).await, "open");
-  {
-    let mut head = [0u8; 2];
-    let mut reading = Box::pin(file.read(&mut head));
-    let mut context = Context::from_waker(Waker::noop());
-    assert!(reading.as_mut().poll(&mut context).is_pending());
-  }
+  let mut file = ok(
+    fs::File::options().read(true).write(true).open(&path).await,
+    "open",
+  );
+  let mut head = [0u8; 2];
+  cancel(file.read(&mut head));
   ok(file.seek(SeekFrom::Start(5)).await, "seek");
   let mut rest = String::new();
   ok(file.read_to_string(&mut rest).await, "read");
   assert_eq!(rest, "56789");
-}
 
-#[wasm_bindgen_test]
-async fn reads_through_an_open_file() {
-  let directory = scratch("open_read").await;
-  let path = directory.join("read.txt");
-  ok(fs::write(&path, b"streamed back").await, "write");
-
-  let mut file = ok(fs::File::open(&path).await, "open");
-  let mut read = String::new();
-  ok(file.read_to_string(&mut read).await, "read");
-  assert_eq!(read, "streamed back");
+  ok(file.rewind().await, "rewind");
+  cancel(file.read(&mut head));
+  ok(file.write_all(b"AB").await, "write");
+  rest.clear();
+  ok(file.read_to_string(&mut rest).await, "read");
+  assert_eq!(rest, "23456789");
 }
 
 #[wasm_bindgen_test]
@@ -450,6 +389,13 @@ async fn seeks_from_every_side() {
   let mut read = Vec::new();
   ok(file.read_to_end(&mut read).await, "read");
   assert_eq!(read, b"789");
+
+  // A cancelled seek still lands before the next read, as in `tokio`.
+  ok(file.rewind().await, "rewind");
+  cancel(file.seek(SeekFrom::End(-2)));
+  read.clear();
+  ok(file.read_to_end(&mut read).await, "read");
+  assert_eq!(read, b"89");
 }
 
 #[wasm_bindgen_test]
@@ -494,23 +440,37 @@ async fn cuts_a_file_down_to_size() {
   ok(fs::write(&path, b"0123456789").await, "write");
 
   let mut file = ok(
-    fs::File::options().write(true).open(&path).await,
-    "open for writing",
+    fs::File::options().read(true).write(true).open(&path).await,
+    "open",
   );
+  let mut head = [0u8; 2];
+  ok(file.read_exact(&mut head).await, "read");
   ok(file.set_len(4).await, "cut it down");
-  assert_eq!(ok(fs::read_to_string(&path).await, "read"), "0123");
+  let mut rest = String::new();
+  ok(file.read_to_string(&mut rest).await, "read");
+  assert_eq!(rest, "23");
+  ok(file.set_len(6).await, "grow");
+  assert_eq!(ok(fs::read(&path).await, "read"), b"0123\0\0");
 }
 
 #[wasm_bindgen_test]
-async fn appending_starts_at_the_end() {
+async fn appending_writes_at_the_end() {
   let directory = scratch("appending").await;
   let path = directory.join("log.txt");
   ok(fs::write(&path, b"first\n").await, "write");
 
   let mut file = ok(
-    fs::File::options().append(true).open(&path).await,
+    fs::File::options()
+      .read(true)
+      .append(true)
+      .open(&path)
+      .await,
     "open for appending",
   );
+  // Only writes go to the end; reading starts at the start.
+  let mut read = String::new();
+  ok(file.read_to_string(&mut read).await, "read");
+  assert_eq!(read, "first\n");
   ok(file.write_all(b"second\n").await, "write");
   // Appending ignores the cursor, held back bytes or not.
   ok(file.seek(SeekFrom::Start(0)).await, "seek");
@@ -566,23 +526,12 @@ async fn creating_a_new_file_over_an_old_one_does_not_work() {
   let directory = scratch("create_new").await;
   let path = directory.join("once.txt");
 
-  ok(
-    fs::File::options()
-      .write(true)
-      .create_new(true)
-      .open(&path)
-      .await,
-    "create",
+  ok(fs::write(&path, b"kept").await, "write");
+  assert_eq!(
+    kind(fs::File::create_new(&path).await),
+    ErrorKind::AlreadyExists
   );
-  match fs::File::options()
-    .write(true)
-    .create_new(true)
-    .open(&path)
-    .await
-  {
-    Err(failure) => assert_eq!(failure.kind(), ErrorKind::AlreadyExists),
-    Ok(_) => panic!("the file is already there"),
-  }
+  assert_eq!(ok(fs::read_to_string(&path).await, "read"), "kept");
 
   ok(
     fs::create_dir(directory.join("taken")).await,
@@ -662,24 +611,9 @@ async fn reports_the_kinds_that_tokio_reports() {
     kind(fs::remove_dir(&nested).await),
     ErrorKind::DirectoryNotEmpty
   );
-}
-
-#[wasm_bindgen_test]
-async fn a_file_sitting_on_the_name_counts_as_taken() {
-  let directory = scratch("name_taken").await;
-  let path = directory.join("taken");
-  ok(fs::write(&path, b"x").await, "write");
-  assert_eq!(kind(fs::create_dir(&path).await), ErrorKind::AlreadyExists);
-}
-
-#[wasm_bindgen_test]
-async fn metadata_still_reads_a_directory() {
-  let directory = scratch("metadata_kinds").await;
-  let nested = directory.join("nested");
-  ok(fs::create_dir(&nested).await, "create");
-  assert!(ok(fs::metadata(&nested).await, "read metadata").is_dir());
-  assert!(ok(fs::try_exists(&nested).await, "look"));
-  assert!(!ok(fs::try_exists(directory.join("absent")).await, "look"));
+  assert!(ok(fs::try_exists(&file).await, "look"));
+  ok(fs::remove_dir_all(&nested).await, "remove everything");
+  assert!(!ok(fs::try_exists(&nested).await, "look"));
 }
 
 #[wasm_bindgen_test]
@@ -749,14 +683,7 @@ async fn a_file_still_works_after_a_write_is_cancelled() {
   // and that push cannot finish inside a single poll, so dropping the
   // future right after leaves the call in flight for `sync_all` to find.
   ok(file.write_all(&block).await, "write");
-  {
-    let mut writing = Box::pin(file.write_all(b"dropped"));
-    let mut context = Context::from_waker(Waker::noop());
-    assert!(
-      writing.as_mut().poll(&mut context).is_pending(),
-      "the push was supposed to still be in flight"
-    );
-  }
+  cancel(file.write_all(b"dropped"));
   ok(file.sync_all().await, "sync");
 
   // Whatever the cancellation left behind, the file has to be closed and
@@ -892,34 +819,6 @@ async fn a_file_reports_and_syncs_through_its_own_handle() {
   assert!(about.file_type().is_file());
   assert!(!about.is_symlink());
   assert!(!about.file_type().is_symlink());
-
-  assert_eq!(
-    kind(fs::File::create_new(&path).await),
-    ErrorKind::AlreadyExists
-  );
-}
-
-#[wasm_bindgen_test]
-async fn an_entry_reports_what_is_known_about_it() {
-  let directory = scratch("entry_metadata").await;
-  ok(
-    fs::write(directory.join("sized.bin"), b"1234").await,
-    "write",
-  );
-  ok(fs::create_dir(directory.join("inner")).await, "create");
-
-  let mut entries = ok(fs::read_dir(&directory).await, "read the directory");
-  let mut seen = Vec::new();
-  while let Some(entry) = ok(entries.next_entry().await, "step") {
-    let about = ok(entry.metadata().await, "read metadata");
-    seen.push((
-      entry.file_name().to_string_lossy().into_owned(),
-      about.len(),
-    ));
-    assert!(!about.is_symlink());
-  }
-  seen.sort();
-  assert_eq!(seen, [("inner".to_owned(), 0), ("sized.bin".to_owned(), 4)]);
 }
 
 #[wasm_bindgen_test]
@@ -943,24 +842,14 @@ async fn copying_and_renaming_replace_what_is_already_there() {
   ok(fs::write(&from, b"new").await, "write");
   ok(fs::write(&onto, b"the older and longer one").await, "write");
 
-  ok(fs::copy(&from, &onto).await, "copy");
+  assert_eq!(ok(fs::copy(&from, &onto).await, "copy"), 3);
   assert_eq!(ok(fs::read_to_string(&onto).await, "read"), "new");
+  assert!(ok(fs::try_exists(&from).await, "look"));
 
   ok(fs::write(&onto, b"the older and longer one").await, "write");
   ok(fs::rename(&from, &onto).await, "rename");
   assert_eq!(ok(fs::read_to_string(&onto).await, "read"), "new");
   assert!(!ok(fs::try_exists(&from).await, "look"));
-}
-
-#[wasm_bindgen_test]
-async fn growing_a_file_fills_it_with_zeros() {
-  let directory = scratch("growing").await;
-  let path = directory.join("grown.bin");
-  ok(fs::write(&path, b"ab").await, "write");
-
-  let mut file = ok(fs::File::options().write(true).open(&path).await, "open");
-  ok(file.set_len(5).await, "grow");
-  assert_eq!(ok(fs::read(&path).await, "read"), [b'a', b'b', 0, 0, 0]);
 }
 
 #[wasm_bindgen_test]
@@ -979,35 +868,11 @@ async fn an_empty_file_reads_as_nothing() {
 async fn removing_what_is_not_there_reports_not_found() {
   let directory = scratch("removing_absent").await;
   let absent = directory.join("absent");
+  assert_eq!(kind(fs::read(&absent).await), ErrorKind::NotFound);
   assert_eq!(kind(fs::remove_file(&absent).await), ErrorKind::NotFound);
   assert_eq!(kind(fs::remove_dir(&absent).await), ErrorKind::NotFound);
   assert_eq!(kind(fs::remove_dir_all(&absent).await), ErrorKind::NotFound);
   assert_eq!(kind(fs::read_dir(&absent).await), ErrorKind::NotFound);
-}
-
-#[wasm_bindgen_test]
-async fn creating_over_a_file_empties_it_first() {
-  let directory = scratch("create_truncates").await;
-  let path = directory.join("over.txt");
-  ok(fs::write(&path, b"the older and longer one").await, "write");
-
-  let mut file = ok(fs::File::create(&path).await, "create");
-  ok(file.write_all(b"short").await, "write");
-  ok(file.flush().await, "flush");
-  assert_eq!(ok(fs::read_to_string(&path).await, "read"), "short");
-}
-
-#[wasm_bindgen_test]
-async fn refusing_to_create_a_new_file_leaves_the_old_one_alone() {
-  let directory = scratch("create_new_keeps").await;
-  let path = directory.join("kept.txt");
-  ok(fs::write(&path, b"kept").await, "write");
-
-  assert_eq!(
-    kind(fs::File::create_new(&path).await),
-    ErrorKind::AlreadyExists
-  );
-  assert_eq!(ok(fs::read_to_string(&path).await, "read"), "kept");
 }
 
 #[wasm_bindgen_test]
@@ -1017,7 +882,8 @@ async fn writing_past_the_end_leaves_zeros_in_the_gap() {
   ok(fs::write(&path, b"ab").await, "write");
 
   let mut file = ok(fs::File::options().write(true).open(&path).await, "open");
-  ok(file.seek(SeekFrom::Start(5)).await, "seek");
+  // A cancelled seek still lands before the next write, as in `tokio`.
+  cancel(file.seek(SeekFrom::End(3)));
   ok(file.write_all(b"z").await, "write");
   ok(file.flush().await, "flush");
 

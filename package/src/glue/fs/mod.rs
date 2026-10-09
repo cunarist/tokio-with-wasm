@@ -1,25 +1,12 @@
-//! Asynchronous file system access.
+//! Asynchronous file system access, backed by the origin private file system.
 //!
-//! Files live in the origin private file system, a store that the browser
-//! keeps on disk for one origin and hands to no one else. It is reached
-//! without asking the user for anything, and every engine has it, which is
-//! why it backs this module rather than the file pickers do: those only
-//! exist in desktop Chromium, and only inside a click.
-//!
-//! What follows from that store rather than from `tokio`:
-//!
-//! - Paths start at the root of the store, not at the root of a disk. A
-//!   leading slash is accepted and ignored, and `..` is resolved before a
-//!   path is used, which is safe because there are no symbolic links.
+//! - Paths start at the root of that store; a leading slash is ignored.
 //! - `hard_link`, `read_link`, `symlink_metadata`, and `set_permissions`
-//!   have no counterpart here, so they are missing rather than failing.
-//! - The store shares one quota with the other storage APIs, and the
-//!   browser may throw all of it away under disk pressure unless
-//!   `navigator.storage.persist()` has been granted.
-//! - Nothing outside the page can see these files. Handing one to the user
-//!   means the page has to offer it as a download.
-//! - Writing needs `createWritable`, which Safari only has from version 26.
-//!   Where it is missing, writes fail with `ErrorKind::Unsupported`.
+//!   have no counterpart, so they are missing.
+//! - The browser may evict the store unless `navigator.storage.persist()`
+//!   was granted.
+//! - Writing needs `createWritable` (Safari 26 and later); without it,
+//!   writes fail with `ErrorKind::Unsupported`.
 
 mod dir;
 mod error;
@@ -31,8 +18,8 @@ pub use dir::{DirEntry, FileType, Metadata, ReadDir};
 pub use file::{File, OpenOptions};
 
 use dir::metadata_at;
-use error::{Wanted, await_js};
-use file::{overwrite, read_all};
+use error::await_js;
+use file::{overwrite, read_range};
 use handle::{directory_at, directory_in, file_at, file_in};
 use path::{join_names, split_parent, split_path};
 use std::future::Future;
@@ -43,8 +30,7 @@ use web_sys::FileSystemRemoveOptions;
 
 /// Reads a whole file.
 pub async fn read(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
-  let handle = file_at(path.as_ref(), false).await?;
-  read_all(&handle).await
+  read_range(file_at(path.as_ref(), false).await?, 0, usize::MAX).await
 }
 
 /// Reads a whole file into a string.
@@ -55,10 +41,7 @@ pub async fn read_to_string(path: impl AsRef<Path>) -> io::Result<String> {
   })
 }
 
-/// Writes to a file, creating it if it is missing
-/// and replacing everything in it if it is not.
-///
-/// The directories leading to the file have to be there already.
+/// Writes a whole file, creating it if it is missing.
 pub async fn write(
   path: impl AsRef<Path>,
   contents: impl AsRef<[u8]>,
@@ -72,19 +55,15 @@ pub async fn copy(
   from: impl AsRef<Path>,
   to: impl AsRef<Path>,
 ) -> io::Result<u64> {
-  let source = file_at(from.as_ref(), false).await?;
-  let bytes = read_all(&source).await?;
-  let length = bytes.len() as u64;
-  let destination = file_at(to.as_ref(), true).await?;
-  overwrite(&destination, &bytes).await?;
-  Ok(length)
+  let bytes = read(from).await?;
+  write(to, &bytes).await?;
+  Ok(bytes.len() as u64)
 }
 
-/// Moves a file or a directory to another name.
+/// Moves a file or a directory.
 ///
-/// The web API has no move, so this copies and then removes. That is not
-/// one step: a failure halfway leaves both ends behind, and the cost grows
-/// with what is being moved rather than staying flat.
+/// The web has no move, so this copies and then removes: a failure halfway
+/// leaves both behind, and the cost grows with what is moved.
 pub async fn rename(
   from: impl AsRef<Path>,
   to: impl AsRef<Path>,
@@ -96,22 +75,27 @@ pub async fn rename(
   if from_names == to_names {
     return Ok(());
   }
-  if is_dir {
-    if to_names.starts_with(&from_names) {
-      return Err(io::Error::new(
-        io::ErrorKind::InvalidInput,
-        "a directory cannot be moved into itself",
-      ));
-    }
-    copy_directory(from.to_owned(), to.to_owned()).await?;
-    remove_dir_all(from).await
-  } else {
+  if !is_dir {
     copy(from, to).await?;
-    remove_file(from).await
+    return remove_file(from).await;
   }
+  if to_names.starts_with(&from_names) {
+    return Err(io::Error::new(
+      io::ErrorKind::InvalidInput,
+      "a directory cannot be moved into itself",
+    ));
+  }
+  // Only an empty directory may be replaced.
+  match remove_dir(to).await {
+    Err(failure) if failure.kind() == io::ErrorKind::DirectoryNotEmpty => {
+      return Err(failure);
+    }
+    _ => {}
+  }
+  copy_directory(from.to_owned(), to.to_owned()).await?;
+  remove_dir_all(from).await
 }
 
-/// Copies a directory and everything under it.
 fn copy_directory(
   from: PathBuf,
   to: PathBuf,
@@ -133,67 +117,52 @@ fn copy_directory(
 
 /// Creates a directory. The directories leading to it have to be there.
 pub async fn create_dir(path: impl AsRef<Path>) -> io::Result<()> {
-  let (directories, name) = split_parent(path.as_ref())?;
-  let parent = directory_at(&directories, false).await?;
-  // The web API hands back a directory that is already there rather than
-  // refusing, so looking for one comes first.
-  let taken = match directory_in(&parent, &name, false).await {
-    Ok(_) => true,
-    // A file is sitting on the name, which `tokio` also calls taken.
-    Err(failure) if failure.kind() == io::ErrorKind::NotADirectory => true,
-    Err(failure) if failure.kind() == io::ErrorKind::NotFound => false,
-    Err(failure) => return Err(failure),
-  };
-  if taken {
+  let path = path.as_ref();
+  // The web API would hand back an existing directory instead of failing.
+  if try_exists(path).await? {
     return Err(io::Error::new(
       io::ErrorKind::AlreadyExists,
       "the name is already taken",
     ));
   }
-  directory_in(&parent, &name, true).await?;
+  let (directories, name) = split_parent(path)?;
+  directory_in(&directory_at(&directories, false).await?, &name, true).await?;
   Ok(())
 }
 
 /// Creates a directory and every directory leading to it.
 pub async fn create_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
-  let names = split_path(path.as_ref())?;
-  directory_at(&names, true).await?;
+  directory_at(&split_path(path.as_ref())?, true).await?;
   Ok(())
 }
 
 /// Removes an empty directory.
 pub async fn remove_dir(path: impl AsRef<Path>) -> io::Result<()> {
-  let (directories, name) = split_parent(path.as_ref())?;
-  let parent = directory_at(&directories, false).await?;
-  // Asking for it as a directory is what rules out a file by that name.
-  directory_in(&parent, &name, false).await?;
-  // Left alone, the web API refuses a directory that still holds something.
-  await_js(parent.remove_entry(&name), Wanted::Directory).await?;
-  Ok(())
+  remove(path.as_ref(), true, false).await
 }
 
 /// Removes a directory and everything under it.
 pub async fn remove_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
-  let (directories, name) = split_parent(path.as_ref())?;
-  let parent = directory_at(&directories, false).await?;
-  directory_in(&parent, &name, false).await?;
-  let options = FileSystemRemoveOptions::new();
-  options.set_recursive(true);
-  await_js(
-    parent.remove_entry_with_options(&name, &options),
-    Wanted::Directory,
-  )
-  .await?;
-  Ok(())
+  remove(path.as_ref(), true, true).await
 }
 
 /// Removes a file.
 pub async fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {
-  let (directories, name) = split_parent(path.as_ref())?;
+  remove(path.as_ref(), false, false).await
+}
+
+async fn remove(path: &Path, dir: bool, recursive: bool) -> io::Result<()> {
+  let (directories, name) = split_parent(path)?;
   let parent = directory_at(&directories, false).await?;
-  // Asking for it as a file is what rules out a directory by that name.
-  file_in(&parent, &name, false).await?;
-  await_js(parent.remove_entry(&name), Wanted::File).await?;
+  // The web API removes either kind, so the kind is checked first.
+  if dir {
+    directory_in(&parent, &name, false).await?;
+  } else {
+    file_in(&parent, &name, false).await?;
+  }
+  let options = FileSystemRemoveOptions::new();
+  options.set_recursive(recursive);
+  await_js(parent.remove_entry_with_options(&name, &options)).await?;
   Ok(())
 }
 
@@ -218,14 +187,9 @@ pub async fn read_dir(path: impl AsRef<Path>) -> io::Result<ReadDir> {
   Ok(ReadDir::new(&handle, join_names(&names)))
 }
 
-/// Spells a path the one way that names the entry it leads to.
-///
-/// Nothing has to be followed to do this, because the origin private file
-/// system has no symbolic links. The entry still has to be there, the same
-/// way it does in `tokio`.
+/// Spells a path the one way that names its entry, which has to exist.
 pub async fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> {
-  let names = split_path(path.as_ref())?;
-  let spelled = join_names(&names);
+  let spelled = join_names(&split_path(path.as_ref())?);
   metadata_at(&spelled).await?;
   Ok(spelled)
 }

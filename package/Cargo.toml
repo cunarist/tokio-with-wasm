@@ -28,7 +28,6 @@ sync = ["tokio/sync"]
 fs = [
   "web-sys/File",
   "web-sys/StorageManager",
-  "web-sys/FileSystemHandle",
   "web-sys/FileSystemHandleKind",
   "web-sys/FileSystemFileHandle",
   "web-sys/FileSystemDirectoryHandle",
@@ -37,7 +36,6 @@ fs = [
   "web-sys/FileSystemRemoveOptions",
   "web-sys/FileSystemCreateWritableOptions",
   "web-sys/FileSystemWritableFileStream",
-  "web-sys/WritableStream",
 ]
 time = []
 rt = ["tokio/rt", "dep:hashbrown"]
