@@ -26,6 +26,7 @@ const READ_AHEAD: usize = 256 * 1024;
 type Started<T> = Pin<Box<dyn Future<Output = io::Result<T>>>>;
 
 /// The open stream that carries writes, and where its cursor sits.
+/// Opening one copies the whole file, so it stays open across writes.
 struct Writer {
   stream: FileSystemWritableFileStream,
   cursor: u64,

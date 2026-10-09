@@ -27,7 +27,12 @@ pub fn to_io_error(value: JsValue) -> io::Error {
   };
   let message =
     property(&value, "message").unwrap_or_else(|| format!("{value:?}"));
-  io::Error::new(kind, format!("{name}: {message}"))
+  let message = if name.is_empty() {
+    message
+  } else {
+    format!("{name}: {message}")
+  };
+  io::Error::new(kind, message)
 }
 
 pub async fn await_js(promise: Promise) -> io::Result<JsValue> {

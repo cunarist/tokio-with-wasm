@@ -15,7 +15,7 @@
 use js_sys::{Function, Reflect, global};
 use std::future::Future;
 use std::io::{ErrorKind, SeekFrom};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::task::{Context, Waker};
 use tokio_with_wasm::fs;
 use tokio_with_wasm::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
@@ -69,6 +69,16 @@ fn cancel(future: impl Future) {
 }
 
 /// Reads the kind off a call that was supposed to fail.
+/// Waits for a commit handed to the event loop, which signals nothing.
+async fn wait_for_size(path: &Path, size: u64) {
+  for _ in 0..200 {
+    if ok(fs::metadata(path).await, "read metadata").len() == size {
+      return;
+    }
+    sleep(Duration::from_millis(10)).await;
+  }
+}
+
 fn kind<T>(result: std::io::Result<T>) -> ErrorKind {
   match result {
     Ok(_) => panic!("the call was supposed to fail"),
@@ -274,9 +284,12 @@ async fn writes_through_an_open_file() {
   let mut file = ok(fs::File::create(&path).await, "create");
   ok(file.write_all(b"first ").await, "write");
   ok(file.write_all(b"second").await, "write again");
+  // Not carrying on from the held back bytes, so they have to go out first.
+  ok(file.seek(SeekFrom::Start(1)).await, "seek");
+  ok(file.write_all(b"X").await, "write over");
   ok(file.flush().await, "flush");
 
-  assert_eq!(ok(fs::read_to_string(&path).await, "read"), "first second");
+  assert_eq!(ok(fs::read_to_string(&path).await, "read"), "fXrst second");
 }
 
 #[wasm_bindgen_test]
@@ -287,16 +300,16 @@ async fn dropping_a_file_still_lands_the_writes() {
   let mut file = ok(fs::File::create(&path).await, "create");
   ok(file.write_all(b"left behind").await, "write");
   drop(file);
-
-  // Nothing signals when a commit handed to the event loop has landed, so
-  // there is no waking up on it, only waiting for it.
-  for _ in 0..200 {
-    if !ok(fs::metadata(&path).await, "read metadata").is_empty() {
-      break;
-    }
-    sleep(Duration::from_millis(10)).await;
-  }
+  wait_for_size(&path, 11).await;
   assert_eq!(ok(fs::read_to_string(&path).await, "read"), "left behind");
+
+  // A stream left open with nothing held back is closed too.
+  let mut file = ok(fs::File::create(&path).await, "create");
+  ok(file.write_all(&pattern(1 << 20)).await, "write");
+  ok(file.write(&[]).await, "push");
+  drop(file);
+  wait_for_size(&path, 1 << 20).await;
+  assert_eq!(ok(fs::read(&path).await, "read"), pattern(1 << 20));
 }
 
 #[wasm_bindgen_test]
@@ -317,13 +330,7 @@ async fn dropping_a_file_mid_push_still_lands_the_writes() {
     assert!(flushing.as_mut().poll(&mut context).is_pending());
   }
   drop(file);
-
-  for _ in 0..200 {
-    if !ok(fs::metadata(&path).await, "read metadata").is_empty() {
-      break;
-    }
-    sleep(Duration::from_millis(10)).await;
-  }
+  wait_for_size(&path, block.len() as u64).await;
   assert_eq!(ok(fs::read(&path).await, "read").len(), block.len());
 }
 
