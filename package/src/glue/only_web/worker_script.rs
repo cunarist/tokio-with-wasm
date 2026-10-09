@@ -1,19 +1,13 @@
 //! The bootstrap script that every blocking web worker runs.
-//!
-//! By default the script is built in memory and handed to the worker as a
-//! `blob:` URL. Applications that run under a content security policy which
-//! forbids `blob:` workers can serve the same script as a file of their own
-//! and point the pool at it with [`set_worker_script_provider`].
 
 use js_sys::Array;
-use std::cell::RefCell;
+use std::cell::{Cell, OnceCell};
 use wasm_bindgen::JsValue;
 use web_sys::{Blob, BlobPropertyBag, Url};
 
 thread_local! {
-    pub(crate) static WORKER_SCRIPT_PROVIDER: RefCell<fn() -> Result<String, JsValue>> = RefCell::new(get_worker_script);
-    /// The object URL that the bootstrap script was wrapped in.
-    static BUILT_SCRIPT: RefCell<Option<String>> = const { RefCell::new(None) };
+    pub(crate) static WORKER_SCRIPT_PROVIDER: Cell<fn() -> Result<String, JsValue>> = Cell::new(get_worker_script);
+    static BUILT_SCRIPT: OnceCell<String> = const { OnceCell::new() };
 }
 
 /// The worker script provider function is used to determine the URL of the
@@ -36,53 +30,29 @@ thread_local! {
 /// set_worker_script_provider(|| Ok(String::from("/blocking_worker.js")));
 /// ```
 pub fn set_worker_script_provider(provider: fn() -> Result<String, JsValue>) {
-  WORKER_SCRIPT_PROVIDER.with(|p| {
-    *p.borrow_mut() = provider;
-  });
+  WORKER_SCRIPT_PROVIDER.set(provider);
 }
 
-/// Returns the bootstrap script as a `blob:` URL. This is the default
-/// worker script provider.
-///
-/// Every worker runs the same script, so the URL is built once and reused.
-/// Creating one URL per worker would leak an object URL for the whole
-/// lifetime of the page, and revoking it right away would race with the
-/// worker's script fetch.
-///
-/// # Errors
-///
-/// Returns any error that may happen while the `blob:` URL is created.
+/// Returns the bootstrap script as a `blob:` URL, built once so that
+/// workers don't leak one object URL each. This is the default provider.
 pub fn get_worker_script() -> Result<String, JsValue> {
   BUILT_SCRIPT.with(|built| {
-    let mut built = built.borrow_mut();
-    if let Some(built_url) = built.as_ref() {
-      return Ok(built_url.clone());
+    if let Some(url) = built.get() {
+      return Ok(url.clone());
     }
-    let url = create_object_url(worker_bootstrap_script())?;
-    *built = Some(url.clone());
-    Ok(url)
+    let options = BlobPropertyBag::new();
+    options.set_type("text/javascript");
+    let script = Array::of1(&worker_bootstrap_script().into());
+    let blob = Blob::new_with_blob_sequence_and_options(&script, &options)?;
+    let url = Url::create_object_url_with_blob(&blob)?;
+    Ok(built.get_or_init(|| url).clone())
   })
 }
 
 /// Returns the JavaScript source that a blocking web worker runs.
-///
-/// The source doesn't depend on the application: the glue path and the wasm
-/// module reach the worker in a message. Serve it as a file and hand its
-/// URL to [`set_worker_script_provider`] under a content security policy
-/// that forbids `blob:` workers.
+/// See [`set_worker_script_provider`] for serving it as a file.
 pub fn worker_bootstrap_script() -> &'static str {
   include_str!("blocking_worker.js")
-}
-
-/// Wraps a script in an object URL that a web worker can be created from.
-fn create_object_url(script: &str) -> Result<String, JsValue> {
-  let blob_property_bag = BlobPropertyBag::new();
-  blob_property_bag.set_type("text/javascript");
-  let blob = Blob::new_with_blob_sequence_and_options(
-    &Array::from_iter([JsValue::from(script)]).into(),
-    &blob_property_bag,
-  )?;
-  Url::create_object_url_with_blob(&blob)
 }
 
 #[cfg(test)]
