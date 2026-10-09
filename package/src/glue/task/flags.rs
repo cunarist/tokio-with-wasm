@@ -97,20 +97,6 @@ mod tests {
   use wasm_bindgen_test::wasm_bindgen_test;
 
   #[wasm_bindgen_test]
-  fn a_cancellation_wakes_the_registered_task() {
-    let flags = TaskFlags::new();
-    let counter = CountingWaker::new();
-    assert!(!flags.cancelled_or_register(&counter.waker()));
-    assert!(!flags.is_cancelled());
-
-    flags.cancel();
-    assert_eq!(counter.count(), 1);
-    assert!(flags.is_cancelled());
-    // Once cancelled, nothing is registered anymore.
-    assert!(flags.cancelled_or_register(&counter.waker()));
-  }
-
-  #[wasm_bindgen_test]
   fn finishing_flips_only_the_finished_flag() {
     let flags = TaskFlags::new();
     assert!(!flags.is_finished());

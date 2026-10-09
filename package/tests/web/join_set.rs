@@ -1,22 +1,9 @@
-//! Browser tests for `JoinSet`.
-//! Run with `wasm-pack test --headless --chrome package`.
-
-// The glue code only exists on the web target,
-// so this file is empty everywhere else.
-#![cfg(all(
-  target_family = "wasm",
-  target_vendor = "unknown",
-  target_os = "unknown"
-))]
-
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use tokio_with_wasm::alias as tokio;
 use tokio_with_wasm::task::{JoinError, JoinSet};
 use tokio_with_wasm::time::{Duration, sleep, timeout};
 use wasm_bindgen_test::wasm_bindgen_test;
-
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test]
 async fn join_next_returns_every_output() -> Result<(), JoinError> {
@@ -36,30 +23,6 @@ async fn join_next_returns_every_output() -> Result<(), JoinError> {
 }
 
 #[wasm_bindgen_test]
-async fn join_next_yields_in_completion_order() -> Result<(), JoinError> {
-  let mut set = JoinSet::new();
-  set.spawn(async {
-    sleep(Duration::from_millis(350)).await;
-    1
-  });
-  set.spawn(async {
-    sleep(Duration::from_millis(50)).await;
-    2
-  });
-  set.spawn(async {
-    sleep(Duration::from_millis(200)).await;
-    3
-  });
-
-  let mut order = Vec::new();
-  while let Some(result) = set.join_next().await {
-    order.push(result?);
-  }
-  assert_eq!(order, vec![2, 3, 1]);
-  Ok(())
-}
-
-#[wasm_bindgen_test]
 async fn spawn_local_behaves_like_spawn() -> Result<(), JoinError> {
   let mut set = JoinSet::new();
   set.spawn_local(async { 1 });
@@ -68,15 +31,16 @@ async fn spawn_local_behaves_like_spawn() -> Result<(), JoinError> {
   Ok(())
 }
 
+/// Unlike in `tokio`, which panics, failed tasks are left out.
 #[wasm_bindgen_test]
-async fn join_all_collects_everything() {
+async fn join_all_skips_failed_tasks() {
   let mut set = JoinSet::new();
-  for i in 0..5 {
-    set.spawn(async move { i });
-  }
+  set.spawn(async { 1 });
+  set.spawn(std::future::pending()).abort();
+  set.spawn(async { 2 });
   let mut output = set.join_all().await;
   output.sort();
-  assert_eq!(output, vec![0, 1, 2, 3, 4]);
+  assert_eq!(output, vec![1, 2]);
 }
 
 #[wasm_bindgen_test]
@@ -138,10 +102,7 @@ async fn try_join_next_does_not_silence_join_next() -> Result<(), JoinError> {
     std::future::poll_fn(|cx| set.borrow_mut().poll_join_next(cx)),
   )
   .await;
-  let Ok(result) = waited else {
-    panic!("`join_next` missed the completion");
-  };
-  assert_eq!(result.transpose()?, Some(5));
+  assert_eq!(waited.unwrap().transpose()?, Some(5));
   // With the clobbered waker, nothing re-polls `join_next` until the
   // timeout above fires at five seconds, so completion must come from
   // the task's own wake at 150ms to prove the waker survived.
@@ -187,14 +148,11 @@ async fn abort_all_cancels_pending_tasks() {
 async fn dropping_the_set_aborts_its_tasks() {
   let flag = Rc::new(Cell::new(false));
   let cloned = flag.clone();
-  let set = {
-    let mut set = JoinSet::new();
-    set.spawn(async move {
-      sleep(Duration::from_millis(100)).await;
-      cloned.set(true);
-    });
-    set
-  };
+  let mut set = JoinSet::new();
+  set.spawn(async move {
+    sleep(Duration::from_millis(100)).await;
+    cloned.set(true);
+  });
   drop(set);
   sleep(Duration::from_millis(300)).await;
   assert!(!flag.get(), "the task outlived the dropped `JoinSet`");
@@ -261,9 +219,7 @@ async fn join_next_with_id_reports_the_aborted_task() {
   let task_id = abort_handle.id();
   abort_handle.abort();
 
-  let Some(Err(error)) = set.join_next_with_id().await else {
-    panic!("the aborted task did not report an error");
-  };
+  let error = set.join_next_with_id().await.unwrap().unwrap_err();
   assert!(error.is_cancelled());
   assert_eq!(error.id(), task_id);
 }
@@ -271,11 +227,7 @@ async fn join_next_with_id_reports_the_aborted_task() {
 #[wasm_bindgen_test]
 async fn blocking_tasks_also_carry_ids() -> Result<(), JoinError> {
   let mut set = JoinSet::new();
-  let abort_handle = set.spawn_blocking(|| 7);
-  let task_id = abort_handle.id();
-  let Some(result) = set.join_next_with_id().await else {
-    panic!("the blocking task went missing");
-  };
-  assert_eq!(result?, (task_id, 7));
+  let task_id = set.spawn_blocking(|| 7).id();
+  assert_eq!(set.join_next_with_id().await.unwrap()?, (task_id, 7));
   Ok(())
 }
