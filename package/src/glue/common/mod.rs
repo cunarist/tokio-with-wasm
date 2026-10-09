@@ -10,6 +10,7 @@ pub use thread_check::*;
 
 use js_sys::Function;
 use std::cell::Cell;
+use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -86,22 +87,10 @@ extern "C" {
   fn clear_timeout(id: &JsValue);
 }
 
-pub trait LogError {
-  fn log_error(&self, code: &str);
-}
-
-impl LogError for JsValue {
-  fn log_error(&self, code: &str) {
-    error(&format!("Error `{code}` in `tokio_with_wasm`:\n{self:?}"));
-  }
-}
-
-impl<T> LogError for Result<T, JsValue> {
-  fn log_error(&self, code: &str) {
-    if let Err(js_value) = self {
-      js_value.log_error(code);
-    }
-  }
+pub fn log_error(code: &str, failure: impl Debug) {
+  error(&format!(
+    "Error `{code}` in `tokio_with_wasm`:\n{failure:?}"
+  ));
 }
 
 #[cfg(test)]

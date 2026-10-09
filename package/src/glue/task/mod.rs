@@ -27,14 +27,13 @@ pub use join_set::JoinSet;
 /// `task_local!` macro from real `tokio`. The macro's machinery
 /// does not depend on the `tokio` runtime, so it works on the web as is.
 pub use tokio::task::LocalKey;
-use wasm_bindgen::prelude::JsValue;
 
 /// Task-related futures, re-exported from real `tokio`.
 pub mod futures {
   pub use tokio::task::futures::TaskLocalFuture;
 }
 
-use crate::{LogError, OnceReceiver, Timer, is_main_thread, once_channel};
+use crate::{OnceReceiver, Timer, is_main_thread, log_error, once_channel};
 use flags::TaskFlags;
 use pool::WorkerPool;
 use std::error::Error;
@@ -61,7 +60,6 @@ async fn manage_pool() {
   loop {
     let is_needed = WORKER_POOL.with(|worker_pool| {
       worker_pool.remove_inactive_workers();
-      worker_pool.flush_queued_tasks();
       worker_pool.keep_managing()
     });
     if !is_needed {
@@ -77,15 +75,17 @@ fn assert_main_thread(name: &str, code: &str) {
   if is_main_thread() {
     return;
   }
-  JsValue::from_str(&format!(
-    "Calling `{name}` in a blocking thread is not allowed. \
-     While this is possible in real `tokio`, \
-     it may cause undefined behavior in the JavaScript environment. \
-     Instead, use `tokio::sync::mpsc::channel` \
-     to listen for messages from the main thread \
-     and spawn a task there."
-  ))
-  .log_error(code);
+  log_error(
+    code,
+    format!(
+      "Calling `{name}` in a blocking thread is not allowed. \
+       While this is possible in real `tokio`, \
+       it may cause undefined behavior in the JavaScript environment. \
+       Instead, use `tokio::sync::mpsc::channel` \
+       to listen for messages from the main thread \
+       and spawn a task there."
+    ),
+  );
   panic!();
 }
 

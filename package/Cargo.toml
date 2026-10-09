@@ -68,7 +68,6 @@ web-sys = { version = "0.3.73", features = [
     'WorkerOptions',
     'WorkerType',
     'DedicatedWorkerGlobalScope',
-    'MessageEvent',
     'ErrorEvent',
     'Blob',
     "BlobPropertyBag",

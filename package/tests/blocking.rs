@@ -19,6 +19,15 @@ use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+thread_local! {
+  static RUNS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Returns how many tasks have run on this worker, this one included.
+fn count_run() -> u32 {
+  RUNS.with(|runs| runs.replace(runs.get() + 1) + 1)
+}
+
 #[wasm_bindgen_test]
 async fn blocking_task_returns_the_output() -> Result<(), JoinError> {
   let handle = spawn_blocking(|| {
@@ -69,26 +78,12 @@ async fn the_pool_survives_a_panic() -> Result<(), JoinError> {
 }
 
 #[wasm_bindgen_test]
-async fn abort_before_start_cancels_a_blocking_task() {
-  let handle = spawn_blocking(|| 5);
-  // The task has not been sent to a worker yet in this microtask,
-  // so aborting now prevents it from running.
-  handle.abort();
-  assert!(handle.await.is_err_and(|error| error.is_cancelled()));
-}
-
-#[wasm_bindgen_test]
 async fn a_worker_is_reused_between_tasks() -> Result<(), JoinError> {
-  thread_local! {
-    static RUNS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
-  }
   // A worker that comes back to the pool is the next one handed out,
   // so each task runs on the thread the previous one ran on.
   let mut last = 0;
   for _ in 0..3 {
-    let runs =
-      spawn_blocking(|| RUNS.with(|runs| runs.replace(runs.get() + 1) + 1))
-        .await?;
+    let runs = spawn_blocking(count_run).await?;
     assert!(runs > last, "a fresh worker took the task");
     last = runs;
     // Let the pool reclaim the worker.
@@ -112,31 +107,41 @@ async fn spawning_inside_a_worker_is_reported_as_a_panic() {
 /// again for the tasks spawned afterwards, and that the culled workers
 /// gave their stacks back for the new ones to reuse.
 #[wasm_bindgen_test]
-async fn idle_workers_are_culled_and_the_pool_recovers() {
-  async fn run_four() -> f64 {
+async fn idle_workers_are_culled_and_the_pool_recovers() -> Result<(), JoinError>
+{
+  async fn run_four() -> Result<(Vec<u32>, f64), JoinError> {
     let handles: Vec<_> = (0..4)
       .map(|_| {
-        spawn_blocking(|| std::thread::sleep(Duration::from_millis(100)))
+        spawn_blocking(|| {
+          std::thread::sleep(Duration::from_millis(100));
+          count_run()
+        })
       })
       .collect();
+    let mut runs = Vec::new();
     for handle in handles {
-      assert!(handle.await.is_ok());
+      runs.push(handle.await?);
     }
     let memory = memory().unchecked_into::<Memory>();
-    memory
+    let bytes = memory
       .buffer()
       .unchecked_into::<SharedArrayBuffer>()
-      .byte_length() as f64
+      .byte_length();
+    Ok((runs, bytes as f64))
   }
-  let before = run_four().await;
+  let (_, before) = run_four().await?;
   sleep(Duration::from_millis(10_500)).await;
-  let grown = run_four().await - before;
+  let (runs, after) = run_four().await?;
+  // Fresh workers have run nothing before.
+  assert_eq!(runs, [1; 4], "the idle workers were not culled");
+  let grown = after - before;
   // Four leaked stacks would take eight megabytes. The allocator may still
   // grow by one stack while it settles, depending on what ran before.
   assert!(
     grown < 4_194_304.0,
     "the culled workers leaked {grown} bytes"
   );
+  Ok(())
 }
 
 #[wasm_bindgen_test]

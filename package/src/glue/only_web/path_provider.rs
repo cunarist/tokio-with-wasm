@@ -3,14 +3,14 @@
 //! that determines the path to the JavaScript glue code that each
 //! web worker loads in WebAssembly multi-threading.
 
-use std::cell::RefCell;
+use std::cell::Cell;
 
 use js_sys::JsString;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 thread_local! {
-    pub(crate) static PATH_PROVIDER: RefCell<fn() -> Result<String, JsValue>> = RefCell::new(get_script_path);
+    pub(crate) static PATH_PROVIDER: Cell<fn() -> Result<String, JsValue>> = Cell::new(get_script_path);
 }
 
 #[wasm_bindgen]
@@ -35,35 +35,20 @@ extern "C" {
 ///
 /// set_path_provider(|| Ok(String::from("/custom/path/to/glue.js")));
 /// ```
-#[inline(always)]
 pub fn set_path_provider(provider: fn() -> Result<String, JsValue>) {
-  PATH_PROVIDER.with(|p| {
-    *p.borrow_mut() = provider;
-  });
+  PATH_PROVIDER.set(provider);
 }
 
 /// Determines the path to the JavaScript glue code by reading its
-/// `import.meta.url`.
+/// `import.meta.url`, which needs neither `unsafe-eval` nor stack traces.
 ///
-/// The read is compiled into the glue code, so the URL is the glue code's
-/// own. Nothing is evaluated as a string and no stack trace is parsed along
-/// the way, so this works under a content security policy that doesn't
-/// allow `unsafe-eval` and doesn't depend on the shape of stack traces.
-///
-/// `import.meta` only exists in ES modules, which is what `wasm-bindgen`
-/// emits for the `web` target. Pass the path in with [`set_path_provider`]
-/// if your glue code is bundled in a way that rewrites `import.meta.url`.
+/// Pass the path in with [`set_path_provider`]
+/// if your bundler rewrites `import.meta.url`.
 pub fn get_script_path() -> Result<String, JsValue> {
-  IMPORT_META_URL
-    .with(|url| url.as_string())
-    .ok_or_else(|| detection_failure("`import.meta.url` carried no string"))
-}
-
-/// Explains that the path could not be detected, and how to move on.
-fn detection_failure(reason: &str) -> JsValue {
-  JsValue::from_str(&format!(
-    "Could not detect the path of the JavaScript glue code, \
-     because {reason}. Provide the path with \
-     `tokio_with_wasm::only_web::set_path_provider`."
-  ))
+  IMPORT_META_URL.with(|url| url.as_string()).ok_or_else(|| {
+    JsValue::from_str(
+      "`import.meta.url` of the JavaScript glue code is not a string. \
+       Provide the path with `tokio_with_wasm::only_web::set_path_provider`.",
+    )
+  })
 }
