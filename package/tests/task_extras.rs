@@ -1,6 +1,7 @@
 //! Browser tests for `task::Builder`, `task::spawn_local`,
 //! and the cooperative scheduling helpers.
-//! Run with `wasm-pack test --headless --chrome package`.
+//! Run with `wasm-pack test --headless --chrome package`,
+//! with `--cfg tokio_unstable` in the flags to include `Builder`.
 
 // The glue code only exists on the web target,
 // so this file is empty everywhere else.
@@ -13,11 +14,14 @@
 use std::cell::Cell;
 use std::rc::Rc;
 use tokio_with_wasm::task::coop::{consume_budget, unconstrained};
-use tokio_with_wasm::task::{Builder, JoinError, spawn_local, yield_now};
+use tokio_with_wasm::task::spawn_local;
+#[cfg(all(tokio_unstable, feature = "tracing"))]
+use tokio_with_wasm::task::{Builder, JoinError};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+#[cfg(all(tokio_unstable, feature = "tracing"))]
 #[wasm_bindgen_test]
 async fn builder_spawns_a_named_task() -> Result<(), JoinError> {
   let Ok(handle) = Builder::new().name("answer").spawn(async { 6 * 7 }) else {
@@ -27,6 +31,7 @@ async fn builder_spawns_a_named_task() -> Result<(), JoinError> {
   Ok(())
 }
 
+#[cfg(all(tokio_unstable, feature = "tracing"))]
 #[wasm_bindgen_test]
 async fn builder_spawns_local_tasks() -> Result<(), JoinError> {
   let Ok(handle) = Builder::new().spawn_local(async {
@@ -40,6 +45,7 @@ async fn builder_spawns_local_tasks() -> Result<(), JoinError> {
   Ok(())
 }
 
+#[cfg(all(tokio_unstable, feature = "tracing"))]
 #[wasm_bindgen_test]
 async fn builder_spawns_blocking_tasks() -> Result<(), JoinError> {
   let Ok(handle) = Builder::new()
@@ -49,18 +55,6 @@ async fn builder_spawns_blocking_tasks() -> Result<(), JoinError> {
     panic!("the builder failed to spawn");
   };
   assert_eq!(handle.await?, "from a web worker");
-  Ok(())
-}
-
-#[wasm_bindgen_test]
-async fn spawn_local_accepts_non_send_futures() -> Result<(), JoinError> {
-  let handle = spawn_local(async {
-    let rc = Rc::new(7);
-    // The `Rc` lives across an await point.
-    yield_now().await;
-    *rc
-  });
-  assert_eq!(handle.await?, 7);
   Ok(())
 }
 

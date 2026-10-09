@@ -1,12 +1,10 @@
 #![allow(dead_code, unused_imports)]
 
-mod completion_queue;
 mod once_channel;
 #[cfg(test)]
 pub(crate) mod test_util;
 mod thread_check;
 
-pub use completion_queue::*;
 pub use once_channel::*;
 pub use thread_check::*;
 

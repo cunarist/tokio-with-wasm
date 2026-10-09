@@ -15,7 +15,7 @@ all-features = true
 [features]
 # https://github.com/tokio-rs/tokio/blob/master/tokio/Cargo.toml
 default = []
-full = ["fs", "io-util", "macros", "sync", "time", "rt", "rt-multi-thread"]
+full = ["fs", "io-util", "macros", "sync", "time", "rt", "rt-multi-thread", "join-map"]
 # `io-util`, `macros`, `sync`, and `rt` forward to `tokio`, because the
 # glue code re-exports those parts of `tokio` even on the web
 # (`rt` only for the runtime-independent `task_local!` machinery).
@@ -38,8 +38,15 @@ fs = [
   "web-sys/FileSystemWritableFileStream",
 ]
 time = []
-rt = ["tokio/rt", "dep:hashbrown"]
+rt = ["tokio/rt"]
 rt-multi-thread = ["rt"]
+# Like in `tokio`, `task::Builder` also needs `--cfg tokio_unstable`.
+tracing = []
+# `tokio-util`'s `JoinMap`, which lives in `task` here.
+join-map = ["rt", "dep:hashbrown"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tokio_unstable)"] }
 
 [lints.clippy]
 unwrap_used = "deny"
@@ -72,6 +79,6 @@ hashbrown = { version = "0.16", default-features = false, optional = true }
 
 [dev-dependencies]
 # The crate itself, so that the integration tests get its features.
-tokio_with_wasm = { path = ".", features = ["full"] }
+tokio_with_wasm = { path = ".", features = ["full", "tracing"] }
 wasm-bindgen-test = "0.3"
 js-sys = "0.3.73"

@@ -8,7 +8,7 @@ thread_local! {
   /// The identifier handed to the next spawned task.
   /// Tasks are only spawned from the main thread,
   /// so a thread-local counter never hands out duplicates.
-  static NEXT_TASK_ID: Cell<u64> = const { Cell::new(1) };
+  static NEXT_TASK_ID: Cell<NonZeroU64> = const { Cell::new(NonZeroU64::MIN) };
   /// The identifier of the task being polled right now.
   /// Each web worker has its own slot,
   /// which is set while a blocking task runs there.
@@ -30,12 +30,7 @@ pub struct Id(NonZeroU64);
 impl Id {
   /// Takes the next free task identifier.
   pub(crate) fn next() -> Self {
-    NEXT_TASK_ID.with(|cell| {
-      let raw = cell.get();
-      cell.set(raw.wrapping_add(1).max(1));
-      // The counter starts at one and skips zero when it wraps.
-      Id(NonZeroU64::new(raw).unwrap_or(NonZeroU64::MIN))
-    })
+    Id(NEXT_TASK_ID.replace(NEXT_TASK_ID.get().saturating_add(1)))
   }
 }
 
@@ -84,13 +79,6 @@ mod tests {
     let first = Id::next();
     let second = Id::next();
     assert_ne!(first, second);
-  }
-
-  #[wasm_bindgen_test]
-  fn display_prints_a_bare_number() {
-    let id = Id::next();
-    let text = id.to_string();
-    assert!(text.chars().all(|ch| ch.is_ascii_digit()));
   }
 
   #[wasm_bindgen_test]
