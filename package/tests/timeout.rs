@@ -62,18 +62,11 @@ async fn the_inner_future_can_be_taken_back_out() {
   assert_eq!(inner.await, 7);
 }
 
-/// The error type lives at `time::error::Elapsed`, like in `tokio`.
-/// The old `time::Elapsed` re-export stays for compatibility.
 #[wasm_bindgen_test]
-async fn the_error_paths_point_at_the_same_type() {
+async fn elapsed_converts_into_a_timed_out_io_error() {
   let output =
     timeout(Duration::from_millis(50), sleep(Duration::from_secs(10))).await;
-  let Err(error) = output else {
-    panic!("the slow future was not cut off");
-  };
-  let at_error_path: tokio_with_wasm::time::error::Elapsed = error;
-  let at_old_path: tokio_with_wasm::time::Elapsed = at_error_path;
-  // The error converts into a timed-out IO error.
-  let io_error: std::io::Error = at_old_path.into();
-  assert_eq!(io_error.kind(), std::io::ErrorKind::TimedOut);
+  assert!(output.is_err_and(|error| {
+    std::io::Error::from(error).kind() == std::io::ErrorKind::TimedOut
+  }));
 }

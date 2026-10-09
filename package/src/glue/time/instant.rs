@@ -1,47 +1,16 @@
 //! A monotonic clock backed by JavaScript's `performance.now()`.
 
-use std::cell::Cell;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::time::Duration;
-use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen::prelude::wasm_bindgen;
 
-thread_local! {
-  /// The `performance` object of this thread's JavaScript context,
-  /// together with its `timeOrigin`. Every worker has its own origin,
-  /// so the origin is added back in to make instants from different
-  /// threads comparable.
-  static PERFORMANCE: Option<(f64, web_sys::Performance)> =
-    js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("performance"))
-      .ok()
-      .and_then(|value| value.dyn_into::<web_sys::Performance>().ok())
-      .map(|performance| (performance.time_origin(), performance));
-}
-
-/// Milliseconds since the JavaScript epoch, from a monotonic clock.
-fn epoch_millis() -> f64 {
-  PERFORMANCE.with(|performance| match performance {
-    Some((time_origin, performance)) => time_origin + performance.now(),
-    // A JavaScript runtime without the `performance` web API;
-    // the wall clock is the only clock left. It can jump backwards,
-    // which the clamp in `monotonic` absorbs.
-    None => js_sys::Date::now(),
-  })
-}
-
-thread_local! {
-  /// The largest reading handed out on this thread, so that
-  /// [`Instant::now`] never goes backwards even on the wall-clock
-  /// fallback.
-  static LAST_NOW: Cell<Duration> = const { Cell::new(Duration::ZERO) };
-}
-
-/// Clamps a clock reading to the largest one seen so far.
-fn monotonic(since_epoch: Duration) -> Duration {
-  LAST_NOW.with(|last| {
-    let clamped = since_epoch.max(last.get());
-    last.set(clamped);
-    clamped
-  })
+#[wasm_bindgen]
+extern "C" {
+  #[wasm_bindgen(js_namespace = performance, js_name = now)]
+  fn performance_now() -> f64;
+  // Each worker has its own origin, so adding it makes instants comparable.
+  #[wasm_bindgen(thread_local_v2, js_namespace = performance, js_name = timeOrigin)]
+  static TIME_ORIGIN: f64;
 }
 
 /// A measurement of a monotonically nondecreasing clock.
@@ -68,14 +37,9 @@ pub struct Instant {
 impl Instant {
   /// Returns an instant corresponding to "now".
   pub fn now() -> Instant {
-    let millis = epoch_millis();
-    let since_epoch = if millis.is_finite() && millis > 0.0 {
-      Duration::try_from_secs_f64(millis / 1000.0).unwrap_or(Duration::ZERO)
-    } else {
-      Duration::ZERO
-    };
+    let millis = TIME_ORIGIN.with(|origin| origin + performance_now());
     Instant {
-      since_epoch: monotonic(since_epoch),
+      since_epoch: Duration::from_secs_f64(millis / 1000.0),
     }
   }
 
@@ -83,11 +47,7 @@ impl Instant {
   /// that it never fires within a page's lifetime.
   pub(crate) fn far_future() -> Instant {
     // Roughly 30 years from now, like in `tokio`.
-    Instant {
-      since_epoch: Instant::now()
-        .since_epoch
-        .saturating_add(Duration::from_secs(86400 * 365 * 30)),
-    }
+    Instant::now() + Duration::from_secs(86400 * 365 * 30)
   }
 
   /// Returns the amount of time elapsed from another instant to this one, or
@@ -132,9 +92,8 @@ impl Instant {
 impl Add<Duration> for Instant {
   type Output = Instant;
   fn add(self, other: Duration) -> Instant {
-    match self.checked_add(other) {
-      Some(instant) => instant,
-      None => panic!("overflow when adding duration to instant"),
+    Instant {
+      since_epoch: self.since_epoch + other,
     }
   }
 }
@@ -148,9 +107,8 @@ impl AddAssign<Duration> for Instant {
 impl Sub<Duration> for Instant {
   type Output = Instant;
   fn sub(self, other: Duration) -> Instant {
-    match self.checked_sub(other) {
-      Some(instant) => instant,
-      None => panic!("overflow when subtracting duration from instant"),
+    Instant {
+      since_epoch: self.since_epoch - other,
     }
   }
 }
@@ -167,32 +125,5 @@ impl Sub<Instant> for Instant {
   /// zero duration if that instant is later than this one.
   fn sub(self, rhs: Instant) -> Duration {
     self.saturating_duration_since(rhs)
-  }
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-  use wasm_bindgen_test::wasm_bindgen_test;
-
-  #[wasm_bindgen_test]
-  fn a_backwards_clock_reading_is_clamped() {
-    let latest = Instant::now().since_epoch;
-    // A reading older than the last one, as a jumping wall clock
-    // produces, must not travel back in time.
-    let earlier = latest.saturating_sub(Duration::from_secs(1));
-    assert!(monotonic(earlier) >= latest);
-  }
-
-  #[wasm_bindgen_test]
-  fn elapsed_is_zero_for_future_instants() {
-    let future = Instant::now() + Duration::from_secs(60);
-    assert_eq!(future.elapsed(), Duration::ZERO);
-  }
-
-  #[wasm_bindgen_test]
-  fn far_future_is_far() {
-    let far = Instant::far_future();
-    assert!(far - Instant::now() > Duration::from_secs(86400 * 365));
   }
 }

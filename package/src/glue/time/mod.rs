@@ -2,78 +2,27 @@
 //!
 //! This module provides a number of types for executing code after a set period
 //! of time.
-//!
-//! [`Instant`] is backed by JavaScript's `performance.now()`, because the
-//! standard library cannot read a clock on `wasm32-unknown-unknown`. It is a
-//! separate type from `std::time::Instant`, so `Instant::from_std` and
-//! `Instant::into_std` have no counterpart here.
 
 pub mod error;
 mod instant;
 mod interval;
 
-use crate::{LogError, set_timeout};
-use js_sys::Promise;
+use crate::Timer;
+use error::Elapsed;
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::task::{Context, Poll, ready};
-use wasm_bindgen::prelude::{JsValue, wasm_bindgen};
-use wasm_bindgen_futures::JsFuture;
 
 // Re-exported to match `tokio::time`, where `Duration` is available too.
 pub use std::time::Duration;
 
-pub use error::Elapsed;
 pub use instant::Instant;
 pub use interval::{Interval, MissedTickBehavior, interval, interval_at};
 
 /// Web timers cut off at this many milliseconds: JavaScript stores the
 /// delay of `setTimeout` in a 32-bit integer, and a longer delay fires
-/// immediately instead of far in the future. Longer waits chain timers.
-#[cfg(not(test))]
-const MAX_TIMER_MILLIS: f64 = 2_147_483_647.0;
-/// Tests shrink the timer cap to two ticks of a JavaScript clock,
-/// so that the timer-chaining branch runs in CI instead of needing
-/// a 25-day sleep.
-#[cfg(test)]
-const MAX_TIMER_MILLIS: f64 = 50.0;
-
-#[wasm_bindgen]
-extern "C" {
-  #[wasm_bindgen(js_namespace = globalThis, js_name = clearTimeout)]
-  fn clear_timeout(id: &JsValue);
-}
-
-/// One JavaScript timer, cleared when dropped so that it does not outlive
-/// the sleep that set it.
-struct Timer {
-  id: JsValue,
-  fired: JsFuture,
-}
-
-impl Timer {
-  fn new(duration: Duration) -> Timer {
-    // Rounded up, so that the timer never fires before the deadline
-    // and forces an extra timer round for well-known durations.
-    let milliseconds = (duration.as_secs_f64() * 1000.0)
-      .ceil()
-      .min(MAX_TIMER_MILLIS);
-    let mut id = JsValue::UNDEFINED;
-    let promise = Promise::new(&mut |resolve, _reject| {
-      id = set_timeout(&resolve, milliseconds);
-    });
-    Timer {
-      id,
-      fired: JsFuture::from(promise),
-    }
-  }
-}
-
-impl Drop for Timer {
-  fn drop(&mut self) {
-    clear_timeout(&self.id);
-  }
-}
+/// immediately. Longer waits chain timers, which tests do with a small cap.
+const MAX_TIMER_MILLIS: f64 = if cfg!(test) { 50.0 } else { 2_147_483_647.0 };
 
 /// Waits until `duration` has elapsed.
 ///
@@ -82,11 +31,11 @@ impl Drop for Timer {
 /// timers offer, and should not be used for tasks that require
 /// higher-resolution timing.
 pub fn sleep(duration: Duration) -> Sleep {
-  let deadline = match Instant::now().checked_add(duration) {
-    Some(deadline) => deadline,
-    None => Instant::far_future(),
-  };
-  sleep_until(deadline)
+  sleep_until(
+    Instant::now()
+      .checked_add(duration)
+      .unwrap_or_else(Instant::far_future),
+  )
 }
 
 /// Waits until `deadline` is reached.
@@ -135,9 +84,11 @@ impl Sleep {
     // `Sleep` is `Unpin`, so the pinned reference can be unwrapped.
     let this = self.get_mut();
     this.deadline = deadline;
-    // The running timer aims at the old deadline, so it is discarded.
-    // The next poll starts a new one.
-    this.timer = None;
+    // Firing the old timer early makes the waiting task poll and set a new one.
+    let timer = this.timer.take();
+    if let Some(waker) = timer.and_then(|timer| timer.waker.take()) {
+      waker.wake();
+    }
   }
 }
 
@@ -151,9 +102,12 @@ impl Future for Sleep {
         this.timer = None;
         return Poll::Ready(());
       }
-      let remaining = this.deadline.saturating_duration_since(now);
-      let timer = this.timer.get_or_insert_with(|| Timer::new(remaining));
-      ready!(Pin::new(&mut timer.fired).poll(cx)).log_error("TIME_FUTURE");
+      // Rounded up, so that the timer never fires before the deadline.
+      let millis = ((this.deadline - now).as_secs_f64() * 1000.0).ceil();
+      let timer = this
+        .timer
+        .get_or_insert_with(|| Timer::new(millis.min(MAX_TIMER_MILLIS)));
+      ready!(Pin::new(timer).poll(cx));
       // The timer fired, but web timers only count whole milliseconds
       // and cap out at 32 bits, so the deadline check above decides
       // whether to complete or to arm the next timer.
@@ -232,21 +186,17 @@ impl<F: Future> Future for Timeout<F> {
   type Output = Result<F::Output, Elapsed>;
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     // Safety: `value` is never moved out of the pinned struct.
-    let (value, delay) = unsafe {
-      let this = self.get_unchecked_mut();
-      (Pin::new_unchecked(&mut this.value), &mut this.delay)
-    };
-    // `delay` needs no such promise, because `Sleep` is `Unpin`.
-    let delay = Pin::new(delay);
-    // Poll the future first. If it's ready, return the output
-    // even when the deadline has passed, like in `tokio`.
-    match value.poll(cx) {
-      Poll::Ready(output) => Poll::Ready(Ok(output)),
-      Poll::Pending => match delay.poll(cx) {
-        Poll::Ready(()) => Poll::Ready(Err(Elapsed::new())),
-        Poll::Pending => Poll::Pending,
-      },
+    let this = unsafe { self.get_unchecked_mut() };
+    // The future goes first, so that its output wins over the deadline,
+    // like in `tokio`.
+    if let Poll::Ready(output) =
+      unsafe { Pin::new_unchecked(&mut this.value) }.poll(cx)
+    {
+      return Poll::Ready(Ok(output));
     }
+    Pin::new(&mut this.delay)
+      .poll(cx)
+      .map(|()| Err(Elapsed::new()))
   }
 }
 

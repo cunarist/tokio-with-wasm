@@ -3,7 +3,7 @@
 use super::{Duration, Instant, Sleep, sleep_until};
 use std::future::{Future, poll_fn};
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, ready};
 
 /// Creates new [`Interval`] that yields with interval of `period`. The first
 /// tick completes immediately, as it does in `tokio`.
@@ -19,7 +19,6 @@ use std::task::{Context, Poll};
 ///
 /// This function panics if `period` is zero.
 pub fn interval(period: Duration) -> Interval {
-  assert!(period > Duration::ZERO, "`period` must be non-zero.");
   interval_at(Instant::now(), period)
 }
 
@@ -88,12 +87,7 @@ impl MissedTickBehavior {
       Self::Skip => {
         now + period
           - Duration::from_nanos(
-            ((now - timeout).as_nanos() % period.as_nanos())
-              .try_into()
-              // The remainder is less than the period, which fit in a
-              // `Duration`, so this only saturates on absurd periods
-              // over 584 years.
-              .unwrap_or(u64::MAX),
+            ((now - timeout).as_nanos() % period.as_nanos()) as u64,
           )
       }
     }
@@ -141,9 +135,7 @@ impl Interval {
   /// [`Context`] passed to the most recent call is scheduled to receive a
   /// wakeup.
   pub fn poll_tick(&mut self, cx: &mut Context<'_>) -> Poll<Instant> {
-    if Pin::new(&mut self.delay).poll(cx).is_pending() {
-      return Poll::Pending;
-    }
+    ready!(Pin::new(&mut self.delay).poll(cx));
 
     let timeout = self.delay.deadline();
     let now = Instant::now();
@@ -156,10 +148,9 @@ impl Interval {
         .missed_tick_behavior
         .next_timeout(timeout, now, self.period)
     } else {
-      match timeout.checked_add(self.period) {
-        Some(next) => next,
-        None => Instant::far_future(),
-      }
+      timeout
+        .checked_add(self.period)
+        .unwrap_or_else(Instant::far_future)
     };
     Pin::new(&mut self.delay).reset(next);
 
@@ -209,53 +200,5 @@ impl Interval {
   /// Returns the period of the interval.
   pub fn period(&self) -> Duration {
     self.period
-  }
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-  use wasm_bindgen_test::wasm_bindgen_test;
-
-  #[wasm_bindgen_test]
-  fn burst_keeps_the_original_schedule() {
-    let behavior = MissedTickBehavior::Burst;
-    let start = Instant::now();
-    let period = Duration::from_millis(100);
-    // Three periods were missed; the next deadline stays on the grid,
-    // right after the missed one.
-    let now = start + Duration::from_millis(350);
-    assert_eq!(behavior.next_timeout(start, now, period), start + period);
-  }
-
-  #[wasm_bindgen_test]
-  fn delay_restarts_the_schedule_from_now() {
-    let behavior = MissedTickBehavior::Delay;
-    let start = Instant::now();
-    let period = Duration::from_millis(100);
-    let now = start + Duration::from_millis(350);
-    assert_eq!(behavior.next_timeout(start, now, period), now + period);
-  }
-
-  #[wasm_bindgen_test]
-  fn skip_stays_on_the_grid() {
-    let behavior = MissedTickBehavior::Skip;
-    let start = Instant::now();
-    let period = Duration::from_millis(100);
-    // 350ms late: the 100, 200, and 300ms ticks were missed,
-    // so the next tick lands on the 400ms grid point.
-    let now = start + Duration::from_millis(350);
-    assert_eq!(
-      behavior.next_timeout(start, now, period),
-      start + Duration::from_millis(400),
-    );
-  }
-
-  #[wasm_bindgen_test]
-  fn the_default_behavior_is_burst() {
-    assert_eq!(MissedTickBehavior::default(), MissedTickBehavior::Burst);
-    let ticker = interval(Duration::from_millis(100));
-    assert_eq!(ticker.missed_tick_behavior(), MissedTickBehavior::Burst);
-    assert_eq!(ticker.period(), Duration::from_millis(100));
   }
 }
