@@ -12,6 +12,7 @@ async fn join_next_returns_every_output() -> Result<(), JoinError> {
     set.spawn(async move { i });
   }
   assert_eq!(set.len(), 10);
+  assert!(!set.is_empty());
 
   let mut seen = [false; 10];
   while let Some(result) = set.join_next().await {

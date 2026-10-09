@@ -12,6 +12,7 @@ async fn join_next_returns_every_key_and_output() -> Result<(), JoinError> {
     map.spawn(i, async move { i * 2 });
   }
   assert_eq!(map.len(), 10);
+  assert!(!map.is_empty());
 
   let mut seen = [false; 10];
   while let Some((key, result)) = map.join_next().await {

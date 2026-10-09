@@ -51,9 +51,10 @@ async fn abort_cancels_a_pending_task() {
 #[wasm_bindgen_test]
 async fn abort_after_completion_keeps_the_output() -> Result<(), JoinError> {
   let handle = spawn(async { 7 });
-  assert!(!handle.is_finished());
+  let abort_handle = handle.abort_handle();
+  assert!(!abort_handle.is_finished());
   sleep(Duration::from_millis(50)).await;
-  assert!(handle.is_finished());
+  assert!(abort_handle.is_finished());
   handle.abort();
   handle.abort(); // A second abort must be harmless too.
   assert_eq!(handle.await?, 7);

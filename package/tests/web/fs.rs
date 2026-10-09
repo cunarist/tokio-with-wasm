@@ -11,7 +11,7 @@ use tokio_with_wasm::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio_with_wasm::time::{Duration, sleep};
 use wasm_bindgen_test::wasm_bindgen_test;
 
-/// Hands back an empty directory, so leftovers fail here and not later.
+/// Hands back an empty directory, clearing what an earlier run left.
 async fn scratch(name: &str) -> Result<PathBuf> {
   match fs::remove_dir_all(name).await {
     Err(error) if error.kind() != ErrorKind::NotFound => return Err(error),
@@ -330,7 +330,7 @@ async fn seeks_from_every_side() -> Result<()> {
 
 #[wasm_bindgen_test]
 async fn seeking_before_the_start_fails_and_is_over() -> Result<()> {
-  let directory = scratch("seek_failed_from_end").await?;
+  let directory = scratch("seek_before_start").await?;
   let path = directory.join("short.txt");
   fs::write(&path, b"ab").await?;
 
