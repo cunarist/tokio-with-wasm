@@ -182,7 +182,7 @@ impl WorkerPool {
   ///
   /// Currently this `WorkerPool` abstraction is intended to execute one-off
   /// style work where the work itself doesn't send any notifications and
-  /// whatn it's done the worker is ready to execute more work. This method is
+  /// when it's done the worker is ready to execute more work. This method is
   /// used for all spawned workers to ensure that when the work is finished
   /// the worker is reclaimed back into this pool.
   fn reclaim_on_message(&self, worker: Worker, on_failure: OnFailure) {
