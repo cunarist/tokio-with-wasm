@@ -49,3 +49,33 @@ async fn sleeps_complete_in_deadline_order() {
   }
   assert_eq!(*order.borrow(), [10, 20, 30]);
 }
+
+#[wasm_bindgen_test]
+async fn sub_ms_delayed_sleep() {
+  for _ in 0..5 {
+    let now = js_sys::Date::now();
+    time::sleep(Duration::from_millis(1) + Duration::from_nanos(1)).await;
+    assert_elapsed(now, 1);
+  }
+}
+
+#[wasm_bindgen_test]
+async fn delayed_sleep_wrapping_level_0() {
+  time::sleep(Duration::from_millis(5)).await;
+  let now = js_sys::Date::now();
+  time::sleep(Duration::from_millis(60)).await;
+  assert_elapsed(now, 60);
+}
+
+#[wasm_bindgen_test]
+async fn sleeps_run_concurrently() {
+  let now = js_sys::Date::now();
+  let handles: Vec<_> = (0..10)
+    .map(|_| tokio::spawn(time::sleep(Duration::from_millis(100))))
+    .collect();
+  for handle in handles {
+    handle.await.unwrap();
+  }
+  assert_elapsed(now, 100);
+  assert!(js_sys::Date::now() - now < 1000.0);
+}
