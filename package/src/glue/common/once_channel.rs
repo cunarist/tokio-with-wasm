@@ -82,3 +82,41 @@ impl<T> Future for OnceReceiver<T> {
     Poll::Pending
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::glue::common::tests::counting_waker;
+  use wasm_bindgen_test::wasm_bindgen_test;
+
+  #[wasm_bindgen_test]
+  fn delivers_sent_value() {
+    let (tx, mut rx) = once_channel();
+    assert!(!rx.is_done());
+    tx.send(1);
+    assert!(rx.is_done());
+    let mut cx = Context::from_waker(Waker::noop());
+    assert_eq!(Pin::new(&mut rx).poll(&mut cx), Poll::Ready(1));
+  }
+
+  #[wasm_bindgen_test]
+  fn send_wakes_receiver() {
+    let (tx, mut rx) = once_channel();
+    let (waker, count) = counting_waker();
+    let mut cx = Context::from_waker(&waker);
+    assert!(Pin::new(&mut rx).poll(&mut cx).is_pending());
+    tx.send(1);
+    assert_eq!(count.get(), 1);
+    assert_eq!(Pin::new(&mut rx).poll(&mut cx), Poll::Ready(1));
+  }
+
+  #[wasm_bindgen_test]
+  fn cloned_sender_delivers() {
+    let (tx, mut rx) = once_channel();
+    let tx2 = tx.clone();
+    drop(tx);
+    tx2.send(2);
+    let mut cx = Context::from_waker(Waker::noop());
+    assert_eq!(Pin::new(&mut rx).poll(&mut cx), Poll::Ready(2));
+  }
+}

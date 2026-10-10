@@ -37,3 +37,7 @@ web-sys = { version = "0.3.70", features = [
     "BlobPropertyBag",
     'Url',
 ] }
+
+[dev-dependencies]
+tokio_with_wasm = { path = ".", features = ["full"] }
+wasm-bindgen-test = "0.3"
