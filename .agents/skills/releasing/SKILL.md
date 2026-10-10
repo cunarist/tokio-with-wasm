@@ -11,9 +11,9 @@ Ask the maintainer before any step that publishes.
 2. Create the release page, which also pushes the tag:
 
    ```sh
-   gh release create v0.9.1 --target main --generate-notes --latest
+   gh release create vX.Y.Z --target main --generate-notes --latest
    ```
 
-3. Watch the `Publish` workflow, which publishes the proc macro crate first.
+3. Watch the `Publish` workflow, which publishes the proc macro crate first. If only the main crate failed, publish it by hand, as a re-run fails on the proc macro crate.
 
 Never push a bare `v*` tag: the release page is where users read what changed.
