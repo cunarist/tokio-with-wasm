@@ -61,3 +61,79 @@ async fn test_abort_wakes_task_3964() {
   tokio::time::sleep(Duration::from_millis(10)).await;
   assert!(weak_notify_dropped.upgrade().is_none());
 }
+
+#[wasm_bindgen_test]
+async fn remote_abort_local_3929() {
+  struct DropCheck(std::thread::ThreadId, std::marker::PhantomData<*const ()>);
+
+  impl Drop for DropCheck {
+    fn drop(&mut self) {
+      assert_eq!(std::thread::current().id(), self.0);
+    }
+  }
+
+  let check = DropCheck(std::thread::current().id(), std::marker::PhantomData);
+  let handle = tokio::spawn(async move {
+    std::future::pending::<()>().await;
+    drop(check);
+  });
+
+  let abort = handle.abort_handle();
+  tokio::task::spawn_blocking(move || abort.abort())
+    .await
+    .unwrap();
+  assert!(handle.await.unwrap_err().is_cancelled());
+}
+
+#[wasm_bindgen_test]
+async fn abort_handle_cancels_task() {
+  let handle = tokio::spawn(std::future::pending::<()>());
+  let abort = handle.abort_handle();
+  abort.clone().abort();
+  abort.abort();
+  assert!(handle.await.unwrap_err().is_cancelled());
+}
+
+#[wasm_bindgen_test]
+async fn abort_after_finish_keeps_output() {
+  let handle = tokio::spawn(async { 7 });
+  tokio::time::sleep(Duration::from_millis(10)).await;
+  assert!(handle.is_finished());
+  handle.abort();
+  assert_eq!(handle.await.unwrap(), 7);
+}
+
+#[wasm_bindgen_test]
+async fn dropping_handle_does_not_abort() {
+  let (tx, rx) = tokio::sync::oneshot::channel();
+  drop(tokio::spawn(async move {
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    tx.send(()).unwrap();
+  }));
+  rx.await.unwrap();
+}
+
+#[wasm_bindgen_test]
+async fn abort_blocking_before_start() {
+  let ran = Arc::new(AtomicBool::new(false));
+  let ran2 = ran.clone();
+  let handle =
+    tokio::task::spawn_blocking(move || ran2.store(true, Ordering::SeqCst));
+  handle.abort();
+  // An idle worker may pick the task up before `abort` runs.
+  let result = handle.await;
+  assert_eq!(ran.load(Ordering::SeqCst), result.is_ok());
+}
+
+#[wasm_bindgen_test]
+async fn abort_blocking_after_start_has_no_effect() {
+  let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+  let handle = tokio::task::spawn_blocking(move || {
+    started_tx.send(()).unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    5
+  });
+  started_rx.await.unwrap();
+  handle.abort_handle().abort();
+  assert_eq!(handle.await.unwrap(), 5);
+}
