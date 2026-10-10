@@ -75,7 +75,6 @@ impl WorkerPool {
   /// Returns any error that may happen while a JS web worker is created and a
   /// message is sent to it.
   fn create_worker(&self) -> Result<Worker, JsValue> {
-    *self.pool_state.total_workers_count.borrow_mut() += 1;
     let script = format!(
       "
       import init, * as wasmBindings from '{}';
@@ -116,18 +115,22 @@ impl WorkerPool {
       &blob_property_bag,
     )?;
     let url = Url::create_object_url_with_blob(&blob)?;
-    let options = WorkerOptions::new();
-    options.set_type(WorkerType::Module);
-    let worker = Worker::new_with_options(&url, &options)?;
-
-    // With a worker spun up send it the module/memory so it can start
+    // The worker gets the module/memory first so it can start
     // instantiating the wasm module. Later it might receive further
     // messages about code to run on the wasm module.
     let worker_init = Object::new();
     Reflect::set(&worker_init, &JsString::from("module_or_path"), &module())?;
     Reflect::set(&worker_init, &JsString::from("memory"), &memory())?;
-    worker.post_message(&worker_init)?;
+    let options = WorkerOptions::new();
+    options.set_type(WorkerType::Module);
+    let worker = Worker::new_with_options(&url, &options)?;
+    if let Err(error) = worker.post_message(&worker_init) {
+      worker.terminate();
+      return Err(error);
+    }
 
+    // Only a worker that exists takes up a slot.
+    *self.pool_state.total_workers_count.borrow_mut() += 1;
     Ok(worker)
   }
 
@@ -170,6 +173,9 @@ impl WorkerPool {
         unsafe {
           drop(Box::from_raw(ptr));
         }
+        // The worker cannot be trusted with another task.
+        worker.terminate();
+        *self.pool_state.total_workers_count.borrow_mut() -= 1;
         Err(error)
       }
     }
@@ -234,14 +240,15 @@ impl WorkerPool {
   /// by this `WorkerPool`. This method provides no method of learning when
   /// `f` completes, and for that you'll need to use `run_notify`.
   ///
-  /// # Errors
-  ///
-  /// If an error happens while spawning a web worker or sending a message to
-  /// a web worker, that error is returned.
-  fn run(&self, task: Task, on_failure: OnFailure) -> Result<(), JsValue> {
-    let worker = self.execute(task)?;
-    self.reclaim_on_message(worker, on_failure);
-    Ok(())
+  /// If the task cannot be handed to a web worker, `on_failure` is called.
+  fn run(&self, task: Task, on_failure: OnFailure) {
+    match self.execute(task) {
+      Ok(worker) => self.reclaim_on_message(worker, on_failure),
+      Err(error) => {
+        error.log_error("RUN_TASK");
+        on_failure();
+      }
+    }
   }
 
   pub fn remove_inactive_workers(&self) {
@@ -266,7 +273,7 @@ impl WorkerPool {
         Some(inner) => inner,
         None => break,
       };
-      self.run(task, on_failure).log_error("FLUSH_QUEUED_TASKS");
+      self.run(task, on_failure);
     }
   }
 
