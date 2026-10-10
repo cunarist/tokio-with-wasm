@@ -15,6 +15,8 @@ mod sync_mpsc;
 mod sync_mpsc_weak;
 mod sync_oneshot;
 mod sync_rwlock;
+mod sync_semaphore;
+mod sync_semaphore_owned;
 mod sync_watch;
 mod task_abort;
 mod task_blocking;
