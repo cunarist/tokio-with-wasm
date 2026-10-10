@@ -10,6 +10,8 @@ mod macros_try_join;
 mod rt_common;
 mod sync_broadcast;
 mod sync_mpsc;
+mod sync_mutex;
+mod sync_mutex_owned;
 mod sync_oneshot;
 mod sync_watch;
 mod task_abort;
