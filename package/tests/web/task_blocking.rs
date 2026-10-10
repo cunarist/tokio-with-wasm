@@ -110,3 +110,33 @@ async fn spawn_is_rejected_in_a_web_worker() {
   let joined = tokio::time::timeout(Duration::from_millis(500), spawned).await;
   assert!(!matches!(joined, Ok(Ok(()))));
 }
+
+#[wasm_bindgen_test]
+async fn culled_workers_free_their_memory() {
+  let memory_size = || {
+    let memory =
+      wasm_bindgen::memory().unchecked_into::<js_sys::WebAssembly::Memory>();
+    memory
+      .buffer()
+      .unchecked_into::<js_sys::SharedArrayBuffer>()
+      .byte_length()
+  };
+  let mut sizes = Vec::new();
+  for _ in 0..2 {
+    let barrier = Arc::new(Barrier::new(8));
+    let handles: Vec<_> = (0..8)
+      .map(|_| {
+        let barrier = barrier.clone();
+        task::spawn_blocking(move || drop(barrier.wait()))
+      })
+      .collect();
+    for handle in handles {
+      handle.await.unwrap();
+    }
+    // Idle workers are culled after 10 seconds.
+    tokio::time::sleep(Duration::from_secs(11)).await;
+    sizes.push(memory_size());
+  }
+  // Each leaked worker would hold a 2 MB stack.
+  assert!(sizes[1] - sizes[0] < 8 << 20, "{sizes:?}");
+}
