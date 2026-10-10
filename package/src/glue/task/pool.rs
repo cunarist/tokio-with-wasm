@@ -49,16 +49,8 @@ impl Default for WorkerPool {
 }
 
 impl WorkerPool {
-  /// Creates a new `WorkerPool` which immediately creates `initial` workers.
-  ///
-  /// The pool created here can be used over a long period of time, and it
-  /// will be initially primed with `initial` workers. Currently workers are
-  /// never released or gc'd until the whole pool is destroyed.
-  ///
-  /// # Errors
-  ///
-  /// Returns any error that may happen while a JS web worker is created and a
-  /// message is sent to it.
+  /// Creates an empty `WorkerPool`. Workers are created on demand,
+  /// and released after 10 seconds of idling.
   pub fn new() -> WorkerPool {
     WorkerPool::default()
   }
@@ -93,7 +85,13 @@ impl WorkerPool {
         self.onmessage = async event => {{
           // This will queue further commands up
           // until the module is fully initialised:
-          await initialised;
+          const wasm = await initialised;
+          if (event.data === null) {{
+            // Frees this thread's stack and TLS, so no wasm call may follow.
+            wasm.__wbindgen_thread_destroy();
+            close();
+            return;
+          }}
           wasmBindings.task_worker_entry_point(event.data);
         }};
       }};
@@ -235,7 +233,11 @@ impl WorkerPool {
       let passed_time = current_timestamp - deactivated_time;
       let is_active = passed_time < 10000.0; // 10 seconds
       if !is_active {
-        managed_worker.worker.terminate();
+        // Asks the worker to free its memory and close.
+        managed_worker
+          .worker
+          .post_message(&JsValue::NULL)
+          .log_error("CULL");
         *self.pool_state.total_workers_count.borrow_mut() -= 1;
       }
       is_active
