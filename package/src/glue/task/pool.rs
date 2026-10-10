@@ -192,7 +192,6 @@ impl WorkerPool {
     let mut on_failure = Some(on_failure);
     let reclaim = Closure::<dyn FnMut(_)>::new(move |event: Event| {
       if event.type_() == "error" {
-        event.log_error("RECLAIM_EVENT");
         // The task panicked or the script failed to load.
         worker2.terminate();
         if let Some(pool_state) = pool_state.upgrade() {
