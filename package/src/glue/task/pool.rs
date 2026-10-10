@@ -115,9 +115,8 @@ impl WorkerPool {
       &blob_property_bag,
     )?;
     let url = Url::create_object_url_with_blob(&blob)?;
-    // Send the worker the module/memory so it can start
-    // instantiating the wasm module. Later it might receive further
-    // messages about code to run on the wasm module.
+    // The module/memory lets the worker instantiate the wasm module.
+    // Later it might receive further messages about code to run on it.
     let worker_init = Object::new();
     Reflect::set(&worker_init, &JsString::from("module_or_path"), &module())?;
     Reflect::set(&worker_init, &JsString::from("memory"), &memory())?;
@@ -172,9 +171,6 @@ impl WorkerPool {
         unsafe {
           drop(Box::from_raw(ptr));
         }
-        // The worker cannot be trusted with another task.
-        worker.terminate();
-        *self.pool_state.total_workers_count.borrow_mut() -= 1;
         Err(error)
       }
     }
@@ -236,8 +232,7 @@ impl WorkerPool {
   /// available then a new web worker will be spawned.
   ///
   /// Once `f` returns the worker assigned to `f` is automatically reclaimed
-  /// by this `WorkerPool`. This method provides no method of learning when
-  /// `f` completes, and for that you'll need to use `run_notify`.
+  /// by this `WorkerPool`.
   ///
   /// If the task cannot be handed to a web worker, `on_failure` is called.
   fn run(&self, task: Task, on_failure: OnFailure) {
