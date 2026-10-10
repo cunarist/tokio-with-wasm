@@ -12,6 +12,7 @@ mod sync_broadcast;
 mod sync_broadcast_weak;
 mod sync_errors;
 mod sync_mpsc;
+mod sync_mpsc_weak;
 mod sync_oneshot;
 mod sync_rwlock;
 mod sync_watch;
