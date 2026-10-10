@@ -11,4 +11,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      - run: wasm-pack test --headless --${{ matrix.browser }} package --test '*'
+      - run: wasm-pack test --headless --${{ matrix.browser }} package --lib --test '*'

@@ -49,3 +49,33 @@ impl<T> LogError for Result<T, JsValue> {
     }
   }
 }
+
+#[cfg(test)]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+#[cfg(test)]
+mod tests {
+  use std::sync::Arc;
+  use std::sync::atomic::{AtomicUsize, Ordering};
+  use std::task::{Wake, Waker};
+
+  #[derive(Default)]
+  pub struct WakeCount(AtomicUsize);
+
+  impl WakeCount {
+    pub fn get(&self) -> usize {
+      self.0.load(Ordering::SeqCst)
+    }
+  }
+
+  impl Wake for WakeCount {
+    fn wake(self: Arc<Self>) {
+      self.0.fetch_add(1, Ordering::SeqCst);
+    }
+  }
+
+  pub fn counting_waker() -> (Waker, Arc<WakeCount>) {
+    let count = Arc::new(WakeCount::default());
+    (count.clone().into(), count)
+  }
+}

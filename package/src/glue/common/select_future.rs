@@ -34,3 +34,24 @@ impl<T> Future for SelectFuture<T> {
     Poll::Pending
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::future::{pending, ready};
+  use std::task::Waker;
+  use wasm_bindgen_test::wasm_bindgen_test;
+
+  fn poll(future: SelectFuture<i32>) -> Poll<i32> {
+    let mut cx = Context::from_waker(Waker::noop());
+    Box::pin(future).as_mut().poll(&mut cx)
+  }
+
+  #[wasm_bindgen_test]
+  fn picks_the_ready_future() {
+    assert_eq!(poll(SelectFuture::new(pending(), ready(2))), Poll::Ready(2));
+    assert_eq!(poll(SelectFuture::new(ready(1), pending())), Poll::Ready(1));
+    assert_eq!(poll(SelectFuture::new(ready(1), ready(2))), Poll::Ready(1));
+    assert_eq!(poll(SelectFuture::new(pending(), pending())), Poll::Pending);
+  }
+}
