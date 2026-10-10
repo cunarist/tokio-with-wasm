@@ -58,9 +58,8 @@ impl<T> OnceReceiver<T> {
 impl<T> Future for OnceReceiver<T> {
   type Output = T;
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    // Store the waker before checking, so a concurrent send is never missed.
-    // The main thread can't block, so this only tries: it fails only while
-    // `send` holds the lock, after `notified` is set.
+    // Store the waker before checking, so a send is never missed. Only try,
+    // as the main thread can't block; `send` holds it after `notified` is set.
     if let Ok(mut guard) = self.waker.try_lock() {
       guard.replace(cx.waker().clone());
     }
@@ -110,5 +109,14 @@ mod tests {
     tx2.send(2);
     let mut cx = Context::from_waker(Waker::noop());
     assert_eq!(Pin::new(&mut rx).poll(&mut cx), Poll::Ready(2));
+  }
+  #[wasm_bindgen_test]
+  fn poll_skips_a_held_waker_lock() {
+    let (tx, mut rx) = once_channel();
+    let _sending = tx.waker.lock().unwrap();
+    tx.value.lock().unwrap().replace(1);
+    tx.notified.store(true, Ordering::SeqCst);
+    let mut cx = Context::from_waker(Waker::noop());
+    assert_eq!(Pin::new(&mut rx).poll(&mut cx), Poll::Ready(1));
   }
 }
