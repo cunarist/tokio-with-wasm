@@ -1,7 +1,9 @@
 use crate::assert_elapsed;
 use std::future::{Future, pending};
+use std::io;
 use std::pin::pin;
 use std::task::{Context, Poll, Waker};
+use std::thread;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::task;
@@ -50,4 +52,35 @@ async fn timeout_is_not_exhausted_by_future() {
     }
   });
   assert!(fut.await.is_err());
+}
+
+#[wasm_bindgen_test]
+async fn nested_timeouts() {
+  let inner = timeout(Duration::from_millis(10), pending::<()>());
+  assert!(matches!(
+    timeout(Duration::from_secs(10), inner).await,
+    Ok(Err(_))
+  ));
+  let inner = timeout(Duration::from_secs(10), pending::<()>());
+  assert!(timeout(Duration::from_millis(10), inner).await.is_err());
+}
+
+#[wasm_bindgen_test]
+async fn timeout_around_spawn_blocking() {
+  let fast = task::spawn_blocking(|| 42);
+  assert_eq!(
+    timeout(Duration::from_secs(10), fast)
+      .await
+      .unwrap()
+      .unwrap(),
+    42
+  );
+  let slow = task::spawn_blocking(|| thread::sleep(Duration::from_millis(500)));
+  assert!(timeout(Duration::from_millis(10), slow).await.is_err());
+}
+
+#[wasm_bindgen_test]
+async fn elapsed_into_io_error() {
+  let elapsed = timeout(Duration::ZERO, pending::<()>()).await.unwrap_err();
+  assert_eq!(io::Error::from(elapsed).kind(), io::ErrorKind::TimedOut);
 }
