@@ -110,6 +110,7 @@ mod tests {
     let mut cx = Context::from_waker(Waker::noop());
     assert_eq!(Pin::new(&mut rx).poll(&mut cx), Poll::Ready(2));
   }
+
   #[wasm_bindgen_test]
   fn poll_skips_a_held_waker_lock() {
     let (tx, mut rx) = once_channel();
