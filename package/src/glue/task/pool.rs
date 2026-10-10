@@ -49,16 +49,8 @@ impl Default for WorkerPool {
 }
 
 impl WorkerPool {
-  /// Creates a new `WorkerPool` which immediately creates `initial` workers.
-  ///
-  /// The pool created here can be used over a long period of time, and it
-  /// will be initially primed with `initial` workers. Currently workers are
-  /// never released or gc'd until the whole pool is destroyed.
-  ///
-  /// # Errors
-  ///
-  /// Returns any error that may happen while a JS web worker is created and a
-  /// message is sent to it.
+  /// Creates an empty `WorkerPool`. Workers are created on demand,
+  /// and released after 10 seconds of idling.
   pub fn new() -> WorkerPool {
     WorkerPool::default()
   }

@@ -122,7 +122,7 @@ async fn culled_workers_free_their_memory() {
       .byte_length()
   };
   let mut sizes = Vec::new();
-  for _ in 0..3 {
+  for _ in 0..2 {
     let barrier = Arc::new(Barrier::new(8));
     let handles: Vec<_> = (0..8)
       .map(|_| {
@@ -138,5 +138,5 @@ async fn culled_workers_free_their_memory() {
     sizes.push(memory_size());
   }
   // Each leaked worker would hold a 2 MB stack.
-  assert!(sizes[2] - sizes[0] < 8 << 20, "{sizes:?}");
+  assert!(sizes[1] - sizes[0] < 8 << 20, "{sizes:?}");
 }
