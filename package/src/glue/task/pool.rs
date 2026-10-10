@@ -7,8 +7,8 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::{Closure, JsCast, JsValue, wasm_bindgen};
 use wasm_bindgen::{memory, module};
 use web_sys::{
-  Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, ErrorEvent, Event,
-  MessageEvent, Url, Worker, WorkerOptions, WorkerType,
+  Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, Event, MessageEvent, Url,
+  Worker, WorkerOptions, WorkerType,
 };
 
 pub static MAX_WORKERS: usize = 512;
@@ -29,7 +29,6 @@ struct ManagedWorker {
   worker: Worker,
 }
 
-/// Reports a task whose worker died, on the thread that queued it.
 type OnFailure = Box<dyn FnOnce()>;
 
 struct Task {
@@ -100,8 +99,7 @@ impl WorkerPool {
           try {{
             wasmBindings.task_worker_entry_point(event.data);
           }} catch (err) {{
-            // A panicking task traps here. Throwing from the async handler
-            // would only reject its promise, so this reaches `onerror`:
+            // Rethrown from a timeout, as an async throw doesn't reach `onerror`.
             setTimeout(() => {{
               throw err;
             }});
@@ -177,9 +175,9 @@ impl WorkerPool {
     }
   }
 
-  /// Configures an `onmessage` callback for the `worker` specified for the
-  /// web worker to be reclaimed and re-inserted into this pool when a message
-  /// is received.
+  /// Configures `onmessage` and `onerror` callbacks for the `worker` specified
+  /// for the web worker to be reclaimed and re-inserted into this pool when a
+  /// message is received, or dropped from it when an error is.
   ///
   /// Currently this `WorkerPool` abstraction is intended to execute one-off
   /// style work where the work itself doesn't send any notifications and
@@ -193,9 +191,9 @@ impl WorkerPool {
     let slot2 = reclaim_slot.clone();
     let mut on_failure = Some(on_failure);
     let reclaim = Closure::<dyn FnMut(_)>::new(move |event: Event| {
-      if let Some(error) = event.dyn_ref::<ErrorEvent>() {
-        JsValue::from_str(&error.message()).log_error("RECLAIM_EVENT");
-        // The task panicked, which leaves the worker unusable.
+      if event.type_() == "error" {
+        event.log_error("RECLAIM_EVENT");
+        // The task panicked or the script failed to load.
         worker2.terminate();
         if let Some(pool_state) = pool_state.upgrade() {
           *pool_state.total_workers_count.borrow_mut() -= 1;
