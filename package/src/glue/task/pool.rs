@@ -7,8 +7,8 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::{Closure, JsCast, JsValue, wasm_bindgen};
 use wasm_bindgen::{memory, module};
 use web_sys::{
-  Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, Event, MessageEvent, Url,
-  Worker, WorkerOptions, WorkerType,
+  Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, ErrorEvent, Event,
+  MessageEvent, Url, Worker, WorkerOptions, WorkerType,
 };
 
 pub static MAX_WORKERS: usize = 512;
@@ -20,7 +20,7 @@ pub struct WorkerPool {
 struct PoolState {
   total_workers_count: RefCell<usize>,
   idle_workers: RefCell<Vec<ManagedWorker>>,
-  queued_tasks: RefCell<VecDeque<(Task, OnFailure)>>,
+  queued_tasks: RefCell<VecDeque<Task>>,
   callback: Closure<dyn FnMut(Event)>,
 }
 
@@ -28,8 +28,6 @@ struct ManagedWorker {
   deactivated_time: RefCell<f64>, // Timestamp in milliseconds
   worker: Worker,
 }
-
-type OnFailure = Box<dyn FnOnce()>;
 
 struct Task {
   callable: Box<dyn FnOnce() + Send>,
@@ -96,14 +94,7 @@ impl WorkerPool {
           // This will queue further commands up
           // until the module is fully initialised:
           await initialised;
-          try {{
-            wasmBindings.task_worker_entry_point(event.data);
-          }} catch (err) {{
-            // Rethrown from a timeout, as an async throw doesn't reach `onerror`.
-            setTimeout(() => {{
-              throw err;
-            }});
-          }}
+          wasmBindings.task_worker_entry_point(event.data);
         }};
       }};
       ",
@@ -175,32 +166,25 @@ impl WorkerPool {
     }
   }
 
-  /// Configures `onmessage` and `onerror` callbacks for the `worker` specified
-  /// for the web worker to be reclaimed and re-inserted into this pool when a
-  /// message is received, or dropped from it when an error is.
+  /// Configures an `onmessage` callback for the `worker` specified for the
+  /// web worker to be reclaimed and re-inserted into this pool when a message
+  /// is received.
   ///
   /// Currently this `WorkerPool` abstraction is intended to execute one-off
   /// style work where the work itself doesn't send any notifications and
-  /// when it's done the worker is ready to execute more work. This method is
+  /// whatn it's done the worker is ready to execute more work. This method is
   /// used for all spawned workers to ensure that when the work is finished
   /// the worker is reclaimed back into this pool.
-  fn reclaim_on_message(&self, worker: Worker, on_failure: OnFailure) {
+  fn reclaim_on_message(&self, worker: Worker) {
     let pool_state = Rc::downgrade(&self.pool_state);
     let worker2 = worker.clone();
     let reclaim_slot = Rc::new(RefCell::new(None));
     let slot2 = reclaim_slot.clone();
-    let mut on_failure = Some(on_failure);
     let reclaim = Closure::<dyn FnMut(_)>::new(move |event: Event| {
-      if event.type_() == "error" {
-        // The task panicked or the script failed to load.
-        worker2.terminate();
-        if let Some(pool_state) = pool_state.upgrade() {
-          *pool_state.total_workers_count.borrow_mut() -= 1;
-        }
-        if let Some(on_failure) = on_failure.take() {
-          on_failure();
-        }
-        *slot2.borrow_mut() = None;
+      if let Some(error) = event.dyn_ref::<ErrorEvent>() {
+        JsValue::from_str(&error.message()).log_error("RECLAIM_EVENT");
+        // TODO: this probably leaks memory somehow? It's sort of
+        // unclear what to do about errors in workers right now.
         return;
       }
 
@@ -218,7 +202,6 @@ impl WorkerPool {
       JsValue::from_str(&format!("{event:?}")).log_error("UNHANDLED_RECLAIM");
     });
     worker.set_onmessage(Some(reclaim.as_ref().unchecked_ref()));
-    worker.set_onerror(Some(reclaim.as_ref().unchecked_ref()));
     *reclaim_slot.borrow_mut() = Some(reclaim);
   }
 }
@@ -238,9 +221,9 @@ impl WorkerPool {
   ///
   /// If an error happens while spawning a web worker or sending a message to
   /// a web worker, that error is returned.
-  fn run(&self, task: Task, on_failure: OnFailure) -> Result<(), JsValue> {
+  fn run(&self, task: Task) -> Result<(), JsValue> {
     let worker = self.execute(task)?;
-    self.reclaim_on_message(worker, on_failure);
+    self.reclaim_on_message(worker);
     Ok(())
   }
 
@@ -262,26 +245,19 @@ impl WorkerPool {
   pub fn flush_queued_tasks(&self) {
     while *self.pool_state.total_workers_count.borrow() < MAX_WORKERS {
       let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
-      let (task, on_failure) = match queued_tasks.pop_front() {
+      let queued_task = match queued_tasks.pop_front() {
         Some(inner) => inner,
         None => break,
       };
-      self.run(task, on_failure).log_error("FLUSH_QUEUED_TASKS");
+      self.run(queued_task).log_error("FLUSH_QUEUED_TASKS");
     }
   }
 
-  pub fn queue_task(
-    &self,
-    callable: impl FnOnce() + Send + 'static,
-    on_failure: impl FnOnce() + 'static,
-  ) {
+  pub fn queue_task(&self, callable: impl FnOnce() + Send + 'static) {
     let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
-    queued_tasks.push_back((
-      Task {
-        callable: Box::new(callable),
-      },
-      Box::new(on_failure),
-    ));
+    queued_tasks.push_back(Task {
+      callable: Box::new(callable),
+    });
     drop(queued_tasks);
     self.flush_queued_tasks();
   }

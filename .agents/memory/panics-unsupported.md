@@ -1,9 +1,9 @@
 ---
-description: Panics are a documented web limitation; don't add more panic handling
+description: Panics are a documented web limitation; a panicking task hangs, by choice
 ---
 
-The README says never to panic in `spawn` or `spawn_blocking`, since wasm can't unwind. A panic traps, so no destructors run.
+The README says never to panic in `spawn` or `spawn_blocking`, since wasm can't unwind. A panic traps, so no destructors run, and the task's `JoinHandle` never resolves.
 
-- In `spawn`, the `JoinHandle` never resolves and the future's memory leaks. This is accepted.
-- In `spawn_blocking`, the worker's `onerror` fails the handle and frees the slot. The worker's 2 MB stack, its TLS and the task's heap still leak. A lock held at the trap is never released.
-- Freeing the stack with `__wbindgen_thread_destroy`, or failing tasks from a panic hook, was judged not worth the code.
+- In `spawn`, the future's memory leaks.
+- In `spawn_blocking`, the worker also keeps its pool slot, so after 512 panics every later `spawn_blocking` hangs.
+- Catching the trap in the worker script, freeing the worker with `__wbindgen_thread_destroy`, or failing tasks from a panic hook was judged not worth the code.
