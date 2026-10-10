@@ -13,6 +13,8 @@ mod sync_broadcast_weak;
 mod sync_errors;
 mod sync_mpsc;
 mod sync_mpsc_weak;
+mod sync_notify;
+mod sync_notify_owned;
 mod sync_oneshot;
 mod sync_rwlock;
 mod sync_semaphore;
