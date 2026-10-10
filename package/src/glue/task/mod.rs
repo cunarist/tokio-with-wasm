@@ -259,15 +259,19 @@ where
   }
   let (join_sender, join_receiver) = once_channel();
   let (cancel_sender, cancel_receiver) = once_channel::<()>();
+  let failure_sender = join_sender.clone();
   WORKER_POOL.with(move |worker_pool| {
-    worker_pool.queue_task(move || {
-      if cancel_receiver.is_done() {
-        join_sender.send(Err(JoinError { cancelled: true }));
-        return;
-      }
-      let returned = callable();
-      join_sender.send(Ok(returned));
-    })
+    worker_pool.queue_task(
+      move || {
+        if cancel_receiver.is_done() {
+          join_sender.send(Err(JoinError { cancelled: true }));
+          return;
+        }
+        let returned = callable();
+        join_sender.send(Ok(returned));
+      },
+      move || failure_sender.send(Err(JoinError { cancelled: false })),
+    )
   });
   JoinHandle {
     join_receiver,

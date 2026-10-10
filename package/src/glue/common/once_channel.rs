@@ -23,11 +23,21 @@ pub fn once_channel<T>() -> (OnceSender<T>, OnceReceiver<T>) {
   (sender, receiver)
 }
 
-#[derive(Clone)]
 pub struct OnceSender<T> {
   notified: Arc<AtomicBool>,
   value: Arc<Mutex<Option<T>>>,
   waker: Arc<Mutex<Option<Waker>>>,
+}
+
+// Not derived, which would require `T: Clone`.
+impl<T> Clone for OnceSender<T> {
+  fn clone(&self) -> Self {
+    OnceSender {
+      notified: self.notified.clone(),
+      value: self.value.clone(),
+      waker: self.waker.clone(),
+    }
+  }
 }
 
 impl<T> OnceSender<T> {

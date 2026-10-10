@@ -20,7 +20,7 @@ pub struct WorkerPool {
 struct PoolState {
   total_workers_count: RefCell<usize>,
   idle_workers: RefCell<Vec<ManagedWorker>>,
-  queued_tasks: RefCell<VecDeque<Task>>,
+  queued_tasks: RefCell<VecDeque<(Task, OnFailure)>>,
   callback: Closure<dyn FnMut(Event)>,
 }
 
@@ -28,6 +28,9 @@ struct ManagedWorker {
   deactivated_time: RefCell<f64>, // Timestamp in milliseconds
   worker: Worker,
 }
+
+/// Reports a task whose worker died, on the thread that queued it.
+type OnFailure = Box<dyn FnOnce()>;
 
 struct Task {
   callable: Box<dyn FnOnce() + Send>,
@@ -94,7 +97,15 @@ impl WorkerPool {
           // This will queue further commands up
           // until the module is fully initialised:
           await initialised;
-          wasmBindings.task_worker_entry_point(event.data);
+          try {{
+            wasmBindings.task_worker_entry_point(event.data);
+          }} catch (err) {{
+            // A panicking task traps here. Throwing from the async handler
+            // would only reject its promise, so this reaches `onerror`:
+            setTimeout(() => {{
+              throw err;
+            }});
+          }}
         }};
       }};
       ",
@@ -175,16 +186,24 @@ impl WorkerPool {
   /// whatn it's done the worker is ready to execute more work. This method is
   /// used for all spawned workers to ensure that when the work is finished
   /// the worker is reclaimed back into this pool.
-  fn reclaim_on_message(&self, worker: Worker) {
+  fn reclaim_on_message(&self, worker: Worker, on_failure: OnFailure) {
     let pool_state = Rc::downgrade(&self.pool_state);
     let worker2 = worker.clone();
     let reclaim_slot = Rc::new(RefCell::new(None));
     let slot2 = reclaim_slot.clone();
+    let mut on_failure = Some(on_failure);
     let reclaim = Closure::<dyn FnMut(_)>::new(move |event: Event| {
       if let Some(error) = event.dyn_ref::<ErrorEvent>() {
         JsValue::from_str(&error.message()).log_error("RECLAIM_EVENT");
-        // TODO: this probably leaks memory somehow? It's sort of
-        // unclear what to do about errors in workers right now.
+        // The task panicked, which leaves the worker unusable.
+        worker2.terminate();
+        if let Some(pool_state) = pool_state.upgrade() {
+          *pool_state.total_workers_count.borrow_mut() -= 1;
+        }
+        if let Some(on_failure) = on_failure.take() {
+          on_failure();
+        }
+        *slot2.borrow_mut() = None;
         return;
       }
 
@@ -202,6 +221,7 @@ impl WorkerPool {
       JsValue::from_str(&format!("{event:?}")).log_error("UNHANDLED_RECLAIM");
     });
     worker.set_onmessage(Some(reclaim.as_ref().unchecked_ref()));
+    worker.set_onerror(Some(reclaim.as_ref().unchecked_ref()));
     *reclaim_slot.borrow_mut() = Some(reclaim);
   }
 }
@@ -221,9 +241,9 @@ impl WorkerPool {
   ///
   /// If an error happens while spawning a web worker or sending a message to
   /// a web worker, that error is returned.
-  fn run(&self, task: Task) -> Result<(), JsValue> {
+  fn run(&self, task: Task, on_failure: OnFailure) -> Result<(), JsValue> {
     let worker = self.execute(task)?;
-    self.reclaim_on_message(worker);
+    self.reclaim_on_message(worker, on_failure);
     Ok(())
   }
 
@@ -245,19 +265,26 @@ impl WorkerPool {
   pub fn flush_queued_tasks(&self) {
     while *self.pool_state.total_workers_count.borrow() < MAX_WORKERS {
       let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
-      let queued_task = match queued_tasks.pop_front() {
+      let (task, on_failure) = match queued_tasks.pop_front() {
         Some(inner) => inner,
         None => break,
       };
-      self.run(queued_task).log_error("FLUSH_QUEUED_TASKS");
+      self.run(task, on_failure).log_error("FLUSH_QUEUED_TASKS");
     }
   }
 
-  pub fn queue_task(&self, callable: impl FnOnce() + Send + 'static) {
+  pub fn queue_task(
+    &self,
+    callable: impl FnOnce() + Send + 'static,
+    on_failure: impl FnOnce() + 'static,
+  ) {
     let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
-    queued_tasks.push_back(Task {
-      callable: Box::new(callable),
-    });
+    queued_tasks.push_back((
+      Task {
+        callable: Box::new(callable),
+      },
+      Box::new(on_failure),
+    ));
     drop(queued_tasks);
     self.flush_queued_tasks();
   }
