@@ -34,12 +34,11 @@ impl<T> OnceSender<T> {
   pub fn send(&self, value: T) {
     if let Ok(mut guard) = self.value.lock() {
       guard.replace(value);
-      self.notified.store(true, Ordering::SeqCst);
     }
-    if let Ok(mut guard) = self.waker.lock() {
-      if let Some(waker) = guard.take() {
-        waker.wake();
-      }
+    self.notified.store(true, Ordering::SeqCst);
+    let waker = self.waker.lock().ok().and_then(|mut guard| guard.take());
+    if let Some(waker) = waker {
+      waker.wake();
     }
   }
 }
@@ -60,9 +59,10 @@ impl<T> Future for OnceReceiver<T> {
   type Output = T;
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     // Store the waker before checking, so a concurrent send is never missed.
-    let waker = cx.waker().clone();
-    if let Ok(mut guard) = self.waker.lock() {
-      guard.replace(waker);
+    // The main thread can't block, so this only tries: it fails only while
+    // `send` holds the lock, after `notified` is set.
+    if let Ok(mut guard) = self.waker.try_lock() {
+      guard.replace(cx.waker().clone());
     }
     if self.notified.load(Ordering::SeqCst) {
       if let Ok(mut guard) = self.value.lock() {
