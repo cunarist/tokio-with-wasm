@@ -59,15 +59,17 @@ impl<T> OnceReceiver<T> {
 impl<T> Future for OnceReceiver<T> {
   type Output = T;
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    // Store the waker before checking, so a concurrent send is never missed.
+    let waker = cx.waker().clone();
+    if let Ok(mut guard) = self.waker.lock() {
+      guard.replace(waker);
+    }
     if self.notified.load(Ordering::SeqCst) {
       if let Ok(mut guard) = self.value.lock() {
         if let Some(value) = guard.take() {
           return Poll::Ready(value);
         }
       }
-    }
-    if let Ok(mut guard) = self.waker.lock() {
-      guard.replace(cx.waker().clone());
     }
     Poll::Pending
   }
@@ -77,6 +79,7 @@ impl<T> Future for OnceReceiver<T> {
 mod tests {
   use super::*;
   use crate::glue::common::tests::counting_waker;
+  use std::task::{RawWaker, RawWakerVTable};
   use wasm_bindgen_test::wasm_bindgen_test;
 
   #[wasm_bindgen_test]
@@ -108,5 +111,24 @@ mod tests {
     tx2.send(2);
     let mut cx = Context::from_waker(Waker::noop());
     assert_eq!(Pin::new(&mut rx).poll(&mut cx), Poll::Ready(2));
+  }
+
+  #[wasm_bindgen_test]
+  fn send_while_registering_waker() {
+    // A waker whose clone sends, as a worker would between the check and the store.
+    unsafe fn clone(ptr: *const ()) -> RawWaker {
+      let tx = unsafe { &*(ptr as *const OnceSender<i32>) };
+      tx.send(3);
+      RawWaker::new(ptr, &VTABLE)
+    }
+    unsafe fn noop(_: *const ()) {}
+    static VTABLE: RawWakerVTable =
+      RawWakerVTable::new(clone, noop, noop, noop);
+
+    let (tx, mut rx) = once_channel();
+    let raw = RawWaker::new(&tx as *const _ as *const (), &VTABLE);
+    let waker = unsafe { Waker::from_raw(raw) };
+    let mut cx = Context::from_waker(&waker);
+    assert_eq!(Pin::new(&mut rx).poll(&mut cx), Poll::Ready(3));
   }
 }
