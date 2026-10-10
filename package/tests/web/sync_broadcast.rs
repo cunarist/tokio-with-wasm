@@ -550,6 +550,7 @@ fn send_in_waker_drop() {
     }
   }
 
+  #[expect(clippy::manual_noop_waker, reason = "dropping it has an effect")]
   impl Wake for SendOnDrop {
     fn wake(self: Arc<Self>) {}
   }

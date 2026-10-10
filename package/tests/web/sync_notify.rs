@@ -171,6 +171,7 @@ fn notify_in_drop_after_wake() {
 
   struct NotifyOnDrop(Arc<Notify>);
 
+  #[expect(clippy::manual_noop_waker, reason = "dropping it has an effect")]
   impl Wake for NotifyOnDrop {
     fn wake(self: Arc<Self>) {}
   }

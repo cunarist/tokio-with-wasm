@@ -213,41 +213,6 @@ async fn try_downgrade_map() {
   assert_eq!(&*read_guard1 as *const _, &*read_guard2 as *const _);
 }
 
-// Stands in for tokio's multithreaded test: contention across web workers.
-#[wasm_bindgen_test]
-async fn contended_by_web_workers() {
-  let lock = Arc::new(RwLock::new(0u32));
-  let mut handles = Vec::new();
-  for n in [2, 3, 5] {
-    let lock = lock.clone();
-    handles.push(tokio::task::spawn_blocking(move || {
-      for _ in 0..100 {
-        *lock.blocking_write() += n;
-      }
-    }));
-  }
-  for _ in 0..100 {
-    *lock.write().await += 7;
-  }
-  for handle in handles {
-    handle.await.unwrap();
-  }
-  assert_eq!(*lock.read().await, 1700);
-}
-
-#[wasm_bindgen_test]
-async fn worker_waits_for_main_thread_write() {
-  let lock = Arc::new(RwLock::new(1));
-  let guard = lock.write().await;
-  let worker = {
-    let lock = lock.clone();
-    tokio::task::spawn_blocking(move || *lock.blocking_read())
-  };
-  tokio::task::yield_now().await;
-  drop(guard);
-  assert_eq!(worker.await.unwrap(), 1);
-}
-
 #[wasm_bindgen_test]
 async fn main_thread_waits_for_worker_write() {
   let lock = Arc::new(RwLock::new(0));

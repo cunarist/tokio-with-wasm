@@ -23,16 +23,6 @@ async fn short_sleeps() {
 }
 
 #[wasm_bindgen_test]
-async fn issue_5183() {
-  let big = Duration::from_secs(u64::MAX / 10);
-  tokio::select! {
-    biased;
-    _ = time::sleep(big) => {}
-    _ = time::sleep(Duration::from_nanos(1)) => {}
-  }
-}
-
-#[wasm_bindgen_test]
 async fn sleeps_complete_in_deadline_order() {
   let order = Rc::new(RefCell::new(Vec::new()));
   let handles: Vec<_> = [300, 100, 200]

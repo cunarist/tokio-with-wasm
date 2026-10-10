@@ -1,8 +1,12 @@
 use crate::support::{assert_elapsed, assert_ready, spawn};
+use js_sys::{Function, Reflect};
+use std::cell::Cell;
+use std::rc::Rc;
 use std::thread;
 use std::time::Duration;
 use tokio::{task, time};
 use tokio_with_wasm::alias as tokio;
+use wasm_bindgen::prelude::{Closure, JsValue};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 #[wasm_bindgen_test]
@@ -68,4 +72,23 @@ async fn ticks_during_spawn_blocking() {
     }
   }
   assert!(ticks >= 3, "only {ticks} ticks");
+}
+
+#[wasm_bindgen_test]
+fn drop_clears_the_interval() {
+  let global = js_sys::global();
+  let key = JsValue::from("clearInterval");
+  let original: Function = Reflect::get(&global, &key).unwrap().into();
+  let cleared = Rc::new(Cell::new(0));
+  let spy = Closure::<dyn Fn(JsValue)>::new({
+    let (original, cleared) = (original.clone(), cleared.clone());
+    move |id| {
+      cleared.set(cleared.get() + 1);
+      original.call1(&JsValue::NULL, &id).unwrap();
+    }
+  });
+  Reflect::set(&global, &key, spy.as_ref()).unwrap();
+  drop(time::interval(Duration::from_millis(10)));
+  Reflect::set(&global, &key, &original).unwrap();
+  assert_eq!(cleared.get(), 1);
 }

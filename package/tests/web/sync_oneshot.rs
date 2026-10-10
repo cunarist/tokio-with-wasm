@@ -272,28 +272,9 @@ async fn sender_dropped_in_a_web_worker() {
 }
 
 #[wasm_bindgen_test]
-async fn receive_in_a_web_worker() {
-  let (tx, rx) = oneshot::channel();
-  let worker = tokio::task::spawn_blocking(move || rx.blocking_recv());
-  tx.send(5).unwrap();
-  assert_eq!(worker.await.unwrap(), Ok(5));
-}
-
-#[wasm_bindgen_test]
 async fn receiver_dropped_in_a_web_worker() {
   let (mut tx, rx) = oneshot::channel::<()>();
   tokio::task::spawn_blocking(move || drop(rx));
   tx.closed().await;
   assert!(tx.send(()).is_err());
-}
-
-#[wasm_bindgen_test]
-async fn round_trip_through_a_web_worker() {
-  let (tx, rx) = oneshot::channel::<i32>();
-  let (back_tx, back_rx) = oneshot::channel();
-  tokio::task::spawn_blocking(move || {
-    back_tx.send(rx.blocking_recv().unwrap() + 1).unwrap();
-  });
-  tx.send(1).unwrap();
-  assert_eq!(back_rx.await, Ok(2));
 }

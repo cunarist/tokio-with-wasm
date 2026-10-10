@@ -3,6 +3,7 @@ use std::thread;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
+use tokio::time::timeout;
 use tokio_with_wasm::alias as tokio;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -24,7 +25,8 @@ fn spawn_pending_tasks(
 
 async fn await_receivers_and_assert(receivers: Vec<oneshot::Receiver<()>>) {
   for rx in receivers {
-    assert!(rx.await.is_err());
+    let result = timeout(Duration::from_secs(5), rx).await.unwrap();
+    assert!(result.is_err());
   }
 }
 
@@ -128,7 +130,8 @@ async fn abort_all() {
   set.abort_all();
   assert_eq!(set.len(), 10);
   let mut count = 0;
-  while let Some(res) = set.join_next().await {
+  let next = Duration::from_secs(5);
+  while let Some(res) = timeout(next, set.join_next()).await.unwrap() {
     if let Err(err) = res {
       assert!(err.is_cancelled());
     }
@@ -180,7 +183,9 @@ async fn spawn_then_shutdown() {
   let mut set = JoinSet::new();
   let receivers = spawn_pending_tasks(&mut set, 8);
   assert!(set.try_join_next().is_none());
-  set.shutdown().await;
+  timeout(Duration::from_secs(5), set.shutdown())
+    .await
+    .unwrap();
   assert!(set.is_empty());
   await_receivers_and_assert(receivers).await;
 }

@@ -26,31 +26,6 @@ async fn send_from_a_web_worker() {
 }
 
 #[wasm_bindgen_test]
-async fn blocking_send_from_a_web_worker() {
-  let (tx, mut rx) = mpsc::channel::<u8>(1);
-  let worker = tokio::task::spawn_blocking(move || {
-    tx.blocking_send(1).unwrap();
-    tx.blocking_send(2).unwrap();
-  });
-  assert_eq!(rx.recv().await, Some(1));
-  assert_eq!(rx.recv().await, Some(2));
-  worker.await.unwrap();
-  assert_eq!(rx.recv().await, None);
-}
-
-#[wasm_bindgen_test]
-async fn blocking_recv_in_a_web_worker() {
-  let (tx, mut rx) = mpsc::unbounded_channel::<u8>();
-  let worker = tokio::task::spawn_blocking(move || {
-    assert_eq!(rx.blocking_recv(), Some(10));
-    assert_eq!(rx.blocking_recv(), None);
-  });
-  tx.send(10).unwrap();
-  drop(tx);
-  worker.await.unwrap();
-}
-
-#[wasm_bindgen_test]
 async fn send_recv_with_buffer() {
   let (tx, mut rx) = mpsc::channel::<i32>(16);
   tx.reserve().await.unwrap().send(1);

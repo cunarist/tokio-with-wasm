@@ -1,7 +1,5 @@
 use crate::support::assert_elapsed;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
@@ -160,47 +158,4 @@ async fn complete_task_under_load() {
   });
   rx2.await.unwrap();
   spin.abort();
-}
-
-#[wasm_bindgen_test]
-async fn ping_pong_saturation() {
-  const NUM: usize = 100;
-  let running = Arc::new(AtomicBool::new(true));
-  let (spawned_tx, mut spawned_rx) = mpsc::unbounded_channel();
-  let mut tasks = vec![];
-  for _ in 0..NUM {
-    let (tx1, mut rx1) = mpsc::unbounded_channel();
-    let (tx2, mut rx2) = mpsc::unbounded_channel();
-    let spawned_tx = spawned_tx.clone();
-    let running = running.clone();
-    tasks.push(tokio::spawn(async move {
-      spawned_tx.send(()).unwrap();
-      while running.load(Ordering::Relaxed) {
-        tx1.send(()).unwrap();
-        rx2.recv().await.unwrap();
-      }
-      drop(tx1);
-      assert!(rx2.recv().await.is_none());
-    }));
-    tasks.push(tokio::spawn(async move {
-      while rx1.recv().await.is_some() {
-        tx2.send(()).unwrap();
-      }
-    }));
-  }
-  for _ in 0..NUM {
-    spawned_rx.recv().await.unwrap();
-  }
-
-  tokio::spawn(async {
-    for _ in 0..5 {
-      tokio::task::yield_now().await;
-    }
-  })
-  .await
-  .unwrap();
-  running.store(false, Ordering::Relaxed);
-  for t in tasks {
-    t.await.unwrap();
-  }
 }

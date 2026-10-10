@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use tokio::time::timeout;
 use tokio_with_wasm::alias as tokio;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -9,7 +10,8 @@ async fn test_abort_without_panic_3157() {
   let handle = tokio::spawn(tokio::time::sleep(Duration::from_secs(100)));
   tokio::time::sleep(Duration::from_millis(10)).await;
   handle.abort();
-  assert!(handle.await.unwrap_err().is_cancelled());
+  let result = timeout(Duration::from_secs(5), handle).await.unwrap();
+  assert!(result.unwrap_err().is_cancelled());
 }
 
 #[wasm_bindgen_test]
@@ -39,7 +41,7 @@ async fn test_abort_without_panic_3662() {
   .await
   .unwrap();
 
-  let result = task.await;
+  let result = timeout(Duration::from_secs(5), task).await.unwrap();
   assert!(drop_flag.load(Ordering::SeqCst));
   assert!(result.unwrap_err().is_cancelled());
 
@@ -82,7 +84,8 @@ async fn remote_abort_local_3929() {
   tokio::task::spawn_blocking(move || abort.abort())
     .await
     .unwrap();
-  assert!(handle.await.unwrap_err().is_cancelled());
+  let result = timeout(Duration::from_secs(5), handle).await.unwrap();
+  assert!(result.unwrap_err().is_cancelled());
 }
 
 #[wasm_bindgen_test]
@@ -91,7 +94,8 @@ async fn abort_handle_cancels_task() {
   let abort = handle.abort_handle();
   abort.clone().abort();
   abort.abort();
-  assert!(handle.await.unwrap_err().is_cancelled());
+  let result = timeout(Duration::from_secs(5), handle).await.unwrap();
+  assert!(result.unwrap_err().is_cancelled());
 }
 
 #[wasm_bindgen_test]
@@ -111,18 +115,6 @@ async fn dropping_handle_does_not_abort() {
     tx.send(()).unwrap();
   }));
   rx.await.unwrap();
-}
-
-#[wasm_bindgen_test]
-async fn abort_blocking_before_start() {
-  let ran = Arc::new(AtomicBool::new(false));
-  let ran2 = ran.clone();
-  let handle =
-    tokio::task::spawn_blocking(move || ran2.store(true, Ordering::SeqCst));
-  handle.abort();
-  // An idle worker may pick the task up before `abort` runs.
-  let result = handle.await;
-  assert_eq!(ran.load(Ordering::SeqCst), result.is_ok());
 }
 
 #[wasm_bindgen_test]

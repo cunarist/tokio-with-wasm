@@ -47,9 +47,9 @@ fn drop_into_inner() {
   let num_drops = Arc::new(AtomicU32::new(0));
   let once_cell = OnceCell::new();
   assert!(once_cell.set(Foo::from(num_drops.clone())).is_ok());
-  let foo = once_cell.into_inner();
+  let value = once_cell.into_inner();
   assert_eq!(num_drops.load(Ordering::Acquire), 0);
-  drop(foo);
+  drop(value);
   assert_eq!(num_drops.load(Ordering::Acquire), 1);
 }
 
@@ -57,9 +57,9 @@ fn drop_into_inner() {
 fn drop_into_inner_new_with() {
   let num_drops = Arc::new(AtomicU32::new(0));
   let once_cell = OnceCell::new_with(Some(Foo::from(num_drops.clone())));
-  let foo = once_cell.into_inner();
+  let value = once_cell.into_inner();
   assert_eq!(num_drops.load(Ordering::Acquire), 0);
-  drop(foo);
+  drop(value);
   assert_eq!(num_drops.load(Ordering::Acquire), 1);
 }
 

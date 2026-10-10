@@ -1,3 +1,9 @@
+#![cfg(all(
+  target_arch = "wasm32",
+  target_vendor = "unknown",
+  target_os = "unknown"
+))]
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio_with_wasm::alias as tokio;
 use tokio_with_wasm::only_web::{get_script_path, set_path_provider};

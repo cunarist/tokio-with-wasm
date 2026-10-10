@@ -24,3 +24,19 @@ async fn yield_now_runs_other_tasks() {
   task::yield_now().await;
   assert!(ran.get());
 }
+
+// The sleep's timer is registered first, so it fires before the yield's.
+#[wasm_bindgen_test]
+async fn yield_now_lets_a_due_timer_fire() {
+  let slept = Rc::new(Cell::new(false));
+  let slept2 = slept.clone();
+  tokio::spawn(async move {
+    tokio::time::sleep(Duration::ZERO).await;
+    slept2.set(true);
+  });
+  let yielded = tokio::spawn(async move {
+    task::yield_now().await;
+    slept.get()
+  });
+  assert!(yielded.await.unwrap());
+}

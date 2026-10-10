@@ -15,3 +15,4 @@ and follow it before reasoning or responding.
 - Every bug fix comes with a regression test that fails without the fix
 - Tests follow `tokio`'s: one module per area, named like tokio's test files, porting tokio's tests where the web allows; web-only cases go in the same module
 - Run tests with `wasm-pack test --headless --chrome package --lib --test '*'`
+- Builds use nightly with `build-std` for every target, so native builds rebuild `std` too
