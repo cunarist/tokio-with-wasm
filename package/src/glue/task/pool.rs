@@ -115,7 +115,7 @@ impl WorkerPool {
       &blob_property_bag,
     )?;
     let url = Url::create_object_url_with_blob(&blob)?;
-    // The worker gets the module/memory first so it can start
+    // Send the worker the module/memory so it can start
     // instantiating the wasm module. Later it might receive further
     // messages about code to run on the wasm module.
     let worker_init = Object::new();
@@ -129,7 +129,6 @@ impl WorkerPool {
       return Err(error);
     }
 
-    // Only a worker that exists takes up a slot.
     *self.pool_state.total_workers_count.borrow_mut() += 1;
     Ok(worker)
   }
@@ -268,10 +267,11 @@ impl WorkerPool {
 
   pub fn flush_queued_tasks(&self) {
     while *self.pool_state.total_workers_count.borrow() < MAX_WORKERS {
-      let mut queued_tasks = self.pool_state.queued_tasks.borrow_mut();
-      let (task, on_failure) = match queued_tasks.pop_front() {
-        Some(inner) => inner,
-        None => break,
+      // The queue is not borrowed while the task runs,
+      // as a failing task reports back right away.
+      let queued_task = self.pool_state.queued_tasks.borrow_mut().pop_front();
+      let Some((task, on_failure)) = queued_task else {
+        break;
       };
       self.run(task, on_failure);
     }
