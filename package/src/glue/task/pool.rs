@@ -93,7 +93,13 @@ impl WorkerPool {
         self.onmessage = async event => {{
           // This will queue further commands up
           // until the module is fully initialised:
-          await initialised;
+          const wasm = await initialised;
+          if (event.data === null) {{
+            // Frees this thread's stack and TLS, so no wasm call may follow.
+            wasm.__wbindgen_thread_destroy();
+            close();
+            return;
+          }}
           wasmBindings.task_worker_entry_point(event.data);
         }};
       }};
@@ -235,7 +241,11 @@ impl WorkerPool {
       let passed_time = current_timestamp - deactivated_time;
       let is_active = passed_time < 10000.0; // 10 seconds
       if !is_active {
-        managed_worker.worker.terminate();
+        // Asks the worker to free its memory and close.
+        managed_worker
+          .worker
+          .post_message(&JsValue::NULL)
+          .log_error("CULL");
         *self.pool_state.total_workers_count.borrow_mut() -= 1;
       }
       is_active
