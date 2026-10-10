@@ -1,4 +1,5 @@
 use std::rc::Rc;
+use std::thread;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
@@ -185,12 +186,46 @@ async fn spawn_then_shutdown() {
 }
 
 #[wasm_bindgen_test]
-async fn spawn_blocking() {
+async fn spawn_mixed_with_spawn_blocking() {
   let mut set = JoinSet::new();
-  for i in 0..4 {
-    set.spawn_blocking(move || i);
+  for i in 0..8 {
+    if i % 2 == 0 {
+      set.spawn(async move { i });
+    } else {
+      set.spawn_blocking(move || i);
+    }
   }
   let mut out = set.join_all().await;
   out.sort_unstable();
-  assert_eq!(out, [0, 1, 2, 3]);
+  assert_eq!(out, Vec::from_iter(0..8));
+}
+
+#[wasm_bindgen_test]
+async fn abort_running_blocking_task_has_no_effect() {
+  let mut set = JoinSet::new();
+  let (tx, rx) = oneshot::channel();
+  let abort = set.spawn_blocking(move || {
+    tx.send(()).unwrap();
+    thread::sleep(Duration::from_millis(50));
+    7
+  });
+  rx.await.unwrap();
+  abort.abort();
+  assert_eq!(set.join_next().await.unwrap().unwrap(), 7);
+}
+
+#[wasm_bindgen_test]
+async fn detached_tasks_keep_running() {
+  let mut set = JoinSet::new();
+  let (tx, rx) = oneshot::channel();
+  set.spawn(async move {
+    tokio::task::yield_now().await;
+    tx.send(()).unwrap();
+  });
+  let (blocking_tx, blocking_rx) = oneshot::channel();
+  set.spawn_blocking(move || blocking_tx.send(()).unwrap());
+  set.detach_all();
+  drop(set);
+  rx.await.unwrap();
+  blocking_rx.await.unwrap();
 }
