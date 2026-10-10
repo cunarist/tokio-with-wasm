@@ -1,0 +1,41 @@
+#![cfg(all(
+  target_arch = "wasm32",
+  target_vendor = "unknown",
+  target_os = "unknown"
+))]
+
+use wasm_bindgen_test::wasm_bindgen_test_configure;
+
+wasm_bindgen_test_configure!(run_in_browser);
+
+mod macros_join;
+mod macros_main;
+mod macros_pin;
+mod macros_select;
+mod macros_try_join;
+mod rt_common;
+mod support;
+mod sync_barrier;
+mod sync_broadcast;
+mod sync_broadcast_weak;
+mod sync_errors;
+mod sync_mpsc;
+mod sync_mpsc_weak;
+mod sync_mutex;
+mod sync_mutex_owned;
+mod sync_notify;
+mod sync_notify_owned;
+mod sync_once_cell;
+mod sync_oneshot;
+mod sync_rwlock;
+mod sync_semaphore;
+mod sync_semaphore_owned;
+mod sync_set_once;
+mod sync_watch;
+mod task_abort;
+mod task_blocking;
+mod task_join_set;
+mod task_yield_now;
+mod time_interval;
+mod time_sleep;
+mod time_timeout;

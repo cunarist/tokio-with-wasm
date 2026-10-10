@@ -1,0 +1,5 @@
+# Nightly is needed for `build-std` in `.cargo/config.toml`.
+[toolchain]
+channel = "nightly"
+components = ["rust-src"]
+targets = ["wasm32-unknown-unknown"]
