@@ -23,3 +23,19 @@ pub fn is_main_thread() -> bool {
   });
   is_main
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use wasm_bindgen_test::wasm_bindgen_test;
+
+  #[wasm_bindgen_test]
+  fn detects_main_thread() {
+    assert!(is_main_thread());
+  }
+
+  #[wasm_bindgen_test]
+  async fn detects_web_worker() {
+    assert!(!crate::task::spawn_blocking(is_main_thread).await.unwrap());
+  }
+}
