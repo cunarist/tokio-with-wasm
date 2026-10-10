@@ -15,6 +15,8 @@ mod sync_errors;
 mod sync_once_cell;
 mod sync_mpsc;
 mod sync_mpsc_weak;
+mod sync_mutex;
+mod sync_mutex_owned;
 mod sync_notify;
 mod sync_notify_owned;
 mod sync_oneshot;
