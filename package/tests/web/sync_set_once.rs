@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::SetOnce;
 use tokio_with_wasm::alias as tokio;
 use wasm_bindgen_test::wasm_bindgen_test;

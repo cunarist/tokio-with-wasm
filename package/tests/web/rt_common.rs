@@ -1,4 +1,4 @@
-use crate::assert_elapsed;
+use crate::support::assert_elapsed;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

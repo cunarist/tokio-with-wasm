@@ -1,22 +1,7 @@
-use std::future::Future;
-use std::pin::{pin, Pin};
-use std::task::{Context, Poll, Waker};
+use crate::support::{assert_pending, assert_ready, spawn};
 use tokio::sync::Barrier;
 use tokio_with_wasm::alias as tokio;
 use wasm_bindgen_test::wasm_bindgen_test;
-
-fn poll<F: Future>(f: Pin<&mut F>) -> Poll<F::Output> {
-  f.poll(&mut Context::from_waker(Waker::noop()))
-}
-
-macro_rules! assert_ready {
-  ($e:expr) => {
-    match $e {
-      Poll::Ready(v) => v,
-      Poll::Pending => panic!("expected ready"),
-    }
-  };
-}
 
 #[wasm_bindgen_test]
 fn barrier_future_is_send() {
@@ -29,8 +14,8 @@ fn barrier_future_is_send() {
 fn zero_does_not_block() {
   let b = Barrier::new(0);
   for _ in 0..2 {
-    let mut w = pin!(b.wait());
-    assert!(assert_ready!(poll(w.as_mut())).is_leader());
+    let mut w = spawn(b.wait());
+    assert!(assert_ready!(w.poll()).is_leader());
   }
 }
 
@@ -38,8 +23,8 @@ fn zero_does_not_block() {
 fn single() {
   let b = Barrier::new(1);
   for _ in 0..3 {
-    let mut w = pin!(b.wait());
-    assert!(assert_ready!(poll(w.as_mut())).is_leader());
+    let mut w = spawn(b.wait());
+    assert!(assert_ready!(w.poll()).is_leader());
   }
 }
 
@@ -47,12 +32,12 @@ fn single() {
 fn tango() {
   let b = Barrier::new(2);
 
-  let mut w1 = pin!(b.wait());
-  assert!(poll(w1.as_mut()).is_pending());
+  let mut w1 = spawn(b.wait());
+  assert_pending!(w1.poll());
 
-  let mut w2 = pin!(b.wait());
-  let wr2 = assert_ready!(poll(w2.as_mut()));
-  let wr1 = assert_ready!(poll(w1.as_mut()));
+  let mut w2 = spawn(b.wait());
+  let wr2 = assert_ready!(w2.poll());
+  let wr1 = assert_ready!(w1.poll());
 
   assert!(wr1.is_leader() != wr2.is_leader());
 }
@@ -64,18 +49,18 @@ fn lots() {
   for _ in 0..10 {
     let mut wait = Vec::new();
     for _ in 0..99 {
-      let mut w = Box::pin(b.wait());
-      assert!(poll(w.as_mut()).is_pending());
+      let mut w = spawn(b.wait());
+      assert_pending!(w.poll());
       wait.push(w);
     }
     for w in &mut wait {
-      assert!(poll(w.as_mut()).is_pending());
+      assert_pending!(w.poll());
     }
 
-    let mut w = pin!(b.wait());
-    let mut found_leader = assert_ready!(poll(w.as_mut())).is_leader();
+    let mut w = spawn(b.wait());
+    let mut found_leader = assert_ready!(w.poll()).is_leader();
     for mut w in wait {
-      if assert_ready!(poll(w.as_mut())).is_leader() {
+      if assert_ready!(w.poll()).is_leader() {
         assert!(!found_leader);
         found_leader = true;
       }

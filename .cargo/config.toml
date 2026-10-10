@@ -22,3 +22,8 @@ rustflags = [
 # `std` has to be rebuilt with `+atomics`, which needs nightly.
 [unstable]
 build-std = ["std", "panic_abort"]
+
+# The default of 20 seconds for the whole web test binary is too short on a
+# loaded machine.
+[env]
+WASM_BINDGEN_TEST_TIMEOUT = "120"

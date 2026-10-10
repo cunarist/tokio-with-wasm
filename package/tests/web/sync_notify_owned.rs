@@ -1,4 +1,4 @@
-use super::sync_notify::spawn;
+use crate::support::{assert_pending, assert_ready, spawn};
 use std::future::Future;
 use std::sync::Arc;
 use std::task::{Context, Wake, Waker};
@@ -12,7 +12,7 @@ fn notify_notified_one() {
   let mut notified = spawn(async { notify.clone().notified_owned().await });
 
   notify.notify_one();
-  assert!(notified.poll().is_ready());
+  assert_ready!(notified.poll());
 }
 
 #[wasm_bindgen_test]
@@ -21,12 +21,12 @@ fn notify_multi_notified_one() {
   let mut notified1 = spawn(async { notify.clone().notified_owned().await });
   let mut notified2 = spawn(async { notify.clone().notified_owned().await });
 
-  assert!(notified1.poll().is_pending());
-  assert!(notified2.poll().is_pending());
+  assert_pending!(notified1.poll());
+  assert_pending!(notified2.poll());
 
   notify.notify_one();
-  assert!(notified1.poll().is_ready());
-  assert!(notified2.poll().is_pending());
+  assert_ready!(notified1.poll());
+  assert_pending!(notified2.poll());
 }
 
 #[wasm_bindgen_test]
@@ -35,12 +35,12 @@ fn notify_multi_notified_last() {
   let mut notified1 = spawn(async { notify.clone().notified_owned().await });
   let mut notified2 = spawn(async { notify.clone().notified_owned().await });
 
-  assert!(notified1.poll().is_pending());
-  assert!(notified2.poll().is_pending());
+  assert_pending!(notified1.poll());
+  assert_pending!(notified2.poll());
 
   notify.notify_last();
-  assert!(notified1.poll().is_pending());
-  assert!(notified2.poll().is_ready());
+  assert_pending!(notified1.poll());
+  assert_ready!(notified2.poll());
 }
 
 #[wasm_bindgen_test]
@@ -48,11 +48,11 @@ fn notified_one_notify() {
   let notify = Arc::new(Notify::new());
   let mut notified = spawn(async { notify.clone().notified_owned().await });
 
-  assert!(notified.poll().is_pending());
+  assert_pending!(notified.poll());
 
   notify.notify_one();
   assert!(notified.is_woken());
-  assert!(notified.poll().is_ready());
+  assert_ready!(notified.poll());
 }
 
 #[wasm_bindgen_test]
@@ -61,15 +61,15 @@ fn notified_multi_notify() {
   let mut notified1 = spawn(async { notify.clone().notified_owned().await });
   let mut notified2 = spawn(async { notify.clone().notified_owned().await });
 
-  assert!(notified1.poll().is_pending());
-  assert!(notified2.poll().is_pending());
+  assert_pending!(notified1.poll());
+  assert_pending!(notified2.poll());
 
   notify.notify_one();
   assert!(notified1.is_woken());
   assert!(!notified2.is_woken());
 
-  assert!(notified1.poll().is_ready());
-  assert!(notified2.poll().is_pending());
+  assert_ready!(notified1.poll());
+  assert_pending!(notified2.poll());
 }
 
 #[wasm_bindgen_test]
@@ -81,13 +81,13 @@ fn notify_notified_multi() {
   let mut notified1 = spawn(async { notify.clone().notified_owned().await });
   let mut notified2 = spawn(async { notify.clone().notified_owned().await });
 
-  assert!(notified1.poll().is_ready());
-  assert!(notified2.poll().is_pending());
+  assert_ready!(notified1.poll());
+  assert_pending!(notified2.poll());
 
   notify.notify_one();
 
   assert!(notified2.is_woken());
-  assert!(notified2.poll().is_ready());
+  assert_ready!(notified2.poll());
 }
 
 #[wasm_bindgen_test]
@@ -96,15 +96,15 @@ fn notified_drop_notified_notify() {
   let mut notified1 = spawn(async { notify.clone().notified_owned().await });
   let mut notified2 = spawn(async { notify.clone().notified_owned().await });
 
-  assert!(notified1.poll().is_pending());
+  assert_pending!(notified1.poll());
 
   drop(notified1);
 
-  assert!(notified2.poll().is_pending());
+  assert_pending!(notified2.poll());
 
   notify.notify_one();
   assert!(notified2.is_woken());
-  assert!(notified2.poll().is_ready());
+  assert_ready!(notified2.poll());
 }
 
 #[wasm_bindgen_test]
@@ -113,8 +113,8 @@ fn notified_multi_notify_drop_one() {
   let mut notified1 = spawn(async { notify.clone().notified_owned().await });
   let mut notified2 = spawn(async { notify.clone().notified_owned().await });
 
-  assert!(notified1.poll().is_pending());
-  assert!(notified2.poll().is_pending());
+  assert_pending!(notified1.poll());
+  assert_pending!(notified2.poll());
 
   notify.notify_one();
 
@@ -124,7 +124,7 @@ fn notified_multi_notify_drop_one() {
   drop(notified1);
 
   assert!(notified2.is_woken());
-  assert!(notified2.poll().is_ready());
+  assert_ready!(notified2.poll());
 }
 
 #[wasm_bindgen_test]
@@ -134,16 +134,16 @@ fn notified_multi_notify_one_drop() {
   let mut notified2 = spawn(async { notify.clone().notified_owned().await });
   let mut notified3 = spawn(async { notify.clone().notified_owned().await });
 
-  assert!(notified1.poll().is_pending());
-  assert!(notified2.poll().is_pending());
-  assert!(notified3.poll().is_pending());
+  assert_pending!(notified1.poll());
+  assert_pending!(notified2.poll());
+  assert_pending!(notified3.poll());
 
   notify.notify_one();
 
   drop(notified1);
 
-  assert!(notified2.poll().is_ready());
-  assert!(notified3.poll().is_pending());
+  assert_ready!(notified2.poll());
+  assert_pending!(notified3.poll());
 }
 
 #[wasm_bindgen_test]
@@ -153,16 +153,16 @@ fn notified_multi_notify_last_drop() {
   let mut notified2 = spawn(async { notify.clone().notified_owned().await });
   let mut notified3 = spawn(async { notify.clone().notified_owned().await });
 
-  assert!(notified1.poll().is_pending());
-  assert!(notified2.poll().is_pending());
-  assert!(notified3.poll().is_pending());
+  assert_pending!(notified1.poll());
+  assert_pending!(notified2.poll());
+  assert_pending!(notified3.poll());
 
   notify.notify_last();
 
   drop(notified3);
 
-  assert!(notified2.poll().is_ready());
-  assert!(notified1.poll().is_pending());
+  assert_ready!(notified2.poll());
+  assert_pending!(notified1.poll());
 }
 
 #[wasm_bindgen_test]
@@ -188,7 +188,7 @@ fn notify_in_drop_after_wake() {
   {
     let waker = Waker::from(Arc::new(NotifyOnDrop(notify.clone())));
     let mut cx = std::task::Context::from_waker(&waker);
-    assert!(fut.as_mut().poll(&mut cx).is_pending());
+    assert_pending!(fut.as_mut().poll(&mut cx));
   }
 
   notify.notify_waiters();
@@ -199,7 +199,7 @@ fn notify_one_after_dropped_all() {
   let notify = Arc::new(Notify::new());
   let mut notified1 = spawn(async { notify.clone().notified_owned().await });
 
-  assert!(notified1.poll().is_pending());
+  assert_pending!(notified1.poll());
 
   notify.notify_waiters();
   notify.notify_one();
@@ -208,7 +208,7 @@ fn notify_one_after_dropped_all() {
 
   let mut notified2 = spawn(async { notify.clone().notified_owned().await });
 
-  assert!(notified2.poll().is_ready());
+  assert_ready!(notified2.poll());
 }
 
 #[wasm_bindgen_test]
@@ -217,7 +217,7 @@ fn test_notify_one_not_enabled() {
   let mut future = spawn(notify.clone().notified_owned());
 
   notify.notify_one();
-  assert!(future.poll().is_ready());
+  assert_ready!(future.poll());
 }
 
 #[wasm_bindgen_test]
@@ -225,11 +225,11 @@ fn test_notify_one_after_enable() {
   let notify = Arc::new(Notify::new());
   let mut future = spawn(notify.clone().notified_owned());
 
-  future.enter(|fut| assert!(!fut.enable()));
+  future.enter(|_, fut| assert!(!fut.enable()));
 
   notify.notify_one();
-  assert!(future.poll().is_ready());
-  future.enter(|fut| assert!(fut.enable()));
+  assert_ready!(future.poll());
+  future.enter(|_, fut| assert!(fut.enable()));
 }
 
 #[wasm_bindgen_test]
@@ -237,8 +237,8 @@ fn test_poll_after_enable() {
   let notify = Arc::new(Notify::new());
   let mut future = spawn(notify.clone().notified_owned());
 
-  future.enter(|fut| assert!(!fut.enable()));
-  assert!(future.poll().is_pending());
+  future.enter(|_, fut| assert!(!fut.enable()));
+  assert_pending!(future.poll());
 }
 
 #[wasm_bindgen_test]
@@ -246,8 +246,8 @@ fn test_enable_after_poll() {
   let notify = Arc::new(Notify::new());
   let mut future = spawn(notify.clone().notified_owned());
 
-  assert!(future.poll().is_pending());
-  future.enter(|fut| assert!(!fut.enable()));
+  assert_pending!(future.poll());
+  future.enter(|_, fut| assert!(!fut.enable()));
 }
 
 #[wasm_bindgen_test]
@@ -257,10 +257,10 @@ fn test_enable_consumes_permit() {
   notify.notify_one();
 
   let mut future1 = spawn(notify.clone().notified_owned());
-  future1.enter(|fut| assert!(fut.enable()));
+  future1.enter(|_, fut| assert!(fut.enable()));
 
   let mut future2 = spawn(notify.clone().notified_owned());
-  future2.enter(|fut| assert!(!fut.enable()));
+  future2.enter(|_, fut| assert!(!fut.enable()));
 }
 
 #[wasm_bindgen_test]
@@ -269,9 +269,10 @@ fn test_waker_update() {
   let mut future = spawn(notify.clone().notified_owned());
 
   let noop = Waker::noop();
-  future.enter(|fut| assert!(fut.poll(&mut Context::from_waker(noop)).is_pending()));
+  future
+    .enter(|_, fut| assert_pending!(fut.poll(&mut Context::from_waker(noop))));
 
-  assert!(future.poll().is_pending());
+  assert_pending!(future.poll());
   notify.notify_one();
 
   assert!(future.is_woken());

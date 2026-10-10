@@ -8,17 +8,18 @@ mod macros_pin;
 mod macros_select;
 mod macros_try_join;
 mod rt_common;
+mod support;
 mod sync_barrier;
 mod sync_broadcast;
 mod sync_broadcast_weak;
 mod sync_errors;
-mod sync_once_cell;
 mod sync_mpsc;
 mod sync_mpsc_weak;
 mod sync_mutex;
 mod sync_mutex_owned;
 mod sync_notify;
 mod sync_notify_owned;
+mod sync_once_cell;
 mod sync_oneshot;
 mod sync_rwlock;
 mod sync_semaphore;
@@ -32,13 +33,3 @@ mod task_yield_now;
 mod time_interval;
 mod time_sleep;
 mod time_timeout;
-
-/// Asserts that `ms` milliseconds have passed since `start`, allowing for
-/// the rounding of `Date.now`.
-fn assert_elapsed(start: f64, ms: u64) {
-  let elapsed = js_sys::Date::now() - start;
-  assert!(
-    elapsed + 1.0 >= ms as f64,
-    "only {elapsed}ms of {ms}ms passed"
-  );
-}

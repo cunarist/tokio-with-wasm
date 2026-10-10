@@ -1,56 +1,11 @@
-use std::future::Future;
-use std::pin::Pin;
+use crate::support::{
+  assert_pending, assert_ready, assert_ready_err, assert_ready_ok, spawn,
+};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
-use std::task::{Context, Poll, Wake, Waker};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio_with_wasm::alias as tokio;
 use wasm_bindgen_test::wasm_bindgen_test;
-
-struct Flag(AtomicBool);
-
-impl Wake for Flag {
-  fn wake(self: Arc<Self>) {
-    self.0.store(true, SeqCst);
-  }
-}
-
-struct Task<F> {
-  fut: Pin<Box<F>>,
-  flag: Arc<Flag>,
-}
-
-impl<F: Future> Task<F> {
-  fn new(fut: F) -> Self {
-    let flag = Arc::new(Flag(AtomicBool::new(false)));
-    Self {
-      fut: Box::pin(fut),
-      flag,
-    }
-  }
-
-  fn poll(&mut self) -> Poll<F::Output> {
-    self.flag.0.store(false, SeqCst);
-    let waker = Waker::from(self.flag.clone());
-    self.fut.as_mut().poll(&mut Context::from_waker(&waker))
-  }
-
-  fn pending(&mut self) {
-    assert!(self.poll().is_pending());
-  }
-
-  fn ready(&mut self) -> F::Output {
-    match self.poll() {
-      Poll::Ready(value) => value,
-      Poll::Pending => panic!("future is pending"),
-    }
-  }
-
-  fn is_woken(&self) -> bool {
-    self.flag.0.load(SeqCst)
-  }
-}
 
 struct NoImpls;
 
@@ -114,10 +69,10 @@ async fn reserve_disarm() {
   let permit1 = tx1.reserve().await.unwrap();
   let permit2 = tx2.reserve().await.unwrap();
 
-  let mut r3 = Task::new(tx3.reserve());
-  r3.pending();
-  let mut r4 = Task::new(tx4.reserve());
-  r4.pending();
+  let mut r3 = spawn(tx3.reserve());
+  assert_pending!(r3.poll());
+  let mut r4 = spawn(tx4.reserve());
+  assert_pending!(r4.poll());
 
   permit1.send(1);
   assert!(!r3.is_woken());
@@ -128,7 +83,7 @@ async fn reserve_disarm() {
   drop(permit2);
   assert!(r4.is_woken());
 
-  Task::new(tx1.reserve()).pending();
+  assert_pending!(spawn(tx1.reserve()).poll());
 }
 
 #[wasm_bindgen_test]
@@ -173,12 +128,12 @@ async fn start_send_past_cap() {
   let tx2 = tx1.clone();
   tx1.try_send(()).unwrap();
 
-  let mut r1 = Task::new(tx1.reserve());
-  r1.pending();
+  let mut r1 = spawn(tx1.reserve());
+  assert_pending!(r1.poll());
 
   {
-    let mut r2 = Task::new(tx2.reserve());
-    r2.pending();
+    let mut r2 = spawn(tx2.reserve());
+    assert_pending!(r2.poll());
 
     drop(r1);
     assert!(rx.recv().await.is_some());
@@ -353,14 +308,14 @@ async fn send_recv_buffer_limited() {
 
   tx.reserve().await.unwrap().send(1);
 
-  let mut p2 = Task::new(tx.reserve());
-  p2.pending();
+  let mut p2 = spawn(tx.reserve());
+  assert_pending!(p2.poll());
 
   assert!(rx.recv().await.is_some());
   assert!(p2.is_woken());
   assert!(tx.try_send(1337).is_err());
 
-  p2.ready().unwrap().send(2);
+  assert_ready_ok!(p2.poll()).send(2);
   assert!(rx.recv().await.is_some());
 }
 
@@ -378,19 +333,19 @@ async fn recv_close_gets_none_reserved() {
   let tx2 = tx1.clone();
 
   let permit1 = tx1.reserve().await.unwrap();
-  let mut permit2 = Task::new(tx2.reserve());
-  permit2.pending();
+  let mut permit2 = spawn(tx2.reserve());
+  assert_pending!(permit2.poll());
 
   rx.close();
   assert!(permit2.is_woken());
-  assert!(permit2.ready().is_err());
+  assert_ready_err!(permit2.poll());
 
   {
-    let mut recv = Task::new(rx.recv());
-    recv.pending();
+    let mut recv = spawn(rx.recv());
+    assert_pending!(recv.poll());
     permit1.send(123);
     assert!(recv.is_woken());
-    assert_eq!(recv.ready(), Some(123));
+    assert_eq!(assert_ready!(recv.poll()), Some(123));
   }
 
   assert!(rx.recv().await.is_none());
@@ -401,19 +356,19 @@ fn failed_reserve_many_wakes_closed_receiver() {
   let (tx, mut rx) = mpsc::channel::<()>(2);
   let permit = tx.try_reserve().unwrap();
 
-  let mut reserve = Task::new(tx.reserve_many(2));
-  reserve.pending();
+  let mut reserve = spawn(tx.reserve_many(2));
+  assert_pending!(reserve.poll());
 
   rx.close();
-  let mut recv = Task::new(rx.recv());
-  recv.pending();
+  let mut recv = spawn(rx.recv());
+  assert_pending!(recv.poll());
 
   drop(permit);
   assert!(!recv.is_woken());
 
-  assert!(reserve.ready().is_err());
+  assert_ready_err!(reserve.poll());
   assert!(recv.is_woken());
-  recv.ready();
+  assert_ready!(recv.poll());
 }
 
 #[wasm_bindgen_test]
@@ -421,19 +376,19 @@ fn cancelled_reserve_many_wakes_closed_receiver() {
   let (tx, mut rx) = mpsc::channel::<()>(2);
   let permit = tx.try_reserve().unwrap();
 
-  let mut reserve = Task::new(tx.reserve_many(2));
-  reserve.pending();
+  let mut reserve = spawn(tx.reserve_many(2));
+  assert_pending!(reserve.poll());
 
   rx.close();
-  let mut recv = Task::new(rx.recv());
-  recv.pending();
+  let mut recv = spawn(rx.recv());
+  assert_pending!(recv.poll());
 
   drop(permit);
   assert!(!recv.is_woken());
 
   drop(reserve);
   assert!(recv.is_woken());
-  recv.ready();
+  assert_ready!(recv.poll());
 }
 
 #[wasm_bindgen_test]
@@ -441,19 +396,19 @@ fn failed_reserve_wakes_closed_receiver() {
   let (tx, mut rx) = mpsc::channel::<()>(1);
   let permit = tx.try_reserve().unwrap();
 
-  let mut reserve = Task::new(tx.reserve());
-  reserve.pending();
+  let mut reserve = spawn(tx.reserve());
+  assert_pending!(reserve.poll());
 
   drop(permit);
   assert!(reserve.is_woken());
 
   rx.close();
-  let mut recv = Task::new(rx.recv());
-  recv.pending();
+  let mut recv = spawn(rx.recv());
+  assert_pending!(recv.poll());
 
-  assert!(reserve.ready().is_err());
+  assert_ready_err!(reserve.poll());
   assert!(recv.is_woken());
-  recv.ready();
+  assert_ready!(recv.poll());
 }
 
 #[wasm_bindgen_test]
@@ -461,19 +416,19 @@ fn cancelled_reserve_wakes_closed_receiver() {
   let (tx, mut rx) = mpsc::channel::<()>(1);
   let permit = tx.try_reserve().unwrap();
 
-  let mut reserve = Task::new(tx.reserve());
-  reserve.pending();
+  let mut reserve = spawn(tx.reserve());
+  assert_pending!(reserve.poll());
 
   drop(permit);
   assert!(reserve.is_woken());
 
   rx.close();
-  let mut recv = Task::new(rx.recv());
-  recv.pending();
+  let mut recv = spawn(rx.recv());
+  assert_pending!(recv.poll());
 
   drop(reserve);
   assert!(recv.is_woken());
-  recv.ready();
+  assert_ready!(recv.poll());
 }
 
 #[wasm_bindgen_test]
@@ -655,12 +610,12 @@ async fn drop_permit_releases_permit() {
   let tx2 = tx1.clone();
 
   let permit = tx1.reserve().await.unwrap();
-  let mut reserve2 = Task::new(tx2.reserve());
-  reserve2.pending();
+  let mut reserve2 = spawn(tx2.reserve());
+  assert_pending!(reserve2.poll());
 
   drop(permit);
   assert!(reserve2.is_woken());
-  assert!(reserve2.ready().is_ok());
+  assert_ready_ok!(reserve2.poll());
 }
 
 #[wasm_bindgen_test]
@@ -670,13 +625,13 @@ async fn drop_permit_iterator_releases_permits() {
     let tx2 = tx1.clone();
 
     let permits = tx1.reserve_many(n).await.unwrap();
-    let mut reserve2 = Task::new(tx2.reserve_many(n));
-    reserve2.pending();
+    let mut reserve2 = spawn(tx2.reserve_many(n));
+    assert_pending!(reserve2.poll());
 
     drop(permits);
     assert!(reserve2.is_woken());
 
-    drop(reserve2.ready().unwrap());
+    drop(assert_ready_ok!(reserve2.poll()));
     assert_eq!(tx1.capacity(), n);
   }
 }
@@ -687,11 +642,11 @@ fn dropping_last_permit_wakes_closed_receiver() {
   let permit = tx.try_reserve().unwrap();
   rx.close();
 
-  let mut recv = Task::new(rx.recv());
-  recv.pending();
+  let mut recv = spawn(rx.recv());
+  assert_pending!(recv.poll());
   drop(permit);
   assert!(recv.is_woken());
-  recv.ready();
+  assert_ready!(recv.poll());
 }
 
 #[wasm_bindgen_test]
@@ -700,11 +655,11 @@ fn dropping_last_owned_permit_wakes_closed_receiver() {
   let permit = tx.try_reserve_owned().unwrap();
   rx.close();
 
-  let mut recv = Task::new(rx.recv());
-  recv.pending();
+  let mut recv = spawn(rx.recv());
+  assert_pending!(recv.poll());
   drop(permit);
   assert!(recv.is_woken());
-  recv.ready();
+  assert_ready!(recv.poll());
 }
 
 #[wasm_bindgen_test]
@@ -713,11 +668,11 @@ fn dropping_last_permit_iterator_wakes_closed_receiver() {
   let permits = tx.try_reserve_many(1).unwrap();
   rx.close();
 
-  let mut recv = Task::new(rx.recv());
-  recv.pending();
+  let mut recv = spawn(rx.recv());
+  assert_pending!(recv.poll());
   drop(permits);
   assert!(recv.is_woken());
-  recv.ready();
+  assert_ready!(recv.poll());
 }
 
 #[wasm_bindgen_test]
@@ -726,11 +681,11 @@ fn sending_last_permit_wakes_closed_receiver() {
   let permit = tx.try_reserve().unwrap();
   rx.close();
 
-  let mut recv = Task::new(rx.recv());
-  recv.pending();
+  let mut recv = spawn(rx.recv());
+  assert_pending!(recv.poll());
   permit.send(());
   assert!(recv.is_woken());
-  recv.ready();
+  assert_ready!(recv.poll());
 }
 
 #[wasm_bindgen_test]
@@ -739,11 +694,11 @@ fn sending_last_owned_permit_wakes_closed_receiver() {
   let permit = tx.try_reserve_owned().unwrap();
   rx.close();
 
-  let mut recv = Task::new(rx.recv());
-  recv.pending();
+  let mut recv = spawn(rx.recv());
+  assert_pending!(recv.poll());
   permit.send(());
   assert!(recv.is_woken());
-  recv.ready();
+  assert_ready!(recv.poll());
 }
 
 #[wasm_bindgen_test]
@@ -752,11 +707,11 @@ fn releasing_last_owned_permit_wakes_closed_receiver() {
   let permit = tx.try_reserve_owned().unwrap();
   rx.close();
 
-  let mut recv = Task::new(rx.recv());
-  recv.pending();
+  let mut recv = spawn(rx.recv());
+  assert_pending!(recv.poll());
   let inert_sender = permit.release();
   assert!(recv.is_woken());
-  recv.ready();
+  assert_ready!(recv.poll());
   drop(inert_sender);
 }
 
@@ -809,11 +764,11 @@ async fn ready_close_cancel_bounded() {
   let permit = tx.reserve().await.unwrap();
   rx.close();
 
-  let mut recv = Task::new(rx.recv());
-  recv.pending();
+  let mut recv = spawn(rx.recv());
+  assert_pending!(recv.poll());
   drop(permit);
   assert!(recv.is_woken());
-  assert!(recv.ready().is_none());
+  assert!(assert_ready!(recv.poll()).is_none());
 }
 
 #[wasm_bindgen_test]
@@ -822,8 +777,8 @@ async fn permit_available_not_acquired_close() {
   let tx2 = tx1.clone();
 
   let permit1 = tx1.reserve().await.unwrap();
-  let mut permit2 = Task::new(tx2.reserve());
-  permit2.pending();
+  let mut permit2 = spawn(tx2.reserve());
+  assert_pending!(permit2.poll());
 
   rx.close();
   drop(permit1);
@@ -1301,20 +1256,11 @@ async fn is_empty_32_msgs() {
 
 #[wasm_bindgen_test]
 fn release_waker_on_rx_drop() {
-  struct DummyWaker;
-  impl Wake for DummyWaker {
-    fn wake(self: Arc<Self>) {}
-  }
-
-  let dummy = Arc::new(DummyWaker);
-  let waker = Waker::from(dummy.clone());
-  let mut cx = Context::from_waker(&waker);
-  assert_eq!(Arc::strong_count(&dummy), 2);
-
   let (_tx, mut rx) = mpsc::channel::<()>(1);
-  assert!(rx.poll_recv(&mut cx).is_pending());
-  assert_eq!(Arc::strong_count(&dummy), 3);
+  let mut task = spawn(());
+  assert_pending!(task.enter(|cx, _| rx.poll_recv(cx)));
+  assert_eq!(task.waker_ref_count(), 2);
 
   drop(rx);
-  assert_eq!(Arc::strong_count(&dummy), 2);
+  assert_eq!(task.waker_ref_count(), 1);
 }

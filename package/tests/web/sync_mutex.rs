@@ -1,21 +1,9 @@
-use std::future::Future;
-use std::pin::pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::support::{assert_pending, assert_ready, spawn};
 use std::sync::Arc;
-use std::task::{Context, Poll, Wake, Waker};
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio_with_wasm::alias as tokio;
 use wasm_bindgen_test::wasm_bindgen_test;
-
-#[derive(Default)]
-struct Wakes(AtomicUsize);
-
-impl Wake for Wakes {
-  fn wake(self: Arc<Self>) {
-    self.0.fetch_add(1, Ordering::SeqCst);
-  }
-}
 
 #[wasm_bindgen_test]
 fn straight_execution() {
@@ -29,18 +17,16 @@ fn straight_execution() {
 
 #[wasm_bindgen_test]
 fn readiness() {
-  let l = Arc::new(Mutex::new(100));
-  let wakes = Arc::new(Wakes::default());
-  let waker = Waker::from(wakes.clone());
-  let mut cx = Context::from_waker(&waker);
+  let l = Mutex::new(100);
+  let mut t1 = spawn(l.lock());
+  let mut t2 = spawn(l.lock());
 
-  let g = l.try_lock().unwrap();
-  let mut t = pin!(l.lock());
-  assert!(t.as_mut().poll(&mut cx).is_pending());
+  let g = assert_ready!(t1.poll());
+  assert_pending!(t2.poll());
 
   drop(g);
-  assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
-  assert!(matches!(t.as_mut().poll(&mut cx), Poll::Ready(_)));
+  assert!(t2.is_woken());
+  let _t2 = assert_ready!(t2.poll());
 }
 
 #[wasm_bindgen_test]

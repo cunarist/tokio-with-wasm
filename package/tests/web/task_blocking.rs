@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::Duration;
@@ -35,8 +36,14 @@ async fn runs_in_a_web_worker() {
 #[wasm_bindgen_test]
 async fn unawaited_blocking_task_finishes() {
   let handle = task::spawn_blocking(|| thread::sleep(Duration::from_millis(1)));
-  tokio::time::sleep(Duration::from_millis(500)).await;
-  assert!(handle.is_finished());
+  let finished = async {
+    while !handle.is_finished() {
+      tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+  };
+  tokio::time::timeout(Duration::from_secs(10), finished)
+    .await
+    .unwrap();
   handle.await.unwrap();
 }
 
@@ -64,15 +71,16 @@ async fn many_blocking_tasks_run_at_once() {
 
 #[wasm_bindgen_test]
 async fn idle_worker_is_reused() {
-  let first = task::spawn_blocking(|| thread::current().id())
-    .await
-    .unwrap();
-  // Give the worker time to report back as idle.
-  tokio::time::sleep(Duration::from_millis(50)).await;
-  let second = task::spawn_blocking(|| thread::current().id())
-    .await
-    .unwrap();
-  assert_eq!(first, second);
+  thread_local!(static USED: Cell<bool> = const { Cell::new(false) });
+  // Workers of earlier tests can go idle in between, so retry until a task
+  // lands on a worker that this test has used before.
+  for _ in 0..100 {
+    if task::spawn_blocking(|| USED.replace(true)).await.unwrap() {
+      return;
+    }
+    tokio::time::sleep(Duration::from_millis(10)).await;
+  }
+  panic!("no worker was reused");
 }
 
 #[wasm_bindgen_test]

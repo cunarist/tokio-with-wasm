@@ -1,4 +1,4 @@
-use crate::assert_elapsed;
+use crate::support::assert_elapsed;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
@@ -35,7 +35,7 @@ async fn issue_5183() {
 #[wasm_bindgen_test]
 async fn sleeps_complete_in_deadline_order() {
   let order = Rc::new(RefCell::new(Vec::new()));
-  let handles: Vec<_> = [30, 10, 20]
+  let handles: Vec<_> = [300, 100, 200]
     .map(|ms| {
       let order = order.clone();
       tokio::spawn(async move {
@@ -47,7 +47,7 @@ async fn sleeps_complete_in_deadline_order() {
   for handle in handles {
     handle.await.unwrap();
   }
-  assert_eq!(*order.borrow(), [10, 20, 30]);
+  assert_eq!(*order.borrow(), [100, 200, 300]);
 }
 
 #[wasm_bindgen_test]

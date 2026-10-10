@@ -1,89 +1,15 @@
+use crate::support::{
+  assert_err, assert_ok, assert_pending, assert_ready, assert_ready_err,
+  assert_ready_ok, spawn,
+};
 use std::future::Future;
-use std::pin::{Pin, pin};
+use std::pin::pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::task::{Context, Poll, Wake, Waker};
-
+use std::task::{Context, Wake, Waker};
 use tokio::sync::broadcast;
 use tokio_with_wasm::alias as tokio;
 use wasm_bindgen_test::wasm_bindgen_test;
-
-struct Flag(AtomicBool);
-
-impl Wake for Flag {
-  fn wake(self: Arc<Self>) {
-    self.0.store(true, Ordering::SeqCst);
-  }
-}
-
-struct Task<F> {
-  fut: Pin<Box<F>>,
-  flag: Arc<Flag>,
-}
-
-fn spawn<F: Future>(fut: F) -> Task<F> {
-  Task {
-    fut: Box::pin(fut),
-    flag: Arc::new(Flag(AtomicBool::new(false))),
-  }
-}
-
-impl<F: Future> Task<F> {
-  fn poll(&mut self) -> Poll<F::Output> {
-    self.flag.0.store(false, Ordering::SeqCst);
-    let waker = Waker::from(self.flag.clone());
-    self.fut.as_mut().poll(&mut Context::from_waker(&waker))
-  }
-
-  fn is_woken(&self) -> bool {
-    self.flag.0.load(Ordering::SeqCst)
-  }
-}
-
-macro_rules! assert_ok {
-  ($e:expr) => {
-    match $e {
-      Ok(v) => v,
-      Err(e) => panic!("expected ok; got = {:?}", e),
-    }
-  };
-}
-
-macro_rules! assert_err {
-  ($e:expr) => {
-    match $e {
-      Ok(v) => panic!("expected err; got = {:?}", v),
-      Err(e) => e,
-    }
-  };
-}
-
-macro_rules! assert_pending {
-  ($e:expr) => {
-    assert!($e.is_pending())
-  };
-}
-
-macro_rules! assert_ready {
-  ($e:expr) => {
-    match $e {
-      Poll::Ready(v) => v,
-      Poll::Pending => panic!("expected ready"),
-    }
-  };
-}
-
-macro_rules! assert_ready_ok {
-  ($e:expr) => {
-    assert_ok!(assert_ready!($e))
-  };
-}
-
-macro_rules! assert_ready_err {
-  ($e:expr) => {
-    assert_err!(assert_ready!($e))
-  };
-}
 
 macro_rules! assert_recv {
   ($e:expr) => {
@@ -106,7 +32,7 @@ macro_rules! assert_empty {
 
 macro_rules! assert_lagged {
   ($e:expr, $n:expr) => {
-    match assert_err!($e) {
+    match $crate::support::assert_err!($e) {
       broadcast::error::TryRecvError::Lagged(n) => {
         assert_eq!(n, $n);
       }
@@ -117,7 +43,7 @@ macro_rules! assert_lagged {
 
 macro_rules! assert_closed {
   ($e:expr) => {
-    match assert_err!($e) {
+    match $crate::support::assert_err!($e) {
       broadcast::error::TryRecvError::Closed => {}
       _ => panic!("is not closed"),
     }

@@ -1,60 +1,9 @@
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use crate::support::{assert_pending, assert_ready, spawn};
 use std::sync::Arc;
-use std::task::{Context, Poll, Wake, Waker};
-
+use std::task::Poll;
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use tokio_with_wasm::alias as tokio;
 use wasm_bindgen_test::wasm_bindgen_test;
-
-struct Flag(AtomicBool);
-
-impl Wake for Flag {
-  fn wake(self: Arc<Self>) {
-    self.0.store(true, Ordering::SeqCst);
-  }
-}
-
-/// A future polled by hand, remembering whether it was woken.
-struct Spawn<F> {
-  fut: Pin<Box<F>>,
-  flag: Arc<Flag>,
-}
-
-fn spawn<F: Future>(fut: F) -> Spawn<F> {
-  Spawn {
-    fut: Box::pin(fut),
-    flag: Arc::new(Flag(AtomicBool::new(false))),
-  }
-}
-
-impl<F: Future> Spawn<F> {
-  fn poll(&mut self) -> Poll<F::Output> {
-    self.flag.0.store(false, Ordering::SeqCst);
-    let waker = Waker::from(self.flag.clone());
-    self.fut.as_mut().poll(&mut Context::from_waker(&waker))
-  }
-
-  fn is_woken(&self) -> bool {
-    self.flag.0.load(Ordering::SeqCst)
-  }
-}
-
-macro_rules! assert_ready {
-  ($e:expr) => {
-    match $e {
-      Poll::Ready(v) => v,
-      Poll::Pending => panic!("expected Ready"),
-    }
-  };
-}
-
-macro_rules! assert_pending {
-  ($e:expr) => {
-    assert!($e.is_pending(), "expected Pending")
-  };
-}
 
 #[wasm_bindgen_test]
 fn into_inner() {
@@ -257,8 +206,9 @@ async fn try_downgrade_map() {
   .expect_err("downgrade didn't fail");
   assert_pending!(read_t.poll());
 
-  let read_guard1 = RwLockWriteGuard::try_downgrade_map(write_guard, |v| Some(v))
-    .expect("downgrade didn't succeed");
+  let read_guard1 =
+    RwLockWriteGuard::try_downgrade_map(write_guard, |v| Some(v))
+      .expect("downgrade didn't succeed");
   let read_guard2 = assert_ready!(read_t.poll());
   assert_eq!(&*read_guard1 as *const _, &*read_guard2 as *const _);
 }

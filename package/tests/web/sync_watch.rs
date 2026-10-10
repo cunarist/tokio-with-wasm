@@ -1,69 +1,9 @@
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::task::{Context, Poll, Wake, Waker};
-
+use crate::support::{
+  assert_pending, assert_ready, assert_ready_err, assert_ready_ok, spawn,
+};
 use tokio::sync::watch;
 use tokio_with_wasm::alias as tokio;
 use wasm_bindgen_test::wasm_bindgen_test;
-
-#[derive(Default)]
-struct Flag(AtomicBool);
-
-impl Wake for Flag {
-  fn wake(self: Arc<Self>) {
-    self.0.store(true, Ordering::SeqCst);
-  }
-}
-
-struct Task<F> {
-  fut: Pin<Box<F>>,
-  flag: Arc<Flag>,
-}
-
-fn spawn<F: Future>(fut: F) -> Task<F> {
-  Task {
-    fut: Box::pin(fut),
-    flag: Arc::default(),
-  }
-}
-
-impl<F: Future> Task<F> {
-  fn poll(&mut self) -> Poll<F::Output> {
-    self.flag.0.store(false, Ordering::SeqCst);
-    let waker = Waker::from(self.flag.clone());
-    self.fut.as_mut().poll(&mut Context::from_waker(&waker))
-  }
-
-  fn is_woken(&self) -> bool {
-    self.flag.0.load(Ordering::SeqCst)
-  }
-}
-
-macro_rules! assert_pending {
-  ($e:expr) => {
-    assert!($e.is_pending())
-  };
-}
-
-macro_rules! assert_ready_ok {
-  ($e:expr) => {
-    match $e {
-      Poll::Ready(Ok(v)) => v,
-      other => panic!("expected ready ok, got {:?}", other.map(|r| r.is_ok())),
-    }
-  };
-}
-
-macro_rules! assert_ready_err {
-  ($e:expr) => {
-    match $e {
-      Poll::Ready(Err(e)) => e,
-      other => panic!("expected ready err, got {:?}", other.map(|r| r.is_ok())),
-    }
-  };
-}
 
 #[wasm_bindgen_test]
 fn single_rx_recv() {
@@ -357,7 +297,7 @@ fn multiple_sender() {
   tx1.send(1).unwrap();
   assert_pending!(t.poll());
   tx2.send(2).unwrap();
-  assert_eq!(t.poll(), Poll::Ready((1, 2)));
+  assert_eq!(assert_ready!(t.poll()), (1, 2));
 }
 
 #[wasm_bindgen_test]

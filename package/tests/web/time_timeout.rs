@@ -1,9 +1,6 @@
-use crate::assert_elapsed;
-use std::future::{Future, pending};
+use crate::support::{assert_elapsed, assert_pending, assert_ready_ok, spawn};
+use std::future::pending;
 use std::io;
-use std::pin::pin;
-use std::task::{Context, Poll, Waker};
-use std::thread;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::task;
@@ -13,19 +10,17 @@ use wasm_bindgen_test::wasm_bindgen_test;
 
 #[wasm_bindgen_test]
 fn simultaneous_deadline_future_completion() {
-  let fut = pin!(timeout(Duration::ZERO, async {}));
-  let mut cx = Context::from_waker(Waker::noop());
-  assert!(matches!(fut.poll(&mut cx), Poll::Ready(Ok(()))));
+  let mut fut = spawn(timeout(Duration::ZERO, async {}));
+  assert_ready_ok!(fut.poll());
 }
 
 #[wasm_bindgen_test]
 fn future_and_timeout_in_future() {
   let (tx, rx) = oneshot::channel();
-  let mut fut = pin!(timeout(Duration::from_millis(100), rx));
-  let mut cx = Context::from_waker(Waker::noop());
-  assert!(fut.as_mut().poll(&mut cx).is_pending());
+  let mut fut = spawn(timeout(Duration::from_millis(100), rx));
+  assert_pending!(fut.poll());
   tx.send(()).unwrap();
-  assert!(matches!(fut.poll(&mut cx), Poll::Ready(Ok(Ok(())))));
+  assert_ready_ok!(fut.poll()).unwrap();
 }
 
 #[wasm_bindgen_test]
@@ -75,8 +70,10 @@ async fn timeout_around_spawn_blocking() {
       .unwrap(),
     42
   );
-  let slow = task::spawn_blocking(|| thread::sleep(Duration::from_millis(500)));
+  let (tx, rx) = oneshot::channel::<()>();
+  let slow = task::spawn_blocking(move || rx.blocking_recv());
   assert!(timeout(Duration::from_millis(10), slow).await.is_err());
+  drop(tx);
 }
 
 #[wasm_bindgen_test]
