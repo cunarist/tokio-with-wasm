@@ -107,3 +107,48 @@ impl<T> Drop for LocalReceiver<T> {
     shared.closed = true;
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::glue::common::tests::counting_waker;
+  use wasm_bindgen_test::wasm_bindgen_test;
+
+  fn poll<T>(rx: &mut LocalReceiver<T>, cx: &mut Context) -> Poll<Option<T>> {
+    Pin::new(&mut rx.next()).poll(cx)
+  }
+
+  #[wasm_bindgen_test]
+  fn receives_in_order_then_none_after_close() {
+    let (tx, mut rx) = local_channel();
+    tx.send(1);
+    tx.send(2);
+    drop(tx);
+    let mut cx = Context::from_waker(Waker::noop());
+    assert_eq!(poll(&mut rx, &mut cx), Poll::Ready(Some(1)));
+    assert_eq!(poll(&mut rx, &mut cx), Poll::Ready(Some(2)));
+    assert_eq!(poll(&mut rx, &mut cx), Poll::Ready(None));
+  }
+
+  #[wasm_bindgen_test]
+  fn send_wakes_receiver() {
+    let (tx, mut rx) = local_channel();
+    let (waker, count) = counting_waker();
+    let mut cx = Context::from_waker(&waker);
+    assert!(poll(&mut rx, &mut cx).is_pending());
+    tx.send(1);
+    assert_eq!(count.get(), 1);
+    assert_eq!(poll(&mut rx, &mut cx), Poll::Ready(Some(1)));
+  }
+
+  #[wasm_bindgen_test]
+  fn dropping_sender_wakes_receiver() {
+    let (tx, mut rx) = local_channel::<i32>();
+    let (waker, count) = counting_waker();
+    let mut cx = Context::from_waker(&waker);
+    assert!(poll(&mut rx, &mut cx).is_pending());
+    drop(tx);
+    assert_eq!(count.get(), 1);
+    assert_eq!(poll(&mut rx, &mut cx), Poll::Ready(None));
+  }
+}
