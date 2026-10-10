@@ -6,4 +6,4 @@ The README says never to panic in `spawn` or `spawn_blocking`, since wasm can't 
 
 - In `spawn`, the future's memory leaks.
 - In `spawn_blocking`, the worker also keeps its pool slot, so after 512 panics every later `spawn_blocking` hangs.
-- Catching the trap in the worker script, freeing the worker with `__wbindgen_thread_destroy`, or failing tasks from a panic hook was judged not worth the code.
+- Workarounds for the trap (a worker-script rethrow, `__wbindgen_thread_destroy`, a panic hook) were judged not worth the code. The plan is real unwinding with `-Cpanic=unwind` (#67).
