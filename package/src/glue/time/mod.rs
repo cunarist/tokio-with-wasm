@@ -19,11 +19,19 @@ use wasm_bindgen::prelude::{Closure, JsCast};
 use wasm_bindgen_futures::JsFuture;
 
 async fn time_future(duration: Duration) {
-  let milliseconds = duration.as_millis() as f64;
-  let promise = Promise::new(&mut |resolve, _reject| {
-    set_timeout(&resolve, milliseconds);
-  });
-  JsFuture::from(promise).await.log_error("TIME_FUTURE");
+  let mut remaining = duration.as_millis();
+  // `setTimeout` fires at once for delays above `i32::MAX`, so wait in steps.
+  loop {
+    let step = remaining.min(i32::MAX as u128);
+    let promise = Promise::new(&mut |resolve, _reject| {
+      set_timeout(&resolve, step as f64);
+    });
+    JsFuture::from(promise).await.log_error("TIME_FUTURE");
+    remaining -= step;
+    if remaining == 0 {
+      break;
+    }
+  }
 }
 
 /// Waits until `duration` has elapsed.

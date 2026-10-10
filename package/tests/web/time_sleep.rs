@@ -69,3 +69,12 @@ async fn sleeps_run_concurrently() {
   assert_elapsed(now, 100);
   assert!(js_sys::Date::now() - now < 1000.0);
 }
+
+#[wasm_bindgen_test]
+async fn long_sleep_does_not_fire_early() {
+  for duration in [Duration::from_secs(30 * 24 * 3600), Duration::MAX] {
+    let result =
+      time::timeout(Duration::from_millis(50), time::sleep(duration));
+    assert!(result.await.is_err());
+  }
+}
