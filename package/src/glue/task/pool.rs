@@ -108,6 +108,8 @@ impl WorkerPool {
     let options = WorkerOptions::new();
     options.set_type(WorkerType::Module);
     let worker = Worker::new_with_options(&url, &options)?;
+    // The worker resolved the URL on construction, so the blob can be freed.
+    Url::revoke_object_url(&url)?;
 
     // With a worker spun up send it the module/memory so it can start
     // instantiating the wasm module. Later it might receive further

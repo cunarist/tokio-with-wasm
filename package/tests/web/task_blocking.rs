@@ -4,7 +4,7 @@ use std::thread;
 use std::time::Duration;
 use tokio::task;
 use tokio_with_wasm::alias as tokio;
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_test::wasm_bindgen_test;
 use web_sys::DedicatedWorkerGlobalScope;
 
@@ -139,4 +139,38 @@ async fn culled_workers_free_their_memory() {
   }
   // Each leaked worker would hold a 2 MB stack.
   assert!(sizes[1] - sizes[0] < 8 << 20, "{sizes:?}");
+}
+
+#[wasm_bindgen_test]
+async fn worker_script_urls_are_revoked() {
+  let all_revoked = js_sys::Function::new_no_args(
+    "
+    const { createObjectURL, revokeObjectURL } = URL;
+    const urls = new Set();
+    let created = 0;
+    URL.createObjectURL = blob => {
+      const url = createObjectURL(blob);
+      // The test runner wraps worker scripts in blobs of its own type.
+      if (blob.type === 'text/javascript') urls.add(url), created++;
+      return url;
+    };
+    URL.revokeObjectURL = url => (urls.delete(url), revokeObjectURL(url));
+    return () => created > 0 && urls.size === 0;
+    ",
+  )
+  .call0(&JsValue::NULL)
+  .unwrap()
+  .unchecked_into::<js_sys::Function>();
+  // More tasks at once than other tests leave idle, so new workers start.
+  let barrier = Arc::new(Barrier::new(64));
+  let handles: Vec<_> = (0..64)
+    .map(|_| {
+      let barrier = barrier.clone();
+      task::spawn_blocking(move || drop(barrier.wait()))
+    })
+    .collect();
+  for handle in handles {
+    handle.await.unwrap();
+  }
+  assert_eq!(all_revoked.call0(&JsValue::NULL).unwrap(), JsValue::TRUE);
 }
