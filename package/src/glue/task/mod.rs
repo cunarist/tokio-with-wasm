@@ -183,7 +183,7 @@ where
   let (join_sender, join_receiver) = once_channel();
   let (cancel_sender, cancel_receiver) = once_channel::<()>();
   spawn_local(async move {
-    let task = SelectFuture::new(
+    let job = SelectFuture::new(
       async move {
         let output = future.await;
         Ok(output)
@@ -194,7 +194,7 @@ where
       },
     );
     #[cfg(target_feature = "atomics")]
-    let task = {
+    let job = {
       use crate::queue_microtask;
       use std::future::poll_fn;
       use wasm_bindgen::prelude::{Closure, JsCast};
@@ -204,7 +204,7 @@ where
       // This doesn't guarantee the browser a turn (Firefox runs no timers in
       // between), so long busy loops should call `yield_now`.
       let mut polls = 0;
-      let mut task = task;
+      let mut job = job;
       poll_fn(move |cx| {
         polls += 1;
         if polls == 128 {
@@ -214,10 +214,10 @@ where
           queue_microtask(wake.unchecked_ref());
           return Poll::Pending;
         }
-        Pin::new(&mut task).poll(cx)
+        Pin::new(&mut job).poll(cx)
       })
     };
-    let result = task.await;
+    let result = job.await;
     join_sender.send(result);
   });
   JoinHandle {
