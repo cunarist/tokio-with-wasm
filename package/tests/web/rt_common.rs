@@ -1,4 +1,5 @@
 use crate::support::assert_elapsed;
+use std::cell::Cell;
 use std::rc::Rc;
 use std::thread;
 use std::time::Duration;
@@ -158,4 +159,36 @@ async fn complete_task_under_load() {
   });
   rx2.await.unwrap();
   spin.abort();
+}
+
+// Web-only: a task whose futures keep waking each other must still let
+// other tasks run.
+#[wasm_bindgen_test]
+async fn busy_task_lets_others_run() {
+  // Bounds the busy task, so that starvation fails instead of hanging.
+  const MAX_ROUNDS: usize = 100_000;
+  let running = Rc::new(Cell::new(true));
+  let (tx1, mut rx1) = mpsc::unbounded_channel();
+  let (tx2, mut rx2) = mpsc::unbounded_channel();
+  let ping = {
+    let running = running.clone();
+    async move {
+      let mut rounds = 0;
+      while running.get() && rounds < MAX_ROUNDS {
+        tx1.send(()).unwrap();
+        rx2.recv().await.unwrap();
+        rounds += 1;
+      }
+      rounds
+    }
+  };
+  let pong = async move {
+    while rx1.recv().await.is_some() {
+      tx2.send(()).unwrap();
+    }
+  };
+  let busy = tokio::spawn(async move { tokio::join!(ping, pong).0 });
+  tokio::spawn(async {}).await.unwrap();
+  running.set(false);
+  assert!(busy.await.unwrap() < MAX_ROUNDS, "starved");
 }

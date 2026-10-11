@@ -183,7 +183,7 @@ where
   let (join_sender, join_receiver) = once_channel();
   let (cancel_sender, cancel_receiver) = once_channel::<()>();
   spawn_local(async move {
-    let result = SelectFuture::new(
+    let job = SelectFuture::new(
       async move {
         let output = future.await;
         Ok(output)
@@ -192,8 +192,32 @@ where
         cancel_receiver.await;
         Err(JoinError { cancelled: true })
       },
-    )
-    .await;
+    );
+    #[cfg(target_feature = "atomics")]
+    let job = {
+      use crate::queue_microtask;
+      use std::future::poll_fn;
+      use wasm_bindgen::prelude::{Closure, JsCast};
+      // A task that keeps waking itself would starve other tasks, so every 128
+      // polls, following tokio's coop budget, it waits once for them to run.
+      // Only `+atomics` needs this: js-sys re-polls a self-woken task inline.
+      // This doesn't guarantee the browser a turn (Firefox runs no timers in
+      // between), so long busy loops should call `yield_now`.
+      let mut polls = 0;
+      let mut job = job;
+      poll_fn(move |cx| {
+        polls += 1;
+        if polls == 128 {
+          polls = 0;
+          let waker = cx.waker().clone();
+          let wake = Closure::once_into_js(move || waker.wake());
+          queue_microtask(wake.unchecked_ref());
+          return Poll::Pending;
+        }
+        Pin::new(&mut job).poll(cx)
+      })
+    };
+    let result = job.await;
     join_sender.send(result);
   });
   JoinHandle {
@@ -283,6 +307,9 @@ where
 /// The async task may resume when it has its turn back.
 /// Meanwhile, any other pending tasks will be scheduled
 /// by the JavaScript runtime.
+///
+/// It also yields to the browser (timers, input, rendering),
+/// so busy loops should call it to keep the page responsive.
 pub async fn yield_now() {
   let promise = Promise::new(&mut |resolve, _reject| {
     set_timeout(&resolve, 0.0);
