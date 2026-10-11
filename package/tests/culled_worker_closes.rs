@@ -16,7 +16,7 @@ wasm_bindgen_test_configure!(run_in_browser);
 #[wasm_bindgen_test]
 async fn culled_worker_closes_without_thread_destroy() {
   set_path_provider(|| {
-    // Wraps the real script, so that `init` resolves to no exports
+    // Wraps the real script: `init` resolves to no exports,
     // and the worker holds a lock for as long as it lives.
     let wrap = js_sys::Function::new_with_args(
       "path",
@@ -24,15 +24,12 @@ async fn culled_worker_closes_without_thread_destroy() {
       const source = `
         import init from '${path}';
         export * from '${path}';
-        export default async module => {
-          await init(module);
+        export default m => init(m).then(() => {
           navigator.locks.request('worker', () => new Promise(() => {}));
           return {};
-        };
+        });
       `;
-      return URL.createObjectURL(
-        new Blob([source], { type: 'text/javascript' }),
-      );
+      return URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
       ",
     );
     let path = JsValue::from_str(&get_script_path()?);

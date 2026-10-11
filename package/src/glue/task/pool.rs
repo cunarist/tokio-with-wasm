@@ -93,7 +93,7 @@ impl WorkerPool {
               // Frees this thread's stack and TLS, so no wasm call may follow.
               wasm.__wbindgen_thread_destroy();
             }} catch (error) {{
-              // The rejection might go unreported once the worker closes:
+              // Log it here, as the worker closes right after.
               console.error(error);
             }} finally {{
               close();
