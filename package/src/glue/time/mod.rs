@@ -19,7 +19,7 @@ use wasm_bindgen::prelude::{Closure, JsCast};
 /// A JavaScript timer, cleared when dropped so that it frees its closure.
 struct Timer {
   id: i32,
-  _closure: Closure<dyn FnMut()>,
+  closure: Closure<dyn FnMut()>,
 }
 
 impl Drop for Timer {
@@ -35,12 +35,10 @@ async fn time_future(duration: Duration) {
     let step = remaining.min(i32::MAX as u128);
     let (tx, mut rx) = local_channel();
     let closure = Closure::once(move || tx.send(()));
-    let id = set_timeout(closure.as_ref().unchecked_ref(), step as f64);
-    let _timer = Timer {
-      id,
-      _closure: closure,
-    };
+    let mut timer = Timer { id: 0, closure };
+    timer.id = set_timeout(timer.closure.as_ref().unchecked_ref(), step as f64);
     rx.next().await;
+    drop(timer);
     remaining -= step;
     if remaining == 0 {
       break;
