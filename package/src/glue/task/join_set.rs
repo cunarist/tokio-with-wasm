@@ -4,14 +4,12 @@
 //! of spawned tasks and allows asynchronously awaiting the output of those
 //! tasks as they complete. See the documentation for the [`JoinSet`] type for
 //! details.
-use crate::{
-  AbortHandle, JoinError, JoinHandle, noop_waker, spawn, spawn_blocking,
-};
+use crate::{AbortHandle, JoinError, JoinHandle, spawn, spawn_blocking};
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, Waker};
 
 /// A collection of tasks spawned in JavaScript.
 ///
@@ -162,8 +160,8 @@ impl<T: 'static> JoinSet<T> {
     }
 
     // Create an async context with a waker that does nothing.
-    let waker = noop_waker();
-    let mut cx = Context::from_waker(&waker);
+    let waker = Waker::noop();
+    let mut cx = Context::from_waker(waker);
 
     // Loop over all `JoinHandle`s to find one that's ready.
     for _ in 0..handle_count {

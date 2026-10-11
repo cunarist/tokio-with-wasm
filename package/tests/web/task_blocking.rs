@@ -127,7 +127,9 @@ async fn culled_workers_free_their_memory() {
     let handles: Vec<_> = (0..8)
       .map(|_| {
         let barrier = barrier.clone();
-        task::spawn_blocking(move || drop(barrier.wait()))
+        task::spawn_blocking(move || {
+          barrier.wait();
+        })
       })
       .collect();
     for handle in handles {
