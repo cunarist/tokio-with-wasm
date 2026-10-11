@@ -1,4 +1,5 @@
 use crate::support::assert_elapsed;
+use std::cell::Cell;
 use std::rc::Rc;
 use std::thread;
 use std::time::Duration;
@@ -158,4 +159,36 @@ async fn complete_task_under_load() {
   });
   rx2.await.unwrap();
   spin.abort();
+}
+
+// Web-only: futures in one task that keep waking each other must still let
+// the browser run timers.
+#[wasm_bindgen_test]
+async fn ping_pong_in_one_task() {
+  // Bounds the ping-pong, so that a starved event loop fails instead of hanging.
+  const MAX_ROUNDS: usize = 100_000;
+  let running = Rc::new(Cell::new(true));
+  let (tx1, mut rx1) = mpsc::unbounded_channel();
+  let (tx2, mut rx2) = mpsc::unbounded_channel();
+  let ping = {
+    let running = running.clone();
+    async move {
+      let mut rounds = 0;
+      while running.get() && rounds < MAX_ROUNDS {
+        tx1.send(()).unwrap();
+        rx2.recv().await.unwrap();
+        rounds += 1;
+      }
+      rounds
+    }
+  };
+  let pong = async move {
+    while rx1.recv().await.is_some() {
+      tx2.send(()).unwrap();
+    }
+  };
+  let handle = tokio::spawn(async move { tokio::join!(ping, pong).0 });
+  tokio::task::yield_now().await;
+  running.set(false);
+  assert!(handle.await.unwrap() < MAX_ROUNDS, "timers were starved");
 }

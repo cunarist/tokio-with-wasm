@@ -8,7 +8,7 @@ mod join_set;
 mod pool;
 
 pub use join_set::*;
-use wasm_bindgen::prelude::JsValue;
+use wasm_bindgen::prelude::{Closure, JsCast, JsValue};
 
 use crate::{
   LogError, OnceReceiver, OnceSender, SelectFuture, is_main_thread,
@@ -16,14 +16,18 @@ use crate::{
 };
 use js_sys::Promise;
 use pool::WorkerPool;
+use std::cell::Cell;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::future::Future;
+use std::future::{Future, poll_fn};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use wasm_bindgen_futures::{JsFuture, spawn_local};
 
 thread_local! {
+    // Polls of spawned tasks since the event loop last ran a timer.
+    static POLLS: Cell<u32> = const { Cell::new(0) };
+    static RESET_POLLS: Closure<dyn Fn()> = Closure::new(|| POLLS.set(0));
     static WORKER_POOL: WorkerPool = {
         let worker_pool = WorkerPool::new();
         spawn_local(manage_pool());
@@ -183,7 +187,7 @@ where
   let (join_sender, join_receiver) = once_channel();
   let (cancel_sender, cancel_receiver) = once_channel::<()>();
   spawn_local(async move {
-    let result = SelectFuture::new(
+    let mut task = SelectFuture::new(
       async move {
         let output = future.await;
         Ok(output)
@@ -192,7 +196,24 @@ where
         cancel_receiver.await;
         Err(JoinError { cancelled: true })
       },
-    )
+    );
+    let result = poll_fn(|cx| {
+      let polls = POLLS.get();
+      POLLS.set(polls + 1);
+      if polls == 0 {
+        RESET_POLLS
+          .with(|reset| set_timeout(reset.as_ref().unchecked_ref(), 0.0));
+      }
+      if polls < 128 {
+        return Pin::new(&mut task).poll(cx);
+      }
+      // Like tokio's coop budget: tasks that keep waking each other would
+      // otherwise never let the browser run timers or render.
+      let waker = cx.waker().clone();
+      let wake = Closure::once_into_js(move || waker.wake());
+      set_timeout(wake.unchecked_ref(), 0.0);
+      Poll::Pending
+    })
     .await;
     join_sender.send(result);
   });
