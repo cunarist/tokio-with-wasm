@@ -93,7 +93,7 @@ fn dropped_sleeps_free_their_memory() {
       .unchecked_into::<js_sys::SharedArrayBuffer>()
       .byte_length()
   };
-  // The first round warms up the allocator; the second must not grow.
+  // The first round warms up the allocator; the second must not grow at all.
   let mut sizes = Vec::new();
   for _ in 0..2 {
     for _ in 0..100_000 {
@@ -103,5 +103,5 @@ fn dropped_sleeps_free_their_memory() {
     }
     sizes.push(memory_size());
   }
-  assert!(sizes[1] - sizes[0] < 1 << 20, "{sizes:?}");
+  assert_eq!(sizes[0], sizes[1]);
 }
