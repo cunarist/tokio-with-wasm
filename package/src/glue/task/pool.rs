@@ -89,9 +89,15 @@ impl WorkerPool {
           // until the module is fully initialised:
           const wasm = await initialised;
           if (event.data === null) {{
-            // Frees this thread's stack and TLS, so no wasm call may follow.
-            wasm.__wbindgen_thread_destroy();
-            close();
+            try {{
+              // Frees this thread's stack and TLS, so no wasm call may follow.
+              wasm.__wbindgen_thread_destroy();
+            }} catch (error) {{
+              // Log it here, as the worker closes right after.
+              console.error(error);
+            }} finally {{
+              close();
+            }}
             return;
           }}
           wasmBindings.task_worker_entry_point(event.data);
