@@ -12,7 +12,6 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::future::Future;
 use std::io;
-use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -151,7 +150,8 @@ pub struct Interval {
 impl Interval {
   /// Waits until the next tick. The first tick completes immediately.
   pub async fn tick(&mut self) {
-    if mem::take(&mut self.first) {
+    if self.first {
+      self.first = false;
       return;
     }
     self.rx.next().await;
