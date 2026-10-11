@@ -8,17 +8,17 @@ mod join_set;
 mod pool;
 
 pub use join_set::*;
-use wasm_bindgen::prelude::{Closure, JsCast, JsValue};
+use wasm_bindgen::prelude::JsValue;
 
 use crate::{
   LogError, OnceReceiver, OnceSender, SelectFuture, is_main_thread,
-  once_channel, queue_microtask, set_timeout,
+  once_channel, set_timeout,
 };
 use js_sys::Promise;
 use pool::WorkerPool;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::future::{Future, poll_fn};
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use wasm_bindgen_futures::{JsFuture, spawn_local};
@@ -183,7 +183,7 @@ where
   let (join_sender, join_receiver) = once_channel();
   let (cancel_sender, cancel_receiver) = once_channel::<()>();
   spawn_local(async move {
-    let mut task = SelectFuture::new(
+    let task = SelectFuture::new(
       async move {
         let output = future.await;
         Ok(output)
@@ -193,14 +193,23 @@ where
         Err(JoinError { cancelled: true })
       },
     );
-    // A task that keeps waking itself would starve other tasks, so every 128
-    // polls, following tokio's coop budget, it waits once for them to run. Only
-    // `+atomics` needs this: js-sys re-polls a self-woken task inline there.
-    // This doesn't guarantee the browser a turn (Firefox runs no timers in
-    // between), so long busy loops should call `yield_now`.
-    let mut polls = 0;
-    let result = poll_fn(|cx| {
-      if cfg!(target_feature = "atomics") {
+    #[cfg(target_feature = "atomics")]
+    let task = {
+      use std::future::poll_fn;
+      use wasm_bindgen::prelude::{Closure, JsCast, wasm_bindgen};
+      #[wasm_bindgen]
+      extern "C" {
+        #[wasm_bindgen(js_namespace = globalThis, js_name = queueMicrotask)]
+        fn queue_microtask(callback: &js_sys::Function);
+      }
+      // A task that keeps waking itself would starve other tasks, so every 128
+      // polls, following tokio's coop budget, it waits once for them to run.
+      // Only `+atomics` needs this: js-sys re-polls a self-woken task inline.
+      // This doesn't guarantee the browser a turn (Firefox runs no timers in
+      // between), so long busy loops should call `yield_now`.
+      let mut polls = 0;
+      let mut task = task;
+      poll_fn(move |cx| {
         polls += 1;
         if polls == 128 {
           polls = 0;
@@ -209,10 +218,10 @@ where
           queue_microtask(wake.unchecked_ref());
           return Poll::Pending;
         }
-      }
-      Pin::new(&mut task).poll(cx)
-    })
-    .await;
+        Pin::new(&mut task).poll(cx)
+      })
+    };
+    let result = task.await;
     join_sender.send(result);
   });
   JoinHandle {
