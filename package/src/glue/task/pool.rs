@@ -1,7 +1,7 @@
 use crate::only_web::PATH_PROVIDER;
 use crate::{BLOCKING_KEY, LogError, now};
 use js_sys::{Array, JsString, Object, Reflect, global};
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use wasm_bindgen::prelude::{Closure, JsCast, JsValue, wasm_bindgen};
@@ -22,13 +22,7 @@ struct PoolState {
   idle_workers: RefCell<Vec<ManagedWorker>>,
   queued_tasks: RefCell<VecDeque<Task>>,
   callback: Closure<dyn FnMut(Event)>,
-  script_url: RefCell<ScriptUrl>,
-}
-
-#[derive(Default)]
-struct ScriptUrl {
-  script: String,
-  url: String,
+  script_url: OnceCell<String>,
 }
 
 struct ManagedWorker {
@@ -50,7 +44,7 @@ impl Default for WorkerPool {
         callback: Closure::new(|event: Event| {
           JsValue::from_str(&format!("{event:?}")).log_error("POOL_CALLBACK");
         }),
-        script_url: RefCell::default(),
+        script_url: OnceCell::new(),
       }),
     }
   }
@@ -106,23 +100,23 @@ impl WorkerPool {
       ",
       PATH_PROVIDER.with(|provider| provider.borrow()())?
     );
-    // Reused and never revoked, as WebKit may load it after `new Worker`.
-    let mut script_url = self.pool_state.script_url.borrow_mut();
-    if script_url.script != script {
-      let blob_property_bag = BlobPropertyBag::new();
-      blob_property_bag.set_type("text/javascript");
-      let blob = Blob::new_with_blob_sequence_and_options(
-        &Array::from_iter([JsValue::from(&script)]).into(),
-        &blob_property_bag,
-      )?;
-      *script_url = ScriptUrl {
-        script,
-        url: Url::create_object_url_with_blob(&blob)?,
-      };
-    }
+    // Created once and never revoked, as WebKit may load it after `new Worker`.
+    let url = match self.pool_state.script_url.get() {
+      Some(url) => url,
+      None => {
+        let blob_property_bag = BlobPropertyBag::new();
+        blob_property_bag.set_type("text/javascript");
+        let blob = Blob::new_with_blob_sequence_and_options(
+          &Array::from_iter([JsValue::from(script)]).into(),
+          &blob_property_bag,
+        )?;
+        let url = Url::create_object_url_with_blob(&blob)?;
+        self.pool_state.script_url.get_or_init(|| url)
+      }
+    };
     let options = WorkerOptions::new();
     options.set_type(WorkerType::Module);
-    let worker = Worker::new_with_options(&script_url.url, &options)?;
+    let worker = Worker::new_with_options(url, &options)?;
 
     // With a worker spun up send it the module/memory so it can start
     // instantiating the wasm module. Later it might receive further
