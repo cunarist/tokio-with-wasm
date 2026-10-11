@@ -176,8 +176,11 @@ fn no_panic_at_maxpermits() {
 async fn worker_releases_permit_to_main_thread() {
   let sem = Arc::new(Semaphore::new(1));
   let permit = sem.clone().try_acquire_owned().unwrap();
+  let waiter = tokio::spawn(async move { sem.acquire().await.map(drop) });
+  // Wait in the queue first, so the threads never contend for its lock.
+  tokio::task::yield_now().await;
   tokio::task::spawn_blocking(move || drop(permit));
-  let _permit = sem.acquire().await.unwrap();
+  waiter.await.unwrap().unwrap();
 }
 
 #[wasm_bindgen_test]
