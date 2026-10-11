@@ -5,6 +5,7 @@ use std::time::Duration;
 use tokio::task;
 use tokio_with_wasm::alias as tokio;
 use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen_futures::JsFuture;
 use wasm_bindgen_test::wasm_bindgen_test;
 use web_sys::DedicatedWorkerGlobalScope;
 
@@ -143,24 +144,30 @@ async fn culled_workers_free_their_memory() {
 
 #[wasm_bindgen_test]
 async fn worker_script_urls_are_revoked() {
-  let all_revoked = js_sys::Function::new_no_args(
+  let revoked = js_sys::Function::new_no_args(
     "
     const { createObjectURL, revokeObjectURL } = URL;
     const urls = new Set();
+    let done;
+    const revoked = new Promise(resolve => (done = resolve));
     URL.createObjectURL = blob => {
       const url = createObjectURL(blob);
       // The test runner wraps worker scripts in blobs of its own type.
       if (blob.type === 'text/javascript') urls.add(url);
       return url;
     };
-    URL.revokeObjectURL = url => (urls.delete(url), revokeObjectURL(url));
-    return () =>
-      urls.size === 0 && !!Object.assign(URL, { createObjectURL, revokeObjectURL });
+    URL.revokeObjectURL = url => {
+      if (urls.delete(url) && urls.size === 0) done(true);
+      revokeObjectURL(url);
+    };
+    const timeout = new Promise(resolve => setTimeout(resolve, 10000, false));
+    return Promise.race([revoked, timeout]).finally(() =>
+      Object.assign(URL, { createObjectURL, revokeObjectURL }),
+    );
     ",
   )
   .call0(&JsValue::NULL)
-  .unwrap()
-  .unchecked_into::<js_sys::Function>();
+  .unwrap();
   // More tasks at once than other tests leave idle, so new workers start.
   let barrier = Arc::new(Barrier::new(64));
   let handles: Vec<_> = (0..64)
@@ -172,12 +179,6 @@ async fn worker_script_urls_are_revoked() {
   for handle in handles {
     handle.await.unwrap();
   }
-  let revoked = async {
-    while all_revoked.call0(&JsValue::NULL).unwrap() != JsValue::TRUE {
-      tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-  };
-  tokio::time::timeout(Duration::from_secs(10), revoked)
-    .await
-    .unwrap();
+  let revoked = JsFuture::from(revoked.unchecked_into::<js_sys::Promise>());
+  assert_eq!(revoked.await.unwrap(), JsValue::TRUE);
 }
