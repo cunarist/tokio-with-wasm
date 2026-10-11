@@ -195,13 +195,9 @@ where
     );
     #[cfg(target_feature = "atomics")]
     let task = {
+      use crate::queue_microtask;
       use std::future::poll_fn;
-      use wasm_bindgen::prelude::{Closure, JsCast, wasm_bindgen};
-      #[wasm_bindgen]
-      extern "C" {
-        #[wasm_bindgen(js_namespace = globalThis, js_name = queueMicrotask)]
-        fn queue_microtask(callback: &js_sys::Function);
-      }
+      use wasm_bindgen::prelude::{Closure, JsCast};
       // A task that keeps waking itself would starve other tasks, so every 128
       // polls, following tokio's coop budget, it waits once for them to run.
       // Only `+atomics` needs this: js-sys re-polls a self-woken task inline.
