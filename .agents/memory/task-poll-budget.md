@@ -11,6 +11,8 @@ task whose futures keep waking each other (two futures in one `join!` passing
 messages) never returns to the queue and starves every other task. Without
 `+atomics` every wake queues the task, so tasks already take turns.
 
+The budget is compiled only with `+atomics`.
+
 How: every 128 polls (tokio's coop budget) the wrapper returns `Pending` and
 wakes the task from `queueMicrotask`. The wake comes after the poll, so the
 executor resumes the task through `Atomics.waitAsync` and other tasks run first.

@@ -194,20 +194,23 @@ where
       },
     );
     // A task that keeps waking itself would starve other tasks, so every 128
-    // polls, following tokio's coop budget, it waits once for them to run.
+    // polls, following tokio's coop budget, it waits once for them to run. Only
+    // `+atomics` needs this: js-sys re-polls a self-woken task inline there.
     // This doesn't guarantee the browser a turn (Firefox runs no timers in
     // between), so long busy loops should call `yield_now`.
     let mut polls = 0;
     let result = poll_fn(|cx| {
-      polls += 1;
-      if polls < 128 {
-        return Pin::new(&mut task).poll(cx);
+      if cfg!(target_feature = "atomics") {
+        polls += 1;
+        if polls == 128 {
+          polls = 0;
+          let waker = cx.waker().clone();
+          let wake = Closure::once_into_js(move || waker.wake());
+          queue_microtask(wake.unchecked_ref());
+          return Poll::Pending;
+        }
       }
-      polls = 0;
-      let waker = cx.waker().clone();
-      let wake = Closure::once_into_js(move || waker.wake());
-      queue_microtask(wake.unchecked_ref());
-      Poll::Pending
+      Pin::new(&mut task).poll(cx)
     })
     .await;
     join_sender.send(result);
