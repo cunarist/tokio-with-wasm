@@ -21,13 +21,11 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::future::{Future, poll_fn};
 use std::pin::Pin;
+use std::rc::Rc;
 use std::task::{Context, Poll};
 use wasm_bindgen_futures::{JsFuture, spawn_local};
 
 thread_local! {
-    // Polls of spawned tasks since the event loop last ran a timer.
-    static POLLS: Cell<u32> = const { Cell::new(0) };
-    static RESET_POLLS: Closure<dyn Fn()> = Closure::new(|| POLLS.set(0));
     static WORKER_POOL: WorkerPool = {
         let worker_pool = WorkerPool::new();
         spawn_local(manage_pool());
@@ -197,18 +195,19 @@ where
         Err(JoinError { cancelled: true })
       },
     );
+    let polls = Rc::new(Cell::new(0));
     let result = poll_fn(|cx| {
-      let polls = POLLS.get();
-      POLLS.set(polls + 1);
-      if polls == 0 {
-        RESET_POLLS
-          .with(|reset| set_timeout(reset.as_ref().unchecked_ref(), 0.0));
+      polls.set(polls.get() + 1);
+      // Only polls with no timer run in between count against the budget.
+      if polls.get() == 64 {
+        let polls = polls.clone();
+        let reset = Closure::once_into_js(move || polls.set(0));
+        set_timeout(reset.unchecked_ref(), 0.0);
       }
-      if polls < 128 {
+      if polls.get() < 128 {
         return Pin::new(&mut task).poll(cx);
       }
-      // Like tokio's coop budget: tasks that keep waking each other would
-      // otherwise never let the browser run timers or render.
+      // Tasks that keep waking themselves would starve timers and rendering.
       let waker = cx.waker().clone();
       let wake = Closure::once_into_js(move || waker.wake());
       set_timeout(wake.unchecked_ref(), 0.0);

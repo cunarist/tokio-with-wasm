@@ -192,3 +192,31 @@ async fn ping_pong_in_one_task() {
   running.set(false);
   assert!(handle.await.unwrap() < MAX_ROUNDS, "timers were starved");
 }
+
+// Web-only: a task that keeps waking itself must not starve other tasks.
+#[wasm_bindgen_test]
+async fn busy_task_lets_others_run() {
+  let (tx1, mut rx1) = mpsc::unbounded_channel();
+  let (tx2, mut rx2) = mpsc::unbounded_channel();
+  let busy = tokio::spawn(async move {
+    let ping = async {
+      loop {
+        tx1.send(()).unwrap();
+        rx2.recv().await.unwrap();
+      }
+    };
+    let pong = async {
+      while rx1.recv().await.is_some() {
+        tx2.send(()).unwrap();
+      }
+    };
+    tokio::join!(ping, pong);
+  });
+  let (tx, rx) = oneshot::channel();
+  let waiter = tokio::spawn(rx);
+  tokio::task::yield_now().await;
+  tx.send(()).unwrap();
+  let waited = tokio::time::timeout(Duration::from_secs(5), waiter).await;
+  busy.abort();
+  waited.expect("the waiter was starved").unwrap().unwrap();
+}
