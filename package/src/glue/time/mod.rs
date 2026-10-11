@@ -129,6 +129,8 @@ impl From<Elapsed> for io::Error {
 /// Creates a new interval that ticks every `period` duration.
 pub fn interval(period: Duration) -> Interval {
   let (tx, rx) = local_channel::<()>();
+  // The first tick completes immediately, as in tokio.
+  tx.send(());
   let period_ms = period.as_millis() as f64;
   // Create a closure that sends a tick via the channel.
   let closure = Closure::wrap(Box::new(move || {
