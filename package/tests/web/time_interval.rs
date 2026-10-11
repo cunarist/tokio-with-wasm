@@ -10,6 +10,26 @@ use wasm_bindgen::prelude::{Closure, JsCast, JsValue};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 #[wasm_bindgen_test]
+async fn first_tick_is_immediate() {
+  let mut i = time::interval(Duration::from_secs(60));
+  let tick = i.tick();
+  tokio::select! {
+    _ = tick => {}
+    _ = time::sleep(Duration::from_millis(10)) => panic!("first tick was late"),
+  }
+}
+
+#[wasm_bindgen_test]
+async fn reset_delays_the_first_tick() {
+  let mut i = time::interval(Duration::from_secs(60));
+  i.reset();
+  tokio::select! {
+    _ = i.tick() => panic!("tick right after reset"),
+    _ = time::sleep(Duration::from_millis(10)) => {}
+  }
+}
+
+#[wasm_bindgen_test]
 async fn burst() {
   let mut i = time::interval(Duration::from_millis(20));
   i.tick().await;
@@ -49,6 +69,8 @@ async fn ticks_every_period() {
 async fn several_intervals() {
   let mut fast = time::interval(Duration::from_millis(20));
   let mut slow = time::interval(Duration::from_millis(200));
+  fast.tick().await;
+  slow.tick().await;
   let mut ticks = 0;
   loop {
     tokio::select! {
