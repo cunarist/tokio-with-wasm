@@ -16,7 +16,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use wasm_bindgen::prelude::{Closure, JsCast};
 
-/// A JavaScript timer, cleared when dropped so that it frees its closure.
+/// A `setTimeout`, cleared on drop.
 struct Timer {
   id: i32,
   closure: Closure<dyn FnMut()>,
