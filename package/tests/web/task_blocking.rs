@@ -5,7 +5,6 @@ use std::time::Duration;
 use tokio::task;
 use tokio_with_wasm::alias as tokio;
 use wasm_bindgen::{JsCast, JsValue};
-use wasm_bindgen_futures::JsFuture;
 use wasm_bindgen_test::wasm_bindgen_test;
 use web_sys::DedicatedWorkerGlobalScope;
 
@@ -143,42 +142,31 @@ async fn culled_workers_free_their_memory() {
 }
 
 #[wasm_bindgen_test]
-async fn worker_script_urls_are_revoked() {
-  let revoked = js_sys::Function::new_no_args(
+async fn workers_share_one_script_url() {
+  // The test runner wraps worker scripts in blobs of its own type.
+  let restore = js_sys::Function::new_no_args(
     "
-    const { createObjectURL, revokeObjectURL } = URL;
-    const urls = new Set();
-    let done;
-    const revoked = new Promise(resolve => (done = resolve));
-    URL.createObjectURL = blob => {
-      const url = createObjectURL(blob);
-      // The test runner wraps worker scripts in blobs of its own type.
-      if (blob.type === 'text/javascript') urls.add(url);
-      return url;
-    };
-    URL.revokeObjectURL = url => {
-      if (urls.delete(url) && urls.size === 0) done(true);
-      revokeObjectURL(url);
-    };
-    const timeout = new Promise(resolve => setTimeout(resolve, 10000, false));
-    return Promise.race([revoked, timeout]).finally(() =>
-      Object.assign(URL, { createObjectURL, revokeObjectURL }),
-    );
+    const { createObjectURL } = URL;
+    let created = 0;
+    URL.createObjectURL = blob =>
+      (created += blob.type === 'text/javascript', createObjectURL(blob));
+    return () => ((URL.createObjectURL = createObjectURL), created);
     ",
   )
   .call0(&JsValue::NULL)
-  .unwrap();
+  .unwrap()
+  .unchecked_into::<js_sys::Function>();
   // More tasks at once than other tests leave idle, so new workers start.
   let barrier = Arc::new(Barrier::new(64));
   let handles: Vec<_> = (0..64)
     .map(|_| {
       let barrier = barrier.clone();
-      task::spawn_blocking(move || drop(barrier.wait()))
+      task::spawn_blocking(move || barrier.wait())
     })
     .collect();
   for handle in handles {
     handle.await.unwrap();
   }
-  let revoked = JsFuture::from(revoked.unchecked_into::<js_sys::Promise>());
-  assert_eq!(revoked.await.unwrap(), JsValue::TRUE);
+  let created = restore.call0(&JsValue::NULL).unwrap().as_f64().unwrap();
+  assert!(created <= 1.0, "{created} script URLs");
 }

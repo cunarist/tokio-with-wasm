@@ -7,8 +7,8 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::{Closure, JsCast, JsValue, wasm_bindgen};
 use wasm_bindgen::{memory, module};
 use web_sys::{
-  AddEventListenerOptions, Blob, BlobPropertyBag, DedicatedWorkerGlobalScope,
-  ErrorEvent, Event, MessageEvent, Url, Worker, WorkerOptions, WorkerType,
+  Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, ErrorEvent, Event,
+  MessageEvent, Url, Worker, WorkerOptions, WorkerType,
 };
 
 pub static MAX_WORKERS: usize = 512;
@@ -22,6 +22,7 @@ struct PoolState {
   idle_workers: RefCell<Vec<ManagedWorker>>,
   queued_tasks: RefCell<VecDeque<Task>>,
   callback: Closure<dyn FnMut(Event)>,
+  script_url: RefCell<(String, String)>,
 }
 
 struct ManagedWorker {
@@ -43,6 +44,7 @@ impl Default for WorkerPool {
         callback: Closure::new(|event: Event| {
           JsValue::from_str(&format!("{event:?}")).log_error("POOL_CALLBACK");
         }),
+        script_url: RefCell::default(),
       }),
     }
   }
@@ -98,29 +100,20 @@ impl WorkerPool {
       ",
       PATH_PROVIDER.with(|provider| provider.borrow()())?
     );
-    let blob_property_bag = BlobPropertyBag::new();
-    blob_property_bag.set_type("text/javascript");
-    let blob = Blob::new_with_blob_sequence_and_options(
-      &Array::from_iter([JsValue::from(script)]).into(),
-      &blob_property_bag,
-    )?;
-    let url = Url::create_object_url_with_blob(&blob)?;
+    // Reused and never revoked, as WebKit may load it after `new Worker`.
+    let mut script_url = self.pool_state.script_url.borrow_mut();
+    if script_url.0 != script {
+      let blob_property_bag = BlobPropertyBag::new();
+      blob_property_bag.set_type("text/javascript");
+      let blob = Blob::new_with_blob_sequence_and_options(
+        &Array::from_iter([JsValue::from(&script)]).into(),
+        &blob_property_bag,
+      )?;
+      *script_url = (script, Url::create_object_url_with_blob(&blob)?);
+    }
     let options = WorkerOptions::new();
     options.set_type(WorkerType::Module);
-    let worker = Worker::new_with_options(&url, &options)?;
-    // WebKit may still be loading the script, so wait for the worker's reply.
-    let revoke = Closure::once_into_js(move || {
-      Url::revoke_object_url(&url).log_error("REVOKE_URL");
-    });
-    let once = AddEventListenerOptions::new();
-    once.set_once(true);
-    worker
-      .add_event_listener_with_callback_and_add_event_listener_options(
-        "message",
-        revoke.unchecked_ref(),
-        &once,
-      )
-      .log_error("REVOKE_URL");
+    let worker = Worker::new_with_options(&script_url.1, &options)?;
 
     // With a worker spun up send it the module/memory so it can start
     // instantiating the wasm module. Later it might receive further
