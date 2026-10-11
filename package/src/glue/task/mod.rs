@@ -195,10 +195,14 @@ where
         Err(JoinError { cancelled: true })
       },
     );
+    // Woken tasks run as microtasks, which must all finish before the browser
+    // runs macrotasks (timers, I/O, input, rendering), so a task that keeps
+    // waking itself would starve them. 128 polls follows tokio's coop budget.
     let polls = Rc::new(Cell::new(0));
     let result = poll_fn(|cx| {
       polls.set(polls.get() + 1);
-      // Only polls with no timer run in between count against the budget.
+      // A probe that resets the count once the browser gets a turn. Half the
+      // budget leaves it slack, and firing after the task ends is harmless.
       if polls.get() == 64 {
         let polls = polls.clone();
         let reset = Closure::once_into_js(move || polls.set(0));
@@ -207,7 +211,7 @@ where
       if polls.get() < 128 {
         return Pin::new(&mut task).poll(cx);
       }
-      // Tasks that keep waking themselves would starve timers and rendering.
+      // The probe hasn't run, so the browser hasn't had a turn: wait for one.
       let waker = cx.waker().clone();
       let wake = Closure::once_into_js(move || waker.wake());
       set_timeout(wake.unchecked_ref(), 0.0);
