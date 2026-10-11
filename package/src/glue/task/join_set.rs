@@ -254,7 +254,6 @@ impl<T: 'static> JoinSet<T> {
   /// }
   /// ```
   /// [`join_next`]: fn@Self::join_next
-  /// [`JoinError::id`]: fn@crate::task::JoinError::id
   pub async fn join_all(mut self) -> Vec<T> {
     let mut output = Vec::with_capacity(self.len());
 

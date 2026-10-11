@@ -443,7 +443,7 @@ impl<T> JoinHandle<T> {
 
   /// Checks if the task associated with this `JoinHandle` has finished.
   ///
-  /// Please note that this method can return `false` even if [`abort`] has been
+  /// Please note that this method can return `false` even if [`abort`](Self::abort) has been
   /// called on the task. This is because the cancellation process may take
   /// some time, and this method does not return `true` until it has
   /// completed.
@@ -506,7 +506,7 @@ impl AbortHandle {
   ///
   /// Awaiting a cancelled task might complete as usual if the task was
   /// already completed at the time it was cancelled, but most likely it
-  /// will fail with a [cancelled] `JoinError`.
+  /// will fail with a cancelled `JoinError`.
   ///
   /// If the task was already cancelled, such as by [`JoinHandle::abort`],
   /// this method will do nothing.
