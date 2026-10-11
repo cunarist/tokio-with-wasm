@@ -129,6 +129,8 @@ impl From<Elapsed> for io::Error {
 /// Creates a new interval that ticks every `period` duration.
 pub fn interval(period: Duration) -> Interval {
   let (tx, rx) = local_channel::<()>();
+  // The first tick completes immediately, as in tokio.
+  tx.send(());
   let period_ms = period.as_millis() as f64;
   // Create a closure that sends a tick via the channel.
   let closure = Closure::wrap(Box::new(move || {
@@ -138,7 +140,6 @@ pub fn interval(period: Duration) -> Interval {
   let interval_id = set_interval(closure.as_ref().unchecked_ref(), period_ms);
   Interval {
     period,
-    first: true,
     rx,
     interval_id,
     closure,
@@ -150,19 +151,14 @@ pub fn interval(period: Duration) -> Interval {
 /// and ensure the interval is cleaned up when it is dropped.
 pub struct Interval {
   period: Duration,
-  first: bool,
   rx: LocalReceiver<()>,
   interval_id: i32,
   closure: Closure<dyn Fn()>,
 }
 
 impl Interval {
-  /// Waits until the next tick. The first tick completes immediately.
+  /// Waits until the next tick.
   pub async fn tick(&mut self) {
-    if self.first {
-      self.first = false;
-      return;
-    }
     self.rx.next().await;
   }
 
@@ -172,7 +168,6 @@ impl Interval {
   pub fn reset(&mut self) {
     // Clear the existing interval.
     clear_interval(self.interval_id);
-    self.first = false;
     // Create a new channel to receive ticks.
     let (tx, rx) = local_channel::<()>();
     self.rx = rx;
