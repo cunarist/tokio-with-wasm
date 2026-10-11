@@ -26,6 +26,8 @@ extern "C" {
   pub fn set_timeout(callback: &Function, milliseconds: f64) -> i32;
   #[wasm_bindgen(js_namespace = globalThis, js_name = clearTimeout)]
   pub fn clear_timeout(id: i32);
+  #[wasm_bindgen(js_namespace = globalThis, js_name = queueMicrotask)]
+  pub fn queue_microtask(callback: &Function);
   #[wasm_bindgen(js_namespace = globalThis, js_name = setInterval)]
   pub fn set_interval(callback: &Function, milliseconds: f64) -> i32;
   #[wasm_bindgen(js_namespace = globalThis, js_name = clearInterval)]

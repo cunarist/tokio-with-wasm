@@ -162,7 +162,7 @@ async fn complete_task_under_load() {
 }
 
 // Web-only: a task whose futures keep waking each other must still let
-// timers and other tasks run.
+// other tasks run.
 #[wasm_bindgen_test]
 async fn busy_task_lets_others_run() {
   // Bounds the busy task, so that starvation fails instead of hanging.
@@ -188,11 +188,7 @@ async fn busy_task_lets_others_run() {
     }
   };
   let busy = tokio::spawn(async move { tokio::join!(ping, pong).0 });
-  let (tx, rx) = oneshot::channel();
-  let waiter = tokio::spawn(rx);
-  tokio::task::yield_now().await;
-  tx.send(()).unwrap();
-  waiter.await.unwrap().unwrap();
+  tokio::spawn(async {}).await.unwrap();
   running.set(false);
   assert!(busy.await.unwrap() < MAX_ROUNDS, "starved");
 }

@@ -12,16 +12,14 @@ use wasm_bindgen::prelude::{Closure, JsCast, JsValue};
 
 use crate::{
   LogError, OnceReceiver, OnceSender, SelectFuture, is_main_thread,
-  once_channel, set_timeout,
+  once_channel, queue_microtask, set_timeout,
 };
 use js_sys::Promise;
 use pool::WorkerPool;
-use std::cell::Cell;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::future::{Future, poll_fn};
 use std::pin::Pin;
-use std::rc::Rc;
 use std::task::{Context, Poll};
 use wasm_bindgen_futures::{JsFuture, spawn_local};
 
@@ -195,26 +193,20 @@ where
         Err(JoinError { cancelled: true })
       },
     );
-    // Woken tasks run as microtasks, which must all finish before the browser
-    // runs macrotasks (timers, I/O, input, rendering), so a task that keeps
-    // waking itself would starve them. 128 polls follows tokio's coop budget.
-    let polls = Rc::new(Cell::new(0));
+    // A task that keeps waking itself would starve other tasks, so every 128
+    // polls, following tokio's coop budget, it waits once for them to run.
+    // This doesn't guarantee the browser a turn (Firefox runs no timers in
+    // between), so long busy loops should call `yield_now`.
+    let mut polls = 0;
     let result = poll_fn(|cx| {
-      polls.set(polls.get() + 1);
-      // A probe that resets the count once the browser gets a turn. Half the
-      // budget leaves it slack, and firing after the task ends is harmless.
-      if polls.get() == 64 {
-        let polls = polls.clone();
-        let reset = Closure::once_into_js(move || polls.set(0));
-        set_timeout(reset.unchecked_ref(), 0.0);
-      }
-      if polls.get() < 128 {
+      polls += 1;
+      if polls < 128 {
         return Pin::new(&mut task).poll(cx);
       }
-      // The probe hasn't run, so the browser hasn't had a turn: wait for one.
+      polls = 0;
       let waker = cx.waker().clone();
       let wake = Closure::once_into_js(move || waker.wake());
-      set_timeout(wake.unchecked_ref(), 0.0);
+      queue_microtask(wake.unchecked_ref());
       Poll::Pending
     })
     .await;
@@ -307,6 +299,9 @@ where
 /// The async task may resume when it has its turn back.
 /// Meanwhile, any other pending tasks will be scheduled
 /// by the JavaScript runtime.
+///
+/// It also yields to the browser (timers, input, rendering),
+/// so busy loops should call it to keep the page responsive.
 pub async fn yield_now() {
   let promise = Promise::new(&mut |resolve, _reject| {
     set_timeout(&resolve, 0.0);
