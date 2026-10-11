@@ -17,14 +17,11 @@ use std::time::Duration;
 use wasm_bindgen::prelude::{Closure, JsCast};
 
 /// A `setTimeout`, cleared on drop.
-struct Timer {
-  id: i32,
-  closure: Closure<dyn FnMut()>,
-}
+struct Timer(i32);
 
 impl Drop for Timer {
   fn drop(&mut self) {
-    clear_timeout(self.id);
+    clear_timeout(self.0);
   }
 }
 
@@ -35,8 +32,8 @@ async fn time_future(duration: Duration) {
     let step = remaining.min(i32::MAX as u128);
     let (tx, mut rx) = local_channel();
     let closure = Closure::once(move || tx.send(()));
-    let mut timer = Timer { id: 0, closure };
-    timer.id = set_timeout(timer.closure.as_ref().unchecked_ref(), step as f64);
+    let timer =
+      Timer(set_timeout(closure.as_ref().unchecked_ref(), step as f64));
     rx.next().await;
     drop(timer);
     remaining -= step;
