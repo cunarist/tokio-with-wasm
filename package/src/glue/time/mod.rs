@@ -4,10 +4,9 @@
 //! of time.
 
 use crate::{
-  LocalReceiver, LogError, clear_interval, local_channel, set_interval,
+  LocalReceiver, clear_interval, clear_timeout, local_channel, set_interval,
   set_timeout,
 };
-use js_sys::Promise;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::future::Future;
@@ -16,17 +15,32 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use wasm_bindgen::prelude::{Closure, JsCast};
-use wasm_bindgen_futures::JsFuture;
+
+/// A JavaScript timer, cleared when dropped so that it frees its closure.
+struct Timer {
+  id: i32,
+  _closure: Closure<dyn FnMut()>,
+}
+
+impl Drop for Timer {
+  fn drop(&mut self) {
+    clear_timeout(self.id);
+  }
+}
 
 async fn time_future(duration: Duration) {
   let mut remaining = duration.as_millis();
   // `setTimeout` fires at once for delays above `i32::MAX`, so wait in steps.
   loop {
     let step = remaining.min(i32::MAX as u128);
-    let promise = Promise::new(&mut |resolve, _reject| {
-      set_timeout(&resolve, step as f64);
-    });
-    JsFuture::from(promise).await.log_error("TIME_FUTURE");
+    let (tx, mut rx) = local_channel();
+    let closure = Closure::once(move || tx.send(()));
+    let id = set_timeout(closure.as_ref().unchecked_ref(), step as f64);
+    let _timer = Timer {
+      id,
+      _closure: closure,
+    };
+    rx.next().await;
     remaining -= step;
     if remaining == 0 {
       break;

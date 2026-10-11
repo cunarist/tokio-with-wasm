@@ -23,7 +23,9 @@ extern "C" {
   #[wasm_bindgen(js_namespace = Date, js_name = now)]
   pub fn now() -> f64;
   #[wasm_bindgen(js_namespace = globalThis, js_name = setTimeout)]
-  pub fn set_timeout(callback: &Function, milliseconds: f64);
+  pub fn set_timeout(callback: &Function, milliseconds: f64) -> i32;
+  #[wasm_bindgen(js_namespace = globalThis, js_name = clearTimeout)]
+  pub fn clear_timeout(id: i32);
   #[wasm_bindgen(js_namespace = globalThis, js_name = setInterval)]
   pub fn set_interval(callback: &Function, milliseconds: f64) -> i32;
   #[wasm_bindgen(js_namespace = globalThis, js_name = clearInterval)]

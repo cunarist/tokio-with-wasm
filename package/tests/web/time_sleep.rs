@@ -1,9 +1,13 @@
 use crate::support::assert_elapsed;
 use std::cell::RefCell;
+use std::future::Future;
+use std::pin::pin;
 use std::rc::Rc;
+use std::task::{Context, Waker};
 use std::time::Duration;
 use tokio::time;
 use tokio_with_wasm::alias as tokio;
+use wasm_bindgen::JsCast;
 use wasm_bindgen_test::wasm_bindgen_test;
 
 #[wasm_bindgen_test]
@@ -77,4 +81,26 @@ async fn long_sleep_does_not_fire_early() {
       time::timeout(Duration::from_millis(50), time::sleep(duration));
     assert!(result.await.is_err());
   }
+}
+
+#[wasm_bindgen_test]
+fn dropped_sleeps_free_their_memory() {
+  let memory_size = || {
+    let memory =
+      wasm_bindgen::memory().unchecked_into::<js_sys::WebAssembly::Memory>();
+    memory
+      .buffer()
+      .unchecked_into::<js_sys::SharedArrayBuffer>()
+      .byte_length()
+  };
+  let mut sizes = Vec::new();
+  for _ in 0..2 {
+    for _ in 0..100_000 {
+      let mut sleep = pin!(time::sleep(Duration::from_secs(3600)));
+      let mut cx = Context::from_waker(Waker::noop());
+      assert!(sleep.as_mut().poll(&mut cx).is_pending());
+    }
+    sizes.push(memory_size());
+  }
+  assert!(sizes[1] - sizes[0] < 1 << 20, "{sizes:?}");
 }
