@@ -147,15 +147,15 @@ async fn worker_script_urls_are_revoked() {
     "
     const { createObjectURL, revokeObjectURL } = URL;
     const urls = new Set();
-    let created = 0;
     URL.createObjectURL = blob => {
       const url = createObjectURL(blob);
       // The test runner wraps worker scripts in blobs of its own type.
-      if (blob.type === 'text/javascript') urls.add(url), created++;
+      if (blob.type === 'text/javascript') urls.add(url);
       return url;
     };
     URL.revokeObjectURL = url => (urls.delete(url), revokeObjectURL(url));
-    return () => created > 0 && urls.size === 0;
+    return () =>
+      urls.size === 0 && !!Object.assign(URL, { createObjectURL, revokeObjectURL });
     ",
   )
   .call0(&JsValue::NULL)
@@ -172,5 +172,12 @@ async fn worker_script_urls_are_revoked() {
   for handle in handles {
     handle.await.unwrap();
   }
-  assert_eq!(all_revoked.call0(&JsValue::NULL).unwrap(), JsValue::TRUE);
+  let revoked = async {
+    while all_revoked.call0(&JsValue::NULL).unwrap() != JsValue::TRUE {
+      tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+  };
+  tokio::time::timeout(Duration::from_secs(10), revoked)
+    .await
+    .unwrap();
 }

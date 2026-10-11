@@ -7,8 +7,8 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::{Closure, JsCast, JsValue, wasm_bindgen};
 use wasm_bindgen::{memory, module};
 use web_sys::{
-  Blob, BlobPropertyBag, DedicatedWorkerGlobalScope, ErrorEvent, Event,
-  MessageEvent, Url, Worker, WorkerOptions, WorkerType,
+  AddEventListenerOptions, Blob, BlobPropertyBag, DedicatedWorkerGlobalScope,
+  ErrorEvent, Event, MessageEvent, Url, Worker, WorkerOptions, WorkerType,
 };
 
 pub static MAX_WORKERS: usize = 512;
@@ -108,8 +108,19 @@ impl WorkerPool {
     let options = WorkerOptions::new();
     options.set_type(WorkerType::Module);
     let worker = Worker::new_with_options(&url, &options)?;
-    // The worker resolved the URL on construction, so the blob can be freed.
-    Url::revoke_object_url(&url)?;
+    // WebKit may still be loading the script, so wait for the worker's reply.
+    let revoke = Closure::once_into_js(move || {
+      Url::revoke_object_url(&url).log_error("REVOKE_URL");
+    });
+    let once = AddEventListenerOptions::new();
+    once.set_once(true);
+    worker
+      .add_event_listener_with_callback_and_add_event_listener_options(
+        "message",
+        revoke.unchecked_ref(),
+        &once,
+      )
+      .log_error("REVOKE_URL");
 
     // With a worker spun up send it the module/memory so it can start
     // instantiating the wasm module. Later it might receive further
