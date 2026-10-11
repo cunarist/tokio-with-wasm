@@ -1,12 +1,12 @@
 use crate::support::{assert_elapsed, assert_ready, spawn};
-use js_sys::{Function, Reflect};
+use js_sys::{Function, Reflect, SharedArrayBuffer, WebAssembly};
 use std::cell::Cell;
 use std::rc::Rc;
 use std::thread;
 use std::time::Duration;
 use tokio::{task, time};
 use tokio_with_wasm::alias as tokio;
-use wasm_bindgen::prelude::{Closure, JsValue};
+use wasm_bindgen::prelude::{Closure, JsCast, JsValue};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 #[wasm_bindgen_test]
@@ -91,4 +91,22 @@ fn drop_clears_the_interval() {
   drop(time::interval(Duration::from_millis(10)));
   Reflect::set(&global, &key, &original).unwrap();
   assert_eq!(cleared.get(), 1);
+}
+
+#[wasm_bindgen_test]
+fn dropped_intervals_free_their_memory() {
+  let memory_size = || {
+    let memory = wasm_bindgen::memory().unchecked_into::<WebAssembly::Memory>();
+    memory
+      .buffer()
+      .unchecked_into::<SharedArrayBuffer>()
+      .byte_length()
+  };
+  let before = memory_size();
+  for _ in 0..100_000 {
+    time::interval(Duration::from_millis(10)).reset();
+  }
+  // Each leaked closure would keep its channel alive.
+  let grown = memory_size() - before;
+  assert!(grown < 1 << 20, "grew by {grown} bytes");
 }
