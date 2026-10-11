@@ -16,6 +16,7 @@ thread_local! {
 /// JavaScript glue code that bootstraps the wasm module in each worker.
 /// By default the path provider uses a stack trace to determine the path
 /// to the current script.
+/// Call it before the first `spawn_blocking`, as later changes are ignored.
 ///
 /// # Example
 /// ```rust,no_run
