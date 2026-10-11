@@ -127,12 +127,11 @@ pub fn interval(period: Duration) -> Interval {
   }) as Box<dyn Fn()>);
   // Register an interval with the closure.
   let interval_id = set_interval(closure.as_ref().unchecked_ref(), period_ms);
-  // Release memory management of this closure from Rust to the JS GC.
-  closure.forget();
   Interval {
     period,
     rx,
     interval_id,
+    closure,
   }
 }
 
@@ -143,6 +142,7 @@ pub struct Interval {
   period: Duration,
   rx: LocalReceiver<()>,
   interval_id: i32,
+  closure: Closure<dyn Fn()>,
 }
 
 impl Interval {
@@ -167,8 +167,7 @@ impl Interval {
     }) as Box<dyn Fn()>);
     self.interval_id =
       set_interval(closure.as_ref().unchecked_ref(), period_ms);
-    // Release memory management of this closure from Rust to the JS GC.
-    closure.forget();
+    self.closure = closure;
   }
 }
 
