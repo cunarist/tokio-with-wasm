@@ -123,8 +123,8 @@ wasm-pack build <path> --target web -- -Z build-std=std,panic_abort
 
 After building your WebAssembly module and preparing it for deployment, ensure that your web server is configured to include cross-origin-related HTTP headers in its responses. These headers let clients of your website access the `SharedArrayBuffer` web API, which is the web's counterpart to shared memory.
 
-- [`Cross-Origin-Opener-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy): `same-origin`
-- [`Cross-Origin-Embedder-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy): `require-corp`
+- [`cross-origin-opener-policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy): `same-origin`
+- [`cross-origin-embedder-policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy): `require-corp`
 
 Additionally, don't forget to specify the MIME type `application/wasm` for `.wasm` files in your HTTP server configuration to ensure optimal performance. Otherwise `WebAssembly.instantiateStreaming()` is rejected, so the module is compiled only after the full download.
 
