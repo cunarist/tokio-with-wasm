@@ -22,7 +22,7 @@ This library assumes that you're compiling your Rust project with `wasm-pack` an
 
 - **Spawn async and blocking tasks**: You can spawn both asynchronous and blocking tasks. Asynchronous tasks allow you to perform non-blocking operations, while blocking tasks are suitable for compute-heavy or synchronous tasks.
 
-> Various IO functionalities aren't included yet, and `net`, `process`, and `signal` have no counterpart on the web. On the web, using a missing module is a compile error, not a runtime failure.
+> Various IO functionalities aren't included yet, and `net`, `process`, and `signal` have no counterpart on the web. Using a missing module there is a compile error, not a runtime failure.
 
 ## Usage
 
