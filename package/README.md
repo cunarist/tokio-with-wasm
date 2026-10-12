@@ -18,11 +18,11 @@ This library assumes that you're compiling your Rust project with `wasm-pack` an
 
 - **Familiar API**: If you're familiar with `tokio`, you'll feel right at home with `tokio_with_wasm`. It provides similar functionality and follows the same patterns for spawning and managing asynchronous tasks.
 
-- **Web Worker Integration**: `tokio_with_wasm` adapts to the JavaScript environment by utilizing web API under the hood. This means you can write Rust code that runs concurrently and efficiently in web applications.
+- **Web worker integration**: `tokio_with_wasm` adapts to the JavaScript environment by utilizing web API under the hood. This means you can write Rust code that runs concurrently and efficiently in web applications.
 
-- **Spawn Async and Blocking Tasks**: You can spawn both asynchronous and blocking tasks. Asynchronous tasks allow you to perform non-blocking operations, while blocking tasks are suitable for compute-heavy or synchronous tasks.
+- **Spawn async and blocking tasks**: You can spawn both asynchronous and blocking tasks. Asynchronous tasks allow you to perform non-blocking operations, while blocking tasks are suitable for compute-heavy or synchronous tasks.
 
-> Various IO functionalities aren't included yet, and `net`, `process`, and `signal` have no counterpart on the web. Using a missing module is a compile error, not a runtime failure.
+> Various IO functionalities aren't included yet, and `net`, `process`, and `signal` have no counterpart on the web. On the web, using a missing module is a compile error, not a runtime failure.
 
 ## Usage
 
@@ -126,7 +126,7 @@ After building your WebAssembly module and preparing it for deployment, ensure t
 - [`Cross-Origin-Opener-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy): `same-origin`
 - [`Cross-Origin-Embedder-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy): `require-corp`
 
-Additionally, don't forget to specify the MIME type `application/wasm` for `.wasm` files in your HTTP server configuration to ensure optimal performance. `WebAssembly.instantiateStreaming()` rejects any other MIME type, so the module falls back to being compiled after the whole download finishes rather than while it arrives.
+Additionally, don't forget to specify the MIME type `application/wasm` for `.wasm` files in your HTTP server configuration to ensure optimal performance. `WebAssembly.instantiateStreaming()` rejects other MIME types, so the module is compiled only after the full download.
 
 ## Why this is needed
 
@@ -155,4 +155,4 @@ Rust code can be called in a **web worker**. Therefore, we cannot access the glo
 
 - https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Functions_and_classes_available_to_workers
 
-Please note that this library uses quite a hacky and naive approach to mimic native `tokio` functionalities. That's because this library is meant as a temporary solution for the period before `wasm32-wasi`. Any kind of PR is welcome, as long as it makes things just work on the web.
+Please note that this library uses quite a hacky and naive approach to mimic native `tokio` functionalities. That's because this library is regarded as a temporary solution for the period before `wasm32-wasi`. Any kind of PR is welcome, as long as it makes things just work on the web.
