@@ -16,6 +16,16 @@ jobs:
       - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - run: wasm-pack test --headless --${{ matrix.browser }} package --lib --test '*'
 
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Users build on stable, without the repo's nightly and `build-std` setup.
+      - run: rm rust-toolchain.toml .cargo/config.toml
+      - run: rustup toolchain install 1.85 --profile minimal --target wasm32-unknown-unknown
+      - run: cargo +1.85 check -p tokio_with_wasm --features full --target wasm32-unknown-unknown
+      - run: cargo +1.85 check -p tokio_with_wasm --features full
+
   lint:
     runs-on: ubuntu-latest
     steps:

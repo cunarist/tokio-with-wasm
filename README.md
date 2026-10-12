@@ -12,7 +12,7 @@ This library is made up of JavaScript glue code that mimics the behavior of real
 
 When using `spawn_blocking()`, the number of web workers is automatically adjusted to the number of parallel tasks. Refer to the docs for additional details.
 
-This library assumes that you're compiling your Rust project with `wasm-pack` and `wasm-bindgen` 0.2.95 or newer, for the `wasm32-unknown-unknown` Rust target. Note that this library only supports the `web` target of `wasm-bindgen`, not [others](https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
+This library assumes that you're compiling your Rust project with `wasm-pack` and `wasm-bindgen` 0.2.95 or newer, for the `wasm32-unknown-unknown` Rust target. It needs Rust 1.85 or newer, or nightly when using `spawn_blocking()`. Note that this library only supports the `web` target of `wasm-bindgen`, not [others](https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html) such as `no-modules`.
 
 ## Features
 
