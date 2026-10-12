@@ -1,6 +1,7 @@
 mod entry;
 mod measure;
 mod output;
+mod render;
 
 use entry::*;
 use measure::*;
