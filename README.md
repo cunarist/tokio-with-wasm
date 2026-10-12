@@ -22,7 +22,7 @@ This library assumes that you're compiling your Rust project with `wasm-pack` an
 
 - **Spawn async and blocking tasks**: You can spawn both asynchronous and blocking tasks. Asynchronous tasks allow you to perform non-blocking operations, while blocking tasks are suitable for compute-heavy or synchronous tasks.
 
-> Various IO functionalities aren't included yet, and `net`, `process`, and `signal` aren't available on the web. Using a module that isn't provided is a compile error, not a runtime failure.
+> Various IO functionalities aren't included yet, and `net`, `process`, and `signal` aren't available on the web. Using one of them is a compile error, not a runtime failure.
 
 ## Usage
 
@@ -126,7 +126,7 @@ After building your WebAssembly module and preparing it for deployment, ensure t
 - [`Cross-Origin-Opener-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy): `same-origin`
 - [`Cross-Origin-Embedder-Policy`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy): `require-corp`
 
-Additionally, don't forget to specify the MIME type `application/wasm` for `.wasm` files in your HTTP server configuration to ensure optimal performance. Otherwise `WebAssembly.instantiateStreaming()` can't be used, and the module is compiled only after the full download.
+Additionally, don't forget to specify the MIME type `application/wasm` for `.wasm` files in your HTTP server configuration to ensure optimal performance. Otherwise `WebAssembly.instantiateStreaming()` is rejected, so the module is compiled only after the full download.
 
 ## Why this is needed
 
